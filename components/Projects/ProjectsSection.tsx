@@ -4,6 +4,7 @@ import { useMemo, useCallback } from "react";
 import { useSnapshot } from "valtio";
 import { ProjectCard } from "./ProjectCard";
 import { SessionCard } from "@/components/SessionCard";
+import { type ForkOptions } from "@/components/ForkSessionDialog";
 import { DevServerCard } from "@/components/DevServers/DevServerCard";
 import { selectionStore, selectionActions } from "@/stores/sessionSelection";
 import type { Session, Group, DevServer } from "@/lib/db";
@@ -22,6 +23,7 @@ interface ProjectsSectionProps {
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatus>;
   summarizingSessionId?: string | null;
+  isForkingSession?: boolean;
   devServers?: DevServer[];
   onToggleProject?: (projectId: string, expanded: boolean) => void;
   onEditProject?: (projectId: string) => void;
@@ -32,7 +34,10 @@ interface ProjectsSectionProps {
   onSelectSession: (sessionId: string) => void;
   onOpenSessionInTab?: (sessionId: string) => void;
   onMoveSession?: (sessionId: string, projectId: string) => void;
-  onForkSession?: (sessionId: string) => void;
+  onForkSession?: (
+    sessionId: string,
+    options: ForkOptions | null
+  ) => Promise<void>;
   onSummarize?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string, sessionName?: string) => void;
   onRenameSession?: (sessionId: string, newName: string) => void;
@@ -53,6 +58,7 @@ export function ProjectsSection({
   activeSessionId,
   sessionStatuses,
   summarizingSessionId,
+  isForkingSession,
   devServers = [],
   onToggleProject,
   onEditProject,
@@ -242,6 +248,7 @@ export function ProjectsSection({
                               isSummarizing={
                                 summarizingSessionId === session.id
                               }
+                              isForking={isForkingSession}
                               tmuxStatus={sessionStatuses?.[session.id]?.status}
                               groups={groups}
                               projects={projects}
@@ -264,7 +271,8 @@ export function ProjectsSection({
                               }
                               onFork={
                                 onForkSession
-                                  ? () => onForkSession(session.id)
+                                  ? async (options) =>
+                                      onForkSession(session.id, options)
                                   : undefined
                               }
                               onSummarize={
@@ -274,7 +282,8 @@ export function ProjectsSection({
                               }
                               onDelete={
                                 onDeleteSession
-                                  ? () => onDeleteSession(session.id, session.name)
+                                  ? () =>
+                                      onDeleteSession(session.id, session.name)
                                   : undefined
                               }
                               onRename={
@@ -330,7 +339,8 @@ export function ProjectsSection({
                                 }
                                 onDelete={
                                   onDeleteSession
-                                    ? () => onDeleteSession(worker.id, worker.name)
+                                    ? () =>
+                                        onDeleteSession(worker.id, worker.name)
                                     : undefined
                                 }
                                 onRename={

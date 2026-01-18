@@ -7,6 +7,7 @@ import {
   useSummarizeSession,
   useMoveSessionToGroup,
   useMoveSessionToProject,
+  type ForkSessionInput,
 } from "@/data/sessions";
 
 export function useSessions() {
@@ -32,8 +33,8 @@ export function useSessions() {
   );
 
   const forkSession = useCallback(
-    async (sessionId: string): Promise<Session | null> => {
-      return await forkMutation.mutateAsync(sessionId);
+    async (input: ForkSessionInput): Promise<Session | null> => {
+      return await forkMutation.mutateAsync(input);
     },
     [forkMutation]
   );
