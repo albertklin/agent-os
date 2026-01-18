@@ -37,40 +37,10 @@ export async function getCurrentBranch(dirPath: string): Promise<string> {
 }
 
 /**
- * Get the default branch (main or master)
+ * Get the default branch for worktrees (uses current branch)
  */
 export async function getDefaultBranch(dirPath: string): Promise<string> {
-  const resolvedPath = dirPath.replace(/^~/, process.env.HOME || "");
-  try {
-    // Try to get the default branch from remote
-    const { stdout } = await execAsync(
-      `git -C "${resolvedPath}" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'`,
-      { timeout: 5000 }
-    );
-    if (stdout.trim()) {
-      return stdout.trim();
-    }
-  } catch {
-    // Ignore
-  }
-
-  // Fallback: check if main or master exists
-  try {
-    await execAsync(`git -C "${resolvedPath}" rev-parse --verify main`, {
-      timeout: 5000,
-    });
-    return "main";
-  } catch {
-    try {
-      await execAsync(`git -C "${resolvedPath}" rev-parse --verify master`, {
-        timeout: 5000,
-      });
-      return "master";
-    } catch {
-      // Return current branch as fallback
-      return getCurrentBranch(resolvedPath);
-    }
-  }
+  return getCurrentBranch(dirPath);
 }
 
 /**
