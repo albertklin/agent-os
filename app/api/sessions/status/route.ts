@@ -46,22 +46,19 @@ async function getTmuxSessionCwd(sessionName: string): Promise<string | null> {
   }
 }
 
-// Get Claude session ID from tmux environment variable
-async function getClaudeSessionIdFromEnv(
+// Get Claude session ID by parsing tmux pane content for the init message
+async function getClaudeSessionIdFromPane(
   sessionName: string
 ): Promise<string | null> {
   try {
+    // Capture first 50 lines where init message appears
     const { stdout } = await execAsync(
-      `tmux show-environment -t "${sessionName}" CLAUDE_SESSION_ID 2>/dev/null || echo ""`
+      `tmux capture-pane -t "${sessionName}" -p -S 0 -E 50 2>/dev/null || echo ""`
     );
-    const line = stdout.trim();
-    if (line.startsWith("CLAUDE_SESSION_ID=")) {
-      const sessionId = line.replace("CLAUDE_SESSION_ID=", "");
-      if (sessionId && sessionId !== "null") {
-        return sessionId;
-      }
-    }
-    return null;
+
+    // Look for system init message with session_id
+    const match = stdout.match(/"type":"system"[^}]*"session_id":"([^"]+)"/);
+    return match ? match[1] : null;
   } catch {
     return null;
   }
@@ -122,11 +119,13 @@ function getClaudeSessionIdFromFiles(projectPath: string): string | null {
 }
 
 async function getClaudeSessionId(sessionName: string): Promise<string | null> {
-  const envId = await getClaudeSessionIdFromEnv(sessionName);
-  if (envId) {
-    return envId;
+  // Try parsing the pane content first (most reliable)
+  const paneId = await getClaudeSessionIdFromPane(sessionName);
+  if (paneId) {
+    return paneId;
   }
 
+  // Fall back to checking session files on disk
   const cwd = await getTmuxSessionCwd(sessionName);
   if (cwd) {
     return getClaudeSessionIdFromFiles(cwd);
@@ -170,14 +169,34 @@ export async function GET() {
     const db = getDb();
     const sessionsToUpdate: string[] = [];
 
+    // Get existing claude_session_ids from DB to avoid redundant pane parsing
+    const sessionIds = managedSessions.map((s) => getSessionIdFromName(s));
+    const existingClaudeIds = new Map<string, string>();
+    if (sessionIds.length > 0) {
+      const placeholders = sessionIds.map(() => "?").join(",");
+      const rows = db
+        .prepare(
+          `SELECT id, claude_session_id FROM sessions WHERE id IN (${placeholders}) AND claude_session_id IS NOT NULL`
+        )
+        .all(...sessionIds) as { id: string; claude_session_id: string }[];
+      for (const row of rows) {
+        existingClaudeIds.set(row.id, row.claude_session_id);
+      }
+    }
+
     // Process all sessions in parallel for speed
     const sessionPromises = managedSessions.map(async (sessionName) => {
+      const id = getSessionIdFromName(sessionName);
+      const existingClaudeId = existingClaudeIds.get(id);
+
+      // Skip pane parsing if we already have the claude_session_id
       const [status, claudeSessionId, lastLine] = await Promise.all([
         statusDetector.getStatus(sessionName),
-        getClaudeSessionId(sessionName),
+        existingClaudeId
+          ? Promise.resolve(existingClaudeId)
+          : getClaudeSessionId(sessionName),
         getLastLine(sessionName),
       ]);
-      const id = getSessionIdFromName(sessionName);
       const agentType = getAgentTypeFromSessionName(sessionName);
 
       return { sessionName, id, status, claudeSessionId, lastLine, agentType };
