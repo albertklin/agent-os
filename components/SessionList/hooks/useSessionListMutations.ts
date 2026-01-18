@@ -61,7 +61,35 @@ export function useSessionListMutations({
   const handleDeleteSession = useCallback(
     async (sessionId: string, sessionName?: string) => {
       const displayName = sessionName || "this session";
-      if (!confirm(`Delete "${displayName}"? This cannot be undone.`)) return;
+
+      // Check worktree status to determine appropriate warning
+      let warningMessage = `Delete "${displayName}"? This cannot be undone.`;
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`/api/sessions/${sessionId}/worktree-status`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const status = await res.json();
+          if (status.hasUncommittedChanges) {
+            warningMessage =
+              `WARNING: "${displayName}" has uncommitted changes that will be lost!\n\n` +
+              `Delete this session? This cannot be undone.`;
+          }
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.name === "AbortError"
+            ? "Timed out checking for uncommitted changes"
+            : "Failed to check for uncommitted changes";
+        toast.error(message);
+        return;
+      }
+
+      if (!confirm(warningMessage)) return;
       await deleteSessionMutation.mutateAsync(sessionId);
     },
     [deleteSessionMutation]
