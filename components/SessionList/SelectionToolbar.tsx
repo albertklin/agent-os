@@ -21,17 +21,27 @@ import {
 
 interface SelectionToolbarProps {
   allSessionIds: string[];
+  sessionNames: Map<string, string>;
   onDeleteSessions: (sessionIds: string[]) => Promise<void>;
 }
 
 export function SelectionToolbar({
   allSessionIds,
+  sessionNames,
   onDeleteSessions,
 }: SelectionToolbarProps) {
   const { selectedIds } = useSnapshot(selectionStore);
   const selectedCount = selectedIds.size;
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Get names of selected sessions for display (keep id for unique keys)
+  const selectedSessionsForDisplay = Array.from(selectedIds)
+    .map((id) => ({ id, name: sessionNames.get(id) || id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const maxNamesToShow = 5;
+  const displayedSessions = selectedSessionsForDisplay.slice(0, maxNamesToShow);
+  const remainingCount = selectedSessionsForDisplay.length - maxNamesToShow;
 
   const handleSelectAll = useCallback(() => {
     selectionActions.selectAll(allSessionIds);
@@ -136,9 +146,25 @@ export function SelectionToolbar({
             <DialogTitle>
               Delete {selectedCount} session{selectedCount > 1 ? "s" : ""}?
             </DialogTitle>
-            <DialogDescription>
-              This will permanently delete the selected sessions and their tmux
-              sessions. This action cannot be undone.
+            <DialogDescription asChild>
+              <div className="space-y-2">
+                <ul className="text-muted-foreground list-inside list-disc text-sm">
+                  {displayedSessions.map(({ id, name }) => (
+                    <li key={id} className="truncate">
+                      {name}
+                    </li>
+                  ))}
+                  {remainingCount > 0 && (
+                    <li className="text-muted-foreground/70">
+                      and {remainingCount} more...
+                    </li>
+                  )}
+                </ul>
+                <p>
+                  This will permanently delete the selected sessions and their
+                  tmux sessions. This action cannot be undone.
+                </p>
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

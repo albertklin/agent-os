@@ -34,7 +34,7 @@ interface ProjectsSectionProps {
   onMoveSession?: (sessionId: string, projectId: string) => void;
   onForkSession?: (sessionId: string) => void;
   onSummarize?: (sessionId: string) => void;
-  onDeleteSession?: (sessionId: string) => void;
+  onDeleteSession?: (sessionId: string, sessionName?: string) => void;
   onRenameSession?: (sessionId: string, newName: string) => void;
   onCreatePR?: (sessionId: string) => void;
   onStartDevServer?: (projectId: string) => void;
@@ -274,7 +274,7 @@ export function ProjectsSection({
                               }
                               onDelete={
                                 onDeleteSession
-                                  ? () => onDeleteSession(session.id)
+                                  ? () => onDeleteSession(session.id, session.name)
                                   : undefined
                               }
                               onRename={
@@ -330,7 +330,7 @@ export function ProjectsSection({
                                 }
                                 onDelete={
                                   onDeleteSession
-                                    ? () => onDeleteSession(worker.id)
+                                    ? () => onDeleteSession(worker.id, worker.name)
                                     : undefined
                                 }
                                 onRename={

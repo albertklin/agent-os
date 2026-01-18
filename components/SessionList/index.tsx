@@ -86,6 +86,12 @@ export function SessionList({
   // Flatten all session IDs for bulk operations
   const allSessionIds = useMemo(() => sessions.map((s) => s.id), [sessions]);
 
+  // Create a map of session ID to name for delete confirmations
+  const sessionNames = useMemo(
+    () => new Map(sessions.map((s) => [s.id, s.name])),
+    [sessions]
+  );
+
   // Separate workers from regular sessions
   const workersByConduct = useMemo(
     () =>
@@ -166,6 +172,7 @@ export function SessionList({
       {/* Selection Toolbar */}
       <SelectionToolbar
         allSessionIds={allSessionIds}
+        sessionNames={sessionNames}
         onDeleteSessions={mutations.handleBulkDelete}
       />
 
