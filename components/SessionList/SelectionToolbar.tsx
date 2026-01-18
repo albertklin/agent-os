@@ -35,19 +35,25 @@ export function SelectionToolbar({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [uncommittedCount, setUncommittedCount] = useState(0);
+  const [branchesToDelete, setBranchesToDelete] = useState<string[]>([]);
+  const [branchesToRetain, setBranchesToRetain] = useState<string[]>([]);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
-  // Check for uncommitted changes when dialog opens
+  // Check for uncommitted changes and branch status when dialog opens
   useEffect(() => {
     if (!showDeleteDialog) {
       setUncommittedCount(0);
+      setBranchesToDelete([]);
+      setBranchesToRetain([]);
       return;
     }
 
-    const checkUncommittedChanges = async () => {
+    const checkWorktreeStatus = async () => {
       setIsCheckingStatus(true);
       const ids = selectionActions.getSelectedIds();
-      let count = 0;
+      let uncommitted = 0;
+      const toDelete: string[] = [];
+      const toRetain: string[] = [];
 
       await Promise.all(
         ids.map(async (sessionId) => {
@@ -61,7 +67,14 @@ export function SelectionToolbar({
             if (res.ok) {
               const status = await res.json();
               if (status.hasUncommittedChanges) {
-                count++;
+                uncommitted++;
+              }
+              if (status.hasWorktree && status.branchName) {
+                if (status.branchWillBeDeleted) {
+                  toDelete.push(status.branchName);
+                } else {
+                  toRetain.push(status.branchName);
+                }
               }
             }
           } catch {
@@ -70,11 +83,13 @@ export function SelectionToolbar({
         })
       );
 
-      setUncommittedCount(count);
+      setUncommittedCount(uncommitted);
+      setBranchesToDelete(toDelete);
+      setBranchesToRetain(toRetain);
       setIsCheckingStatus(false);
     };
 
-    checkUncommittedChanges();
+    checkWorktreeStatus();
   }, [showDeleteDialog]);
 
   // Get names of selected sessions for display (keep id for unique keys)
@@ -209,6 +224,28 @@ export function SelectionToolbar({
               </div>
             </DialogDescription>
           </DialogHeader>
+
+          {/* Branch status info */}
+          {!isCheckingStatus && (branchesToDelete.length > 0 || branchesToRetain.length > 0) && (
+            <div className="text-muted-foreground space-y-1 text-sm">
+              {branchesToDelete.length > 0 && (
+                <p>
+                  <span className="text-foreground font-medium">
+                    {branchesToDelete.length} branch{branchesToDelete.length > 1 ? "es" : ""}
+                  </span>{" "}
+                  will be deleted (no commits)
+                </p>
+              )}
+              {branchesToRetain.length > 0 && (
+                <p>
+                  <span className="text-foreground font-medium">
+                    {branchesToRetain.length} branch{branchesToRetain.length > 1 ? "es" : ""}
+                  </span>{" "}
+                  will be retained (has commits)
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Warning for uncommitted changes */}
           {!isCheckingStatus && uncommittedCount > 0 && (

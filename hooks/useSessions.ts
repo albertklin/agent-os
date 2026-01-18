@@ -29,7 +29,7 @@ export function useSessions() {
   const deleteSession = useCallback(
     async (sessionId: string) => {
       // Check worktree status to determine appropriate warning
-      let warningMessage = "Delete this session? This cannot be undone.";
+      const messageParts: string[] = [];
 
       try {
         const controller = new AbortController();
@@ -40,15 +40,27 @@ export function useSessions() {
         clearTimeout(timeoutId);
         if (res.ok) {
           const status = await res.json();
+
+          // Add branch info
+          if (status.hasWorktree && status.branchName) {
+            if (status.branchWillBeDeleted) {
+              messageParts.push(`Branch "${status.branchName}" will be deleted (no commits).`);
+            } else {
+              messageParts.push(`Branch "${status.branchName}" will be retained (has commits).`);
+            }
+          }
+
+          // Add uncommitted changes warning
           if (status.hasUncommittedChanges) {
-            warningMessage =
-              "WARNING: This session has uncommitted changes that will be lost!\n\n" +
-              "Delete this session? This cannot be undone.";
+            messageParts.push("WARNING: This session has uncommitted changes that will be lost!");
           }
         }
       } catch {
         // If status check fails or times out, proceed with default warning
       }
+
+      messageParts.push("Delete this session? This cannot be undone.");
+      const warningMessage = messageParts.join("\n\n");
 
       if (!confirm(warningMessage)) return;
       await deleteMutation.mutateAsync(sessionId);
