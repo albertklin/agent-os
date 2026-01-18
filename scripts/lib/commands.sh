@@ -176,6 +176,15 @@ cmd_stop() {
         sleep 1
     fi
 
+    # Clean up any orphaned processes still holding the port
+    local port_pids
+    port_pids=$(lsof -ti:"$PORT" 2>/dev/null || true)
+    if [[ -n "$port_pids" ]]; then
+        log_warn "Cleaning up orphaned processes on port $PORT..."
+        echo "$port_pids" | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+
     rm -f "$PID_FILE"
     log_success "AgentOS stopped"
 }
