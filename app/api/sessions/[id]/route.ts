@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { getDb, queries, type Session } from "@/lib/db";
-import { deleteWorktree, isAgentOSWorktree, branchHasChanges } from "@/lib/worktrees";
+import {
+  deleteWorktree,
+  isAgentOSWorktree,
+  branchHasChanges,
+} from "@/lib/worktrees";
 import { releasePort } from "@/lib/ports";
 import { killWorker } from "@/lib/orchestration";
 import { generateBranchName, getCurrentBranch, renameBranch } from "@/lib/git";
@@ -170,6 +174,17 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // Release port if this session had one assigned
     if (existing.dev_server_port) {
       releasePort(id);
+    }
+
+    // Kill the tmux session if it exists
+    if (existing.tmux_name) {
+      try {
+        await execAsync(
+          `tmux kill-session -t "${existing.tmux_name}" 2>/dev/null || true`
+        );
+      } catch {
+        // Ignore errors - session might already be dead
+      }
     }
 
     // Check if branch has changes before deleting (for user feedback)

@@ -16,7 +16,6 @@ import {
   updateTerminalTheme,
 } from "./terminal-init";
 import { setupTouchScroll } from "./touch-scroll";
-import { setupWheelScroll } from "./wheel-scroll";
 import { createWebSocketConnection } from "./websocket-connection";
 import { setupResizeHandlers } from "./resize-handlers";
 
@@ -136,7 +135,6 @@ export function useTerminalConnection({
     // Reset intentional close flag (may be true from previous cleanup)
     intentionalCloseRef.current = false;
     let cleanupTouchScroll: (() => void) | null = null;
-    let cleanupWheelScroll: (() => void) | null = null;
     let cleanupResizeHandlers: (() => void) | null = null;
     let cleanupWebSocket: (() => void) | null = null;
 
@@ -161,12 +159,6 @@ export function useTerminalConnection({
 
       // Setup touch scroll (mobile)
       cleanupTouchScroll = setupTouchScroll({ term, selectModeRef, wsRef });
-
-      // Setup wheel scroll (desktop) - intercept wheel events to scroll terminal
-      // buffer instead of letting xterm send them as escape sequences to shell
-      if (!isMobile) {
-        cleanupWheelScroll = setupWheelScroll({ term, selectModeRef });
-      }
 
       // Setup WebSocket
       const wsManager = createWebSocketConnection(
@@ -229,7 +221,6 @@ export function useTerminalConnection({
       // Cleanup in reverse order
       cleanupResizeHandlers?.();
       cleanupWebSocket?.();
-      cleanupWheelScroll?.();
       cleanupTouchScroll?.();
 
       // Reset refs
