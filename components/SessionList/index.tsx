@@ -13,6 +13,7 @@ import { SelectionToolbar } from "./SelectionToolbar";
 import { SessionListHeader } from "./SessionListHeader";
 import { GroupSection } from "./GroupSection";
 import { KillAllConfirm } from "./KillAllConfirm";
+import { DeleteSessionDialog } from "./DeleteSessionDialog";
 import { useSessionListMutations } from "./hooks/useSessionListMutations";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -359,6 +360,17 @@ export function SessionList({
         open={editingProject !== null}
         onClose={() => setEditingProject(null)}
         onSave={() => setEditingProject(null)}
+      />
+
+      {/* Delete Session Dialog */}
+      <DeleteSessionDialog
+        open={mutations.deleteDialogState.open}
+        onOpenChange={(open) => {
+          if (!open) mutations.closeDeleteDialog();
+        }}
+        sessionId={mutations.deleteDialogState.sessionId}
+        sessionName={mutations.deleteDialogState.sessionName}
+        onConfirm={mutations.confirmDeleteSession}
       />
     </div>
   );

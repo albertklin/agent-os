@@ -24,6 +24,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         hasUncommittedChanges: false,
         branchWillBeDeleted: false,
         branchName: null,
+        siblingSessionNames: [],
       });
     }
 
@@ -35,11 +36,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       branchHasChanges(session.worktree_path, baseBranch),
     ]);
 
+    // Check for sibling sessions sharing this worktree
+    const siblings = queries
+      .getSiblingSessionsByWorktree(db)
+      .all(session.worktree_path, id) as Session[];
+    const siblingSessionNames = siblings.map((s) => s.name);
+
     return NextResponse.json({
       hasWorktree: true,
       hasUncommittedChanges: uncommitted,
       branchWillBeDeleted: !hasCommits,
       branchName: session.branch_name || null,
+      siblingSessionNames,
     });
   } catch (error) {
     console.error("Error checking worktree status:", error);

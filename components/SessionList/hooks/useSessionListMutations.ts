@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -23,6 +23,12 @@ import { sessionKeys } from "@/data/sessions/keys";
 
 interface UseSessionListMutationsOptions {
   onSelectSession: (sessionId: string) => void;
+}
+
+export interface DeleteDialogState {
+  open: boolean;
+  sessionId: string;
+  sessionName: string;
 }
 
 export function useSessionListMutations({
@@ -52,66 +58,43 @@ export function useSessionListMutations({
   const restartDevServerMutation = useRestartDevServer();
   const removeDevServerMutation = useRemoveDevServer();
 
+  // Delete dialog state
+  const [deleteDialogState, setDeleteDialogState] = useState<DeleteDialogState>(
+    {
+      open: false,
+      sessionId: "",
+      sessionName: "",
+    }
+  );
+
   // Derived state
   const summarizingSessionId = summarizeSessionMutation.isPending
     ? (summarizeSessionMutation.variables as string)
     : null;
 
-  // Session handlers
+  // Session handlers - opens the dialog instead of using confirm()
   const handleDeleteSession = useCallback(
-    async (sessionId: string, sessionName?: string) => {
-      const displayName = sessionName || "this session";
-
-      // Check worktree status to determine appropriate warning
-      const messageParts: string[] = [];
-
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(`/api/sessions/${sessionId}/worktree-status`, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        if (res.ok) {
-          const status = await res.json();
-
-          // Add branch info
-          if (status.hasWorktree && status.branchName) {
-            if (status.branchWillBeDeleted) {
-              messageParts.push(
-                `Branch "${status.branchName}" will be deleted (no commits).`
-              );
-            } else {
-              messageParts.push(
-                `Branch "${status.branchName}" will be retained (has commits).`
-              );
-            }
-          }
-
-          // Add uncommitted changes warning
-          if (status.hasUncommittedChanges) {
-            messageParts.push(
-              `WARNING: "${displayName}" has uncommitted changes that will be lost!`
-            );
-          }
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error && error.name === "AbortError"
-            ? "Timed out checking for uncommitted changes"
-            : "Failed to check for uncommitted changes";
-        toast.error(message);
-        return;
-      }
-
-      messageParts.push(`Delete "${displayName}"? This cannot be undone.`);
-      const warningMessage = messageParts.join("\n\n");
-
-      if (!confirm(warningMessage)) return;
-      await deleteSessionMutation.mutateAsync(sessionId);
+    (sessionId: string, sessionName?: string) => {
+      setDeleteDialogState({
+        open: true,
+        sessionId,
+        sessionName: sessionName || "this session",
+      });
     },
-    [deleteSessionMutation]
+    []
   );
+
+  // Called when dialog is confirmed
+  const confirmDeleteSession = useCallback(async () => {
+    const { sessionId } = deleteDialogState;
+    setDeleteDialogState((s) => ({ ...s, open: false }));
+    await deleteSessionMutation.mutateAsync(sessionId);
+  }, [deleteDialogState, deleteSessionMutation]);
+
+  // Called when dialog is dismissed
+  const closeDeleteDialog = useCallback(() => {
+    setDeleteDialogState((s) => ({ ...s, open: false }));
+  }, []);
 
   const handleRenameSession = useCallback(
     async (sessionId: string, newName: string) => {
@@ -286,6 +269,11 @@ export function useSessionListMutations({
   return {
     // Derived state
     summarizingSessionId,
+
+    // Delete dialog state and handlers
+    deleteDialogState,
+    confirmDeleteSession,
+    closeDeleteDialog,
 
     // Session handlers
     handleDeleteSession,

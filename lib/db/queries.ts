@@ -98,6 +98,13 @@ export const queries = {
       `SELECT * FROM sessions WHERE conductor_session_id = ? ORDER BY created_at ASC`
     ),
 
+  // Get sessions sharing the same worktree (excluding the given session)
+  getSiblingSessionsByWorktree: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT * FROM sessions WHERE worktree_path = ? AND id != ? ORDER BY updated_at DESC`
+    ),
+
   updateWorkerStatus: (db: Database.Database) =>
     getStmt(
       db,

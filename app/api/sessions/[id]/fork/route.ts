@@ -53,6 +53,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         parent.project_id || "uncategorized"
       );
 
+    // If parent has a worktree, copy the worktree fields to make the fork a tracked sibling.
+    // This ensures the worktree won't be deleted while the fork is still using it.
+    if (parent.worktree_path) {
+      queries
+        .updateSessionWorktree(db)
+        .run(
+          parent.worktree_path,
+          parent.branch_name,
+          parent.base_branch,
+          null, // No dedicated dev server port for forks
+          newId
+        );
+    }
+
     // NOTE: We do NOT copy claude_session_id here.
     // When the forked session is first attached, it will use --fork-session flag
     // with the parent's claude_session_id to create a new branched conversation.

@@ -191,23 +191,37 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     let branchDeleted = false;
     let branchName: string | undefined;
     let shouldDeleteBranch = false;
+    let shouldDeleteWorktree = true;
 
     if (existing.worktree_path && isAgentOSWorktree(existing.worktree_path)) {
       const worktreePath = existing.worktree_path;
       const baseBranch = existing.base_branch || "main";
       branchName = existing.branch_name || undefined;
 
-      // Check synchronously so we can report the outcome to the user
-      const hasChanges = await branchHasChanges(worktreePath, baseBranch);
-      shouldDeleteBranch = !hasChanges;
-      branchDeleted = shouldDeleteBranch;
+      // Check if other sessions share this worktree
+      const siblings = queries
+        .getSiblingSessionsByWorktree(db)
+        .all(worktreePath, id) as Session[];
+      if (siblings.length > 0) {
+        // Other sessions use this worktree - don't delete it
+        shouldDeleteWorktree = false;
+      } else {
+        // Check synchronously so we can report the outcome to the user
+        const hasChanges = await branchHasChanges(worktreePath, baseBranch);
+        shouldDeleteBranch = !hasChanges;
+        branchDeleted = shouldDeleteBranch;
+      }
     }
 
     // Delete from database immediately for instant UI feedback
     queries.deleteSession(db).run(id);
 
-    // Clean up worktree in background (non-blocking)
-    if (existing.worktree_path && isAgentOSWorktree(existing.worktree_path)) {
+    // Clean up worktree in background (non-blocking) - only if no siblings
+    if (
+      shouldDeleteWorktree &&
+      existing.worktree_path &&
+      isAgentOSWorktree(existing.worktree_path)
+    ) {
       const worktreePath = existing.worktree_path; // Capture for closure
       const deleteBranch = shouldDeleteBranch; // Capture the pre-computed value
       runInBackground(async () => {
