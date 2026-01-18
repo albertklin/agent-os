@@ -122,6 +122,16 @@ export async function createWorktree(
     throw new Error(`Failed to create worktree: ${lastError.message}`);
   }
 
+  // Initialize submodules in the new worktree
+  try {
+    await execAsync(
+      `git -C "${worktreePath}" submodule update --init --recursive`,
+      { timeout: 120000 }
+    );
+  } catch {
+    // Ignore submodule errors - repo might not have submodules
+  }
+
   return {
     worktreePath,
     branchName,
