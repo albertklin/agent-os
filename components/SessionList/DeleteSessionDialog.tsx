@@ -110,24 +110,28 @@ export function DeleteSessionDialog({
         <p className="text-sm text-destructive">{error}</p>
       ) : (
         <div className="space-y-4">
-          {/* Branch info */}
+          {/* Worktree and branch info */}
           {status?.hasWorktree && status.branchName && (
-            <div className="text-sm">
+            <div className="space-y-1 text-sm">
               {hasSiblings ? (
-                <p className="text-muted-foreground">
-                  Worktree will be kept (shared with:{" "}
-                  {status.siblingSessionNames.join(", ")})
-                </p>
-              ) : status.branchWillBeDeleted ? (
-                <p className="text-muted-foreground">
-                  Branch <code className="rounded bg-muted px-1">{status.branchName}</code> will
-                  be deleted (no commits)
-                </p>
+                <>
+                  <p className="text-muted-foreground">
+                    Worktree and branch will be kept (shared with:{" "}
+                    {status.siblingSessionNames.join(", ")})
+                  </p>
+                </>
               ) : (
-                <p className="text-muted-foreground">
-                  Branch <code className="rounded bg-muted px-1">{status.branchName}</code> will
-                  be retained (has commits)
-                </p>
+                <>
+                  <p className="text-muted-foreground">
+                    Worktree will be deleted
+                  </p>
+                  <p className="text-muted-foreground">
+                    Branch <code className="rounded bg-muted px-1">{status.branchName}</code>{" "}
+                    {status.branchWillBeDeleted
+                      ? "will be deleted (no commits)"
+                      : "will be retained (has commits)"}
+                  </p>
+                </>
               )}
             </div>
           )}
