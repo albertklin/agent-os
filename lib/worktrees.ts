@@ -199,6 +199,57 @@ export async function deleteWorktree(
 }
 
 /**
+ * Check if a branch has commits ahead of its base branch
+ * Returns true if the branch has changes, false if it's empty
+ * On error, returns true (safe default - don't delete the branch)
+ */
+export async function branchHasChanges(
+  worktreePath: string,
+  baseBranch: string
+): Promise<boolean> {
+  const resolvedWorktreePath = resolvePath(worktreePath);
+
+  try {
+    // Count commits ahead of the base branch
+    // Try origin/baseBranch first, fall back to just baseBranch
+    const { stdout } = await execAsync(
+      `git -C "${resolvedWorktreePath}" rev-list --count origin/${baseBranch}..HEAD 2>/dev/null || git -C "${resolvedWorktreePath}" rev-list --count ${baseBranch}..HEAD`,
+      { timeout: 5000 }
+    );
+
+    const count = parseInt(stdout.trim(), 10);
+    return count > 0;
+  } catch {
+    // On error, assume there are changes (safe default)
+    return true;
+  }
+}
+
+/**
+ * Check if a worktree has uncommitted changes (staged or unstaged)
+ * Returns true if there are uncommitted changes, false if clean
+ * On error, returns true (safe default - warn the user)
+ */
+export async function hasUncommittedChanges(
+  worktreePath: string
+): Promise<boolean> {
+  const resolvedWorktreePath = resolvePath(worktreePath);
+
+  try {
+    // git status --porcelain returns nothing if clean, or lines for each changed file
+    const { stdout } = await execAsync(
+      `git -C "${resolvedWorktreePath}" status --porcelain`,
+      { timeout: 5000 }
+    );
+
+    return stdout.trim().length > 0;
+  } catch {
+    // On error, assume there are changes (safe default)
+    return true;
+  }
+}
+
+/**
  * List all worktrees for a project
  */
 export async function listWorktrees(projectPath: string): Promise<

@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useState } from "react";
 import { useSnapshot } from "valtio";
 import { Button } from "@/components/ui/button";
-import { Trash2, X } from "lucide-react";
+import { Trash2, X, AlertTriangle } from "lucide-react";
 import { selectionStore, selectionActions } from "@/stores/sessionSelection";
 import {
   Dialog,
@@ -32,6 +32,48 @@ export function SelectionToolbar({
   const selectedCount = selectedIds.size;
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [uncommittedCount, setUncommittedCount] = useState(0);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+
+  // Check for uncommitted changes when dialog opens
+  useEffect(() => {
+    if (!showDeleteDialog) {
+      setUncommittedCount(0);
+      return;
+    }
+
+    const checkUncommittedChanges = async () => {
+      setIsCheckingStatus(true);
+      const ids = selectionActions.getSelectedIds();
+      let count = 0;
+
+      await Promise.all(
+        ids.map(async (sessionId) => {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            const res = await fetch(`/api/sessions/${sessionId}/worktree-status`, {
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            if (res.ok) {
+              const status = await res.json();
+              if (status.hasUncommittedChanges) {
+                count++;
+              }
+            }
+          } catch {
+            // Ignore errors and timeouts
+          }
+        })
+      );
+
+      setUncommittedCount(count);
+      setIsCheckingStatus(false);
+    };
+
+    checkUncommittedChanges();
+  }, [showDeleteDialog]);
 
   const handleSelectAll = useCallback(() => {
     selectionActions.selectAll(allSessionIds);
@@ -141,6 +183,19 @@ export function SelectionToolbar({
               sessions. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
+
+          {/* Warning for uncommitted changes */}
+          {!isCheckingStatus && uncommittedCount > 0 && (
+            <div className="bg-destructive/10 border-destructive/20 flex items-start gap-2 rounded-md border p-3">
+              <AlertTriangle className="text-destructive mt-0.5 h-4 w-4 shrink-0" />
+              <p className="text-destructive text-sm">
+                <strong>Warning:</strong> {uncommittedCount} session
+                {uncommittedCount > 1 ? "s have" : " has"} uncommitted changes
+                that will be lost!
+              </p>
+            </div>
+          )}
+
           <DialogFooter>
             <Button
               variant="ghost"
@@ -152,9 +207,13 @@ export function SelectionToolbar({
             <Button
               variant="destructive"
               onClick={handleDelete}
-              disabled={isDeleting}
+              disabled={isDeleting || isCheckingStatus}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting
+                ? "Deleting..."
+                : isCheckingStatus
+                  ? "Checking..."
+                  : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import type { Session, Group } from "@/lib/db";
 import type { AgentType } from "@/lib/providers";
 import { sessionKeys } from "./keys";
@@ -23,19 +24,34 @@ export function useSessionsQuery() {
   });
 }
 
+interface DeleteSessionResponse {
+  success: boolean;
+  branchDeleted?: boolean;
+  branchName?: string;
+}
+
 export function useDeleteSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (sessionId: string) => {
+    mutationFn: async (sessionId: string): Promise<DeleteSessionResponse> => {
       const res = await fetch(`/api/sessions/${sessionId}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete session");
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+
+      // Show toast with branch outcome if this was a worktree session
+      if (data.branchName) {
+        if (data.branchDeleted) {
+          toast.success(`Session deleted, branch "${data.branchName}" cleaned up (no changes)`);
+        } else {
+          toast.info(`Session deleted, branch "${data.branchName}" preserved (has commits)`);
+        }
+      }
     },
   });
 }

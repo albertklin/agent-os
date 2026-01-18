@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { getDb, queries, type Session } from "@/lib/db";
-import { deleteWorktree, isAgentOSWorktree } from "@/lib/worktrees";
+import { deleteWorktree, isAgentOSWorktree, branchHasChanges } from "@/lib/worktrees";
 import { releasePort } from "@/lib/ports";
 import { killWorker } from "@/lib/orchestration";
 import { generateBranchName, getCurrentBranch, renameBranch } from "@/lib/git";
@@ -172,12 +172,29 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       releasePort(id);
     }
 
+    // Check if branch has changes before deleting (for user feedback)
+    let branchDeleted = false;
+    let branchName: string | undefined;
+    let shouldDeleteBranch = false;
+
+    if (existing.worktree_path && isAgentOSWorktree(existing.worktree_path)) {
+      const worktreePath = existing.worktree_path;
+      const baseBranch = existing.base_branch || "main";
+      branchName = existing.branch_name || undefined;
+
+      // Check synchronously so we can report the outcome to the user
+      const hasChanges = await branchHasChanges(worktreePath, baseBranch);
+      shouldDeleteBranch = !hasChanges;
+      branchDeleted = shouldDeleteBranch;
+    }
+
     // Delete from database immediately for instant UI feedback
     queries.deleteSession(db).run(id);
 
     // Clean up worktree in background (non-blocking)
     if (existing.worktree_path && isAgentOSWorktree(existing.worktree_path)) {
       const worktreePath = existing.worktree_path; // Capture for closure
+      const deleteBranch = shouldDeleteBranch; // Capture the pre-computed value
       runInBackground(async () => {
         const { exec } = await import("child_process");
         const { promisify } = await import("util");
@@ -190,7 +207,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         const gitCommonDir = stdout.trim().replace(/\/.git$/, "");
 
         if (gitCommonDir) {
-          await deleteWorktree(worktreePath, gitCommonDir, false);
+          await deleteWorktree(worktreePath, gitCommonDir, deleteBranch);
         }
       }, `cleanup-worktree-${id}`);
     }
@@ -201,10 +218,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         if (worker.worktree_path && isAgentOSWorktree(worker.worktree_path)) {
           const worktreePath = worker.worktree_path; // Capture for closure
           const workerId = worker.id; // Capture ID for task name
+          const baseBranch = worker.base_branch || "main"; // Capture for closure
           runInBackground(async () => {
             const { exec } = await import("child_process");
             const { promisify } = await import("util");
             const execAsync = promisify(exec);
+
+            // Check if branch has any commits ahead of base before deleting
+            const hasChanges = await branchHasChanges(worktreePath, baseBranch);
+            const deleteBranch = !hasChanges;
 
             const { stdout } = await execAsync(
               `git -C "${worktreePath}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo ""`,
@@ -213,14 +235,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
             const gitCommonDir = stdout.trim().replace(/\/.git$/, "");
 
             if (gitCommonDir) {
-              await deleteWorktree(worktreePath, gitCommonDir, false);
+              await deleteWorktree(worktreePath, gitCommonDir, deleteBranch);
             }
           }, `cleanup-worker-worktree-${workerId}`);
         }
       }
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, branchDeleted, branchName });
   } catch (error) {
     console.error("Error deleting session:", error);
     return NextResponse.json(
