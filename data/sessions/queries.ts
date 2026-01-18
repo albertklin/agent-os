@@ -47,9 +47,13 @@ export function useDeleteSession() {
       // Show toast with branch outcome if this was a worktree session
       if (data.branchName) {
         if (data.branchDeleted) {
-          toast.success(`Session deleted, branch "${data.branchName}" cleaned up (no changes)`);
+          toast.success(
+            `Session deleted, branch "${data.branchName}" cleaned up (no changes)`
+          );
         } else {
-          toast.info(`Session deleted, branch "${data.branchName}" preserved (has commits)`);
+          toast.info(
+            `Session deleted, branch "${data.branchName}" preserved (has commits)`
+          );
         }
       }
     },
@@ -103,15 +107,28 @@ export function useRenameSession() {
   });
 }
 
+export interface ForkSessionInput {
+  sessionId: string;
+  useWorktree?: boolean;
+  featureName?: string;
+  baseBranch?: string;
+}
+
 export function useForkSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (sessionId: string): Promise<Session | null> => {
+    mutationFn: async (input: ForkSessionInput): Promise<Session | null> => {
+      const { sessionId, ...options } = input;
       const res = await fetch(`/api/sessions/${sessionId}/fork`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options),
       });
       const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
       return data.session || null;
     },
     onSuccess: () => {

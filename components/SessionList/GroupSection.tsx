@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { SessionCard } from "@/components/SessionCard";
+import { type ForkOptions } from "@/components/ForkSessionDialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -31,12 +32,16 @@ interface GroupSectionProps {
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatus>;
   summarizingSessionId: string | null;
+  isForkingSession?: boolean;
   workersByConduct: Record<string, Session[]>;
   onToggleGroup: (path: string, expanded: boolean) => void;
   onCreateGroup: (name: string, parentPath?: string) => void;
   onDeleteGroup: (path: string) => void;
   onSelectSession: (sessionId: string) => void;
-  onForkSession: (sessionId: string) => void;
+  onForkSession: (
+    sessionId: string,
+    options: ForkOptions | null
+  ) => Promise<void>;
   onSummarize: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, sessionName?: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
@@ -49,6 +54,7 @@ export function GroupSection({
   activeSessionId,
   sessionStatuses,
   summarizingSessionId,
+  isForkingSession,
   workersByConduct,
   onToggleGroup,
   onCreateGroup,
@@ -215,12 +221,17 @@ export function GroupSection({
                         session={session}
                         isActive={session.id === activeSessionId}
                         isSummarizing={summarizingSessionId === session.id}
+                        isForking={isForkingSession}
                         tmuxStatus={sessionStatuses?.[session.id]?.status}
                         groups={groups}
                         onClick={() => onSelectSession(session.id)}
-                        onFork={() => onForkSession(session.id)}
+                        onFork={async (options) =>
+                          onForkSession(session.id, options)
+                        }
                         onSummarize={() => onSummarize(session.id)}
-                        onDelete={() => onDeleteSession(session.id, session.name)}
+                        onDelete={() =>
+                          onDeleteSession(session.id, session.name)
+                        }
                         onRename={(newName) =>
                           onRenameSession(session.id, newName)
                         }
@@ -247,7 +258,9 @@ export function GroupSection({
                           tmuxStatus={sessionStatuses?.[worker.id]?.status}
                           groups={groups}
                           onClick={() => onSelectSession(worker.id)}
-                          onDelete={() => onDeleteSession(worker.id, worker.name)}
+                          onDelete={() =>
+                            onDeleteSession(worker.id, worker.name)
+                          }
                           onRename={(newName) =>
                             onRenameSession(worker.id, newName)
                           }

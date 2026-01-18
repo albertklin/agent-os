@@ -28,6 +28,7 @@ import { useProjectsQuery, useCreateProject } from "@/data/projects";
 import { useDevServersQuery } from "@/data/dev-servers";
 
 import type { SessionListProps } from "./SessionList.types";
+import type { ForkOptions } from "@/components/ForkSessionDialog";
 
 export type { SessionListProps } from "./SessionList.types";
 
@@ -66,6 +67,23 @@ export function SessionList({
 
   // All mutations via custom hook
   const mutations = useSessionListMutations({ onSelectSession: onSelect });
+
+  // Wrapper to transform fork handler signature for child components
+  const handleForkSession = useCallback(
+    async (sessionId: string, options: ForkOptions | null) => {
+      if (options) {
+        await mutations.handleForkSession({
+          sessionId,
+          useWorktree: options.useWorktree,
+          featureName: options.featureName,
+          baseBranch: options.baseBranch,
+        });
+      } else {
+        await mutations.handleForkSession({ sessionId });
+      }
+    },
+    [mutations]
+  );
 
   // Project creation mutation for folder picker
   const createProject = useCreateProject();
@@ -239,6 +257,7 @@ export function SessionList({
               activeSessionId={activeSessionId}
               sessionStatuses={sessionStatuses}
               summarizingSessionId={mutations.summarizingSessionId}
+              isForkingSession={mutations.isForkingSession}
               devServers={devServers}
               onToggleProject={mutations.handleToggleProject}
               onEditProject={(projectId) => {
@@ -252,7 +271,7 @@ export function SessionList({
               onSelectSession={onSelect}
               onOpenSessionInTab={onOpenInTab}
               onMoveSession={mutations.handleMoveSessionToProject}
-              onForkSession={mutations.handleForkSession}
+              onForkSession={handleForkSession}
               onSummarize={mutations.handleSummarize}
               onDeleteSession={mutations.handleDeleteSession}
               onRenameSession={mutations.handleRenameSession}
@@ -279,12 +298,13 @@ export function SessionList({
                 activeSessionId={activeSessionId}
                 sessionStatuses={sessionStatuses}
                 summarizingSessionId={mutations.summarizingSessionId}
+                isForkingSession={mutations.isForkingSession}
                 workersByConduct={workersByConduct}
                 onToggleGroup={mutations.handleToggleGroup}
                 onCreateGroup={mutations.handleCreateGroup}
                 onDeleteGroup={mutations.handleDeleteGroup}
                 onSelectSession={onSelect}
-                onForkSession={mutations.handleForkSession}
+                onForkSession={handleForkSession}
                 onSummarize={mutations.handleSummarize}
                 onDeleteSession={mutations.handleDeleteSession}
                 onRenameSession={mutations.handleRenameSession}

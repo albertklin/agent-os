@@ -41,6 +41,7 @@ import {
   ContextMenuTrigger,
 } from "./ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { ForkSessionDialog, type ForkOptions } from "./ForkSessionDialog";
 import type { Session, Group } from "@/lib/db";
 import type { ProjectWithDevServers } from "@/lib/projects";
 
@@ -50,6 +51,7 @@ interface SessionCardProps {
   session: Session;
   isActive?: boolean;
   isSummarizing?: boolean;
+  isForking?: boolean;
   tmuxStatus?: TmuxStatus;
   groups?: Group[];
   projects?: ProjectWithDevServers[];
@@ -62,7 +64,7 @@ interface SessionCardProps {
   onOpenInTab?: () => void;
   onMove?: (groupPath: string) => void;
   onMoveToProject?: (projectId: string) => void;
-  onFork?: () => void;
+  onFork?: (options: ForkOptions | null) => Promise<void>;
   onSummarize?: () => void;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
@@ -106,6 +108,7 @@ export function SessionCard({
   session,
   isActive,
   isSummarizing,
+  isForking,
   tmuxStatus,
   groups = [],
   projects = [],
@@ -130,6 +133,7 @@ export function SessionCard({
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(session.name);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [forkDialogOpen, setForkDialogOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -270,7 +274,7 @@ export function SessionCard({
           </MenuItem>
         )}
         {onFork && session.agent_type === "claude" && (
-          <MenuItem onClick={() => onFork()}>
+          <MenuItem onClick={() => setForkDialogOpen(true)}>
             <Copy className="mr-2 h-3 w-3" />
             Fork session
           </MenuItem>
@@ -480,17 +484,37 @@ export function SessionCard({
     </div>
   );
 
+  const forkDialog = onFork && (
+    <ForkSessionDialog
+      sessionId={session.id}
+      sessionName={session.name}
+      defaultBaseBranch={session.base_branch || "main"}
+      open={forkDialogOpen}
+      onOpenChange={setForkDialogOpen}
+      onFork={onFork}
+      isPending={isForking}
+    />
+  );
+
   // Wrap with context menu if actions are available
   if (hasActions) {
     return (
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{cardContent}</ContextMenuTrigger>
-        <ContextMenuContent>{renderMenuItems(true)}</ContextMenuContent>
-      </ContextMenu>
+      <>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>{cardContent}</ContextMenuTrigger>
+          <ContextMenuContent>{renderMenuItems(true)}</ContextMenuContent>
+        </ContextMenu>
+        {forkDialog}
+      </>
     );
   }
 
-  return cardContent;
+  return (
+    <>
+      {cardContent}
+      {forkDialog}
+    </>
+  );
 }
 
 function getTimeAgo(dateStr: string): string {

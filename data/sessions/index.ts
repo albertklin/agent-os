@@ -9,4 +9,4 @@ export {
   useMoveSessionToGroup,
   useMoveSessionToProject,
 } from "./queries";
-export type { CreateSessionInput } from "./queries";
+export type { CreateSessionInput, ForkSessionInput } from "./queries";
