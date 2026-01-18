@@ -61,7 +61,53 @@ export function useSessionListMutations({
   const handleDeleteSession = useCallback(
     async (sessionId: string, sessionName?: string) => {
       const displayName = sessionName || "this session";
-      if (!confirm(`Delete "${displayName}"? This cannot be undone.`)) return;
+
+      // Check worktree status to determine appropriate warning
+      const messageParts: string[] = [];
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`/api/sessions/${sessionId}/worktree-status`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const status = await res.json();
+
+          // Add branch info
+          if (status.hasWorktree && status.branchName) {
+            if (status.branchWillBeDeleted) {
+              messageParts.push(
+                `Branch "${status.branchName}" will be deleted (no commits).`
+              );
+            } else {
+              messageParts.push(
+                `Branch "${status.branchName}" will be retained (has commits).`
+              );
+            }
+          }
+
+          // Add uncommitted changes warning
+          if (status.hasUncommittedChanges) {
+            messageParts.push(
+              `WARNING: "${displayName}" has uncommitted changes that will be lost!`
+            );
+          }
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.name === "AbortError"
+            ? "Timed out checking for uncommitted changes"
+            : "Failed to check for uncommitted changes";
+        toast.error(message);
+        return;
+      }
+
+      messageParts.push(`Delete "${displayName}"? This cannot be undone.`);
+      const warningMessage = messageParts.join("\n\n");
+
+      if (!confirm(warningMessage)) return;
       await deleteSessionMutation.mutateAsync(sessionId);
     },
     [deleteSessionMutation]
