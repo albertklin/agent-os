@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, queries, type Session } from "@/lib/db";
-import { isAgentOSWorktree, hasUncommittedChanges } from "@/lib/worktrees";
+import { isAgentOSWorktree, hasUncommittedChanges, branchHasChanges } from "@/lib/worktrees";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -22,15 +22,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({
         hasWorktree: false,
         hasUncommittedChanges: false,
+        branchWillBeDeleted: false,
+        branchName: null,
       });
     }
 
-    // Check for uncommitted changes
-    const uncommitted = await hasUncommittedChanges(session.worktree_path);
+    const baseBranch = session.base_branch || "main";
+
+    // Check for uncommitted changes and branch status in parallel
+    const [uncommitted, hasCommits] = await Promise.all([
+      hasUncommittedChanges(session.worktree_path),
+      branchHasChanges(session.worktree_path, baseBranch),
+    ]);
 
     return NextResponse.json({
       hasWorktree: true,
       hasUncommittedChanges: uncommitted,
+      branchWillBeDeleted: !hasCommits,
+      branchName: session.branch_name || null,
     });
   } catch (error) {
     console.error("Error checking worktree status:", error);
