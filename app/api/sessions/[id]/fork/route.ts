@@ -1,9 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { getDb, queries, type Session, type Message } from "@/lib/db";
+import {
+  getDb,
+  queries,
+  type Session,
+  type Message,
+  type Project,
+} from "@/lib/db";
+import { createWorktree } from "@/lib/worktrees";
+import { setupWorktree } from "@/lib/env-setup";
+import { findAvailablePort } from "@/lib/ports";
+import { runInBackground } from "@/lib/async-operations";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
+}
+
+interface ForkRequest {
+  name?: string;
+  useWorktree?: boolean;
+  featureName?: string;
+  baseBranch?: string;
 }
 
 // POST /api/sessions/[id]/fork - Fork a session
@@ -12,13 +29,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { id: parentId } = await params;
 
     // Parse body if present, otherwise use empty object
-    let body: { name?: string } = {};
+    let body: ForkRequest = {};
     try {
       body = await request.json();
     } catch {
       // No body provided, use defaults
     }
-    const { name } = body;
+    const { name, useWorktree, featureName, baseBranch } = body;
+
+    // Validate worktree options
+    if (useWorktree && !featureName) {
+      return NextResponse.json(
+        { error: "featureName is required when useWorktree is true" },
+        { status: 400 }
+      );
+    }
 
     const db = getDb();
 
@@ -31,9 +56,51 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Determine source project path for worktree creation
+    let sourceProjectPath = parent.working_directory;
+    if (useWorktree && parent.project_id) {
+      const project = queries.getProject(db).get(parent.project_id) as
+        | Project
+        | undefined;
+      if (project && project.working_directory) {
+        sourceProjectPath = project.working_directory;
+      }
+    }
+
+    // Handle worktree creation if requested
+    let worktreePath: string | null = null;
+    let branchName: string | null = null;
+    let actualBaseBranch = baseBranch || parent.base_branch || "main";
+    let actualWorkingDirectory = parent.working_directory;
+    let port: number | null = null;
+
+    if (useWorktree && featureName) {
+      try {
+        const worktreeInfo = await createWorktree({
+          projectPath: sourceProjectPath,
+          featureName,
+          baseBranch: actualBaseBranch,
+        });
+        worktreePath = worktreeInfo.worktreePath;
+        branchName = worktreeInfo.branchName;
+        actualBaseBranch = worktreeInfo.baseBranch;
+        actualWorkingDirectory = worktreeInfo.worktreePath;
+
+        // Find an available port for the dev server
+        port = await findAvailablePort();
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        return NextResponse.json(
+          { error: `Failed to create worktree: ${message}` },
+          { status: 500 }
+        );
+      }
+    }
+
     // Create new session
     const newId = randomUUID();
-    const newName = name || `${parent.name} (fork)`;
+    const newName = name || featureName || `${parent.name} (fork)`;
     const agentType = parent.agent_type || "claude";
     const tmuxName = `${agentType}-${newId}`;
 
@@ -43,7 +110,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         newId,
         newName,
         tmuxName,
-        parent.working_directory,
+        actualWorkingDirectory,
         parentId,
         parent.model,
         parent.system_prompt,
@@ -53,9 +120,33 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         parent.project_id || "uncategorized"
       );
 
-    // If parent has a worktree, copy the worktree fields to make the fork a tracked sibling.
-    // This ensures the worktree won't be deleted while the fork is still using it.
-    if (parent.worktree_path) {
+    // Set worktree info - either from newly created worktree or inherited from parent
+    if (worktreePath) {
+      // New isolated worktree was created
+      queries
+        .updateSessionWorktree(db)
+        .run(worktreePath, branchName, actualBaseBranch, port, newId);
+
+      // Run environment setup in background (non-blocking)
+      const capturedWorktreePath = worktreePath;
+      const capturedSourcePath = sourceProjectPath;
+      const capturedPort = port;
+      runInBackground(async () => {
+        const result = await setupWorktree({
+          worktreePath: capturedWorktreePath,
+          sourcePath: capturedSourcePath,
+          port: capturedPort ?? undefined,
+        });
+        console.log("Forked worktree setup completed:", {
+          port: capturedPort,
+          envFilesCopied: result.envFilesCopied,
+          stepsRun: result.steps.length,
+          success: result.success,
+        });
+      }, `setup-worktree-fork-${newId}`);
+    } else if (parent.worktree_path) {
+      // No new worktree requested, but parent has one - make fork a tracked sibling.
+      // This ensures the worktree won't be deleted while the fork is still using it.
       queries
         .updateSessionWorktree(db)
         .run(
@@ -88,6 +179,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       {
         session,
         messagesCopied: parentMessages.length,
+        worktreeCreated: !!worktreePath,
       },
       { status: 201 }
     );

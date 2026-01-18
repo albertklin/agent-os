@@ -7,6 +7,7 @@ import {
   useForkSession,
   useSummarizeSession,
   useMoveSessionToProject,
+  type ForkSessionInput,
 } from "@/data/sessions";
 import {
   useToggleProject,
@@ -104,9 +105,21 @@ export function useSessionListMutations({
   );
 
   const handleForkSession = useCallback(
-    async (sessionId: string) => {
-      const forkedSession = await forkSessionMutation.mutateAsync(sessionId);
-      if (forkedSession) onSelectSession(forkedSession.id);
+    async (input: ForkSessionInput) => {
+      try {
+        const forkedSession = await forkSessionMutation.mutateAsync(input);
+        if (forkedSession) {
+          onSelectSession(forkedSession.id);
+          if (input.useWorktree) {
+            toast.success(`Created worktree for "${forkedSession.name}"`);
+          }
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to fork session";
+        toast.error(message);
+        throw error;
+      }
     },
     [forkSessionMutation, onSelectSession]
   );
@@ -269,6 +282,7 @@ export function useSessionListMutations({
   return {
     // Derived state
     summarizingSessionId,
+    isForkingSession: forkSessionMutation.isPending,
 
     // Delete dialog state and handlers
     deleteDialogState,

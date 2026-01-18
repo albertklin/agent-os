@@ -128,6 +128,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       updates.push("group_path = ?");
       values.push(body.groupPath);
     }
+    if (body.projectId !== undefined) {
+      updates.push("project_id = ?");
+      values.push(body.projectId);
+    }
 
     if (updates.length > 0) {
       updates.push("updated_at = datetime('now')");
