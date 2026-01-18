@@ -38,7 +38,7 @@ interface GroupSectionProps {
   onSelectSession: (sessionId: string) => void;
   onForkSession: (sessionId: string) => void;
   onSummarize: (sessionId: string) => void;
-  onDeleteSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string, sessionName?: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
   hoverHandlers: SessionHoverHandlers;
 }
@@ -220,7 +220,7 @@ export function GroupSection({
                         onClick={() => onSelectSession(session.id)}
                         onFork={() => onForkSession(session.id)}
                         onSummarize={() => onSummarize(session.id)}
-                        onDelete={() => onDeleteSession(session.id)}
+                        onDelete={() => onDeleteSession(session.id, session.name)}
                         onRename={(newName) =>
                           onRenameSession(session.id, newName)
                         }
@@ -247,7 +247,7 @@ export function GroupSection({
                           tmuxStatus={sessionStatuses?.[worker.id]?.status}
                           groups={groups}
                           onClick={() => onSelectSession(worker.id)}
-                          onDelete={() => onDeleteSession(worker.id)}
+                          onDelete={() => onDeleteSession(worker.id, worker.name)}
                           onRename={(newName) =>
                             onRenameSession(worker.id, newName)
                           }

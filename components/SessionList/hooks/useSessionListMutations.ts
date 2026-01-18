@@ -59,8 +59,9 @@ export function useSessionListMutations({
 
   // Session handlers
   const handleDeleteSession = useCallback(
-    async (sessionId: string) => {
-      if (!confirm("Delete this session? This cannot be undone.")) return;
+    async (sessionId: string, sessionName?: string) => {
+      const displayName = sessionName || "this session";
+      if (!confirm(`Delete "${displayName}"? This cannot be undone.`)) return;
       await deleteSessionMutation.mutateAsync(sessionId);
     },
     [deleteSessionMutation]
