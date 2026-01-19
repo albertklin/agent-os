@@ -70,7 +70,11 @@ export function detectPackageManager(projectPath: string): {
     { file: "bun.lockb", name: "bun", command: "bun install" },
     { file: "pnpm-lock.yaml", name: "pnpm", command: "pnpm install" },
     { file: "yarn.lock", name: "yarn", command: "yarn install" },
-    { file: "package-lock.json", name: "npm", command: "npm install" },
+    {
+      file: "package-lock.json",
+      name: "npm",
+      command: "npm install --legacy-peer-deps",
+    },
   ];
 
   for (const { file, name, command } of lockfiles) {
@@ -81,7 +85,7 @@ export function detectPackageManager(projectPath: string): {
 
   // Fallback: check if package.json exists
   if (fs.existsSync(path.join(projectPath, "package.json"))) {
-    return { name: "npm", installCommand: "npm install" };
+    return { name: "npm", installCommand: "npm install --legacy-peer-deps" };
   }
 
   return null;
