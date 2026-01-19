@@ -16,6 +16,11 @@ import { tmuxSessionExists } from "./tmux";
 import { statusBroadcaster } from "./status-broadcaster";
 import { wrapWithBanner } from "./banner";
 import { runInBackground } from "./async-operations";
+import {
+  ensureDevcontainerCli,
+  initializeSandboxAndWait,
+  buildSandboxedSessionCommand,
+} from "./sandbox";
 
 const execAsync = promisify(exec);
 
@@ -167,8 +172,42 @@ export async function spawnWorker(
 
   // Create tmux session with the agent and banner
   const agentCmd = `${provider.command} ${flagsStr}`;
-  const newSessionCmd = wrapWithBanner(agentCmd);
-  const createCmd = `tmux new-session -d -s "${tmuxSessionName}" -c "${cwd}" "${newSessionCmd}"`;
+
+  // Workers always use auto-approve, so sandbox is required (no fallback)
+  // Auto-installs devcontainer CLI if Docker is available
+  const devcontainerAvailable = await ensureDevcontainerCli();
+
+  if (!devcontainerAvailable) {
+    queries.updateWorkerStatus(db).run("failed", sessionId);
+    throw new Error(
+      "Workers require Docker and devcontainer CLI for sandboxing. " +
+        "Please install Docker and run 'npm run setup' to install devcontainer CLI."
+    );
+  }
+
+  console.log(
+    `[orchestration] Initializing sandbox for worker ${sessionId}...`
+  );
+
+  // Initialize sandbox and wait for it to be ready (blocking)
+  const sandboxReady = await initializeSandboxAndWait({
+    sessionId,
+    workingDirectory: actualWorkingDir,
+  });
+
+  if (!sandboxReady) {
+    queries.updateWorkerStatus(db).run("failed", sessionId);
+    throw new Error(
+      `Failed to initialize sandbox for worker ${sessionId}. Check Docker is running.`
+    );
+  }
+
+  // Wrap command to run inside devcontainer
+  const sandboxedCmd = buildSandboxedSessionCommand(actualWorkingDir, agentCmd);
+  const finalCmd = wrapWithBanner(sandboxedCmd);
+  console.log(`[orchestration] Worker ${sessionId} will run in sandbox`);
+
+  const createCmd = `tmux new-session -d -s "${tmuxSessionName}" -c "${cwd}" "${finalCmd}"`;
 
   try {
     await execAsync(createCmd);

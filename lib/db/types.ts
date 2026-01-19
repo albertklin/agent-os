@@ -29,6 +29,9 @@ export interface Session {
   conductor_session_id: string | null;
   worker_task: string | null;
   worker_status: "pending" | "running" | "completed" | "failed" | null;
+  // Sandbox fields
+  container_id: string | null;
+  sandbox_status: "pending" | "initializing" | "ready" | "failed" | null;
 }
 
 export interface Group {

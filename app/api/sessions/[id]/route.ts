@@ -11,6 +11,7 @@ import { releasePort } from "@/lib/ports";
 import { killWorker } from "@/lib/orchestration";
 import { generateBranchName, getCurrentBranch, renameBranch } from "@/lib/git";
 import { runInBackground } from "@/lib/async-operations";
+import { destroySandbox } from "@/lib/sandbox";
 
 const execAsync = promisify(exec);
 
@@ -189,6 +190,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       } catch {
         // Ignore errors - session might already be dead
       }
+    }
+
+    // Destroy sandbox container if it exists
+    if (existing.container_id || existing.sandbox_status) {
+      runInBackground(async () => {
+        await destroySandbox(id);
+      }, `cleanup-sandbox-${id}`);
     }
 
     // Check if branch has changes before deleting (for user feedback)

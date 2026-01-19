@@ -7,6 +7,7 @@ import { setupWorktree, type SetupResult } from "@/lib/env-setup";
 import { findAvailablePort } from "@/lib/ports";
 import { runInBackground } from "@/lib/async-operations";
 import { hasAgentOsHooks, writeHooksConfig } from "@/lib/hooks/generate-config";
+import { ensureDevcontainerCli, initializeSandboxAndWait } from "@/lib/sandbox";
 
 // GET /api/sessions - List all sessions and groups
 export async function GET() {
@@ -198,6 +199,55 @@ export async function POST(request: NextRequest) {
         }
       } else {
         hooksConfigured = true;
+      }
+    }
+
+    // Initialize sandbox for auto-approve Claude sessions (required, no fallback)
+    if (autoApprove && agentType === "claude") {
+      const workDir = actualWorkingDirectory.replace(
+        "~",
+        process.env.HOME || ""
+      );
+
+      // Ensure devcontainer CLI is available (auto-install if needed)
+      const cliAvailable = await ensureDevcontainerCli();
+      if (!cliAvailable) {
+        // Clean up the session we just created
+        queries.deleteSession(db).run(id);
+        return NextResponse.json(
+          {
+            error:
+              "Auto-approve sessions require Docker and devcontainer CLI for sandboxing. " +
+              "Please install Docker and run 'npm run setup' to install devcontainer CLI.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // Initialize sandbox and wait for it to be ready
+      console.log(`[sandbox] Initializing sandbox for session ${id}`);
+      const sandboxReady = await initializeSandboxAndWait({
+        sessionId: id,
+        workingDirectory: workDir,
+      });
+
+      if (!sandboxReady) {
+        // Clean up the session we just created
+        queries.deleteSession(db).run(id);
+        return NextResponse.json(
+          {
+            error:
+              "Failed to initialize sandbox for auto-approve session. " +
+              "Check Docker is running and try again.",
+          },
+          { status: 500 }
+        );
+      }
+
+      // Refresh session data after sandbox initialization
+      const updatedSession = queries.getSession(db).get(id) as Session;
+      if (updatedSession) {
+        Object.assign(session, updatedSession);
       }
     }
 
