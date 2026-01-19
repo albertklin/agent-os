@@ -20,7 +20,20 @@ function sleep(ms: number): Promise<void> {
 }
 
 function generateUUID(): string {
-  return crypto.randomUUID();
+  // crypto.randomUUID() is only available in secure contexts (HTTPS/localhost)
+  // Fall back to a manual implementation for HTTP contexts
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  // Fallback: generate UUID v4 manually
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 /**
@@ -193,7 +206,8 @@ export function useSessionAttachment() {
             installing_deps: "Installing dependencies...",
           };
           const message =
-            statusMessages[session.setup_status] || "Session is still setting up...";
+            statusMessages[session.setup_status] ||
+            "Session is still setting up...";
           toast.info(message, {
             description: "Please wait for setup to complete",
           });
@@ -291,10 +305,10 @@ export function useSessionAttachment() {
 
         const tmuxCmd = `tmux attach -t ${tmuxName} 2>/dev/null || ${tmuxNew}`;
 
-        // 7. Send the tmux command
+        // 8. Send the tmux command
         terminal.sendCommand(tmuxCmd);
 
-        // 8. Wait a moment for tmux to attach
+        // 9. Wait a moment for tmux to attach
         // (In the future, could poll terminal output to confirm)
         await sleep(150);
 

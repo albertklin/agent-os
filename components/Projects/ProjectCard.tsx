@@ -152,15 +152,6 @@ export function ProjectCard({
             Open in editor
           </MenuItem>
         )}
-        {onStartDevServer && (
-          <>
-            <MenuSeparator />
-            <MenuItem onClick={() => onStartDevServer()}>
-              <Server className="mr-2 h-3 w-3" />
-              Start dev server
-            </MenuItem>
-          </>
-        )}
         {onDelete && (
           <>
             <MenuSeparator />
