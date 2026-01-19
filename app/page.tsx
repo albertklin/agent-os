@@ -31,12 +31,11 @@ import { useSessions } from "@/hooks/useSessions";
 import { useProjects } from "@/hooks/useProjects";
 import { useDevServersManager } from "@/hooks/useDevServersManager";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
+import { useSessionAttachment } from "@/hooks/useSessionAttachment";
 import type { Session } from "@/lib/db";
 import type { TerminalHandle } from "@/components/Terminal";
-import { getProvider } from "@/lib/providers";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
-import { getPendingPrompt, clearPendingPrompt } from "@/stores/initialPrompt";
 
 function HomeContent() {
   // UI State
@@ -56,6 +55,9 @@ function HomeContent() {
   const focusedActiveTab = getActiveTab(focusedPaneId);
   const { isMobile, isHydrated } = useViewport();
 
+  // Session attachment with locking
+  const { attachToSession: attachToSessionWithLock } = useSessionAttachment();
+
   // Data hooks
   const { sessions, fetchSessions } = useSessions();
   const { projects, fetchProjects } = useProjects();
@@ -65,24 +67,6 @@ function HomeContent() {
     startDevServer,
     createDevServer,
   } = useDevServersManager();
-
-  // Helper to get init script command from API
-  const getInitScriptCommand = useCallback(
-    async (agentCommand: string): Promise<string> => {
-      try {
-        const res = await fetch("/api/sessions/init-script", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agentCommand }),
-        });
-        const data = await res.json();
-        return data.command || agentCommand;
-      } catch {
-        return agentCommand;
-      }
-    },
-    []
-  );
 
   // Set CSS variable for viewport height (handles mobile keyboard)
   useViewportHeight();
@@ -144,80 +128,8 @@ function HomeContent() {
     return undefined;
   }, [focusedPaneId, getActiveTab]);
 
-  // Build tmux command for a session
-  const buildSessionCommand = useCallback(
-    async (
-      session: Session
-    ): Promise<{ sessionName: string; cwd: string; command: string }> => {
-      const provider = getProvider(session.agent_type || "claude");
-      const sessionName = session.tmux_name || `${provider.id}-${session.id}`;
-      const cwd = session.working_directory?.replace("~", "$HOME") || "$HOME";
-
-      // Shell sessions just open a terminal - no agent command
-      if (provider.id === "shell") {
-        return { sessionName, cwd, command: "" };
-      }
-
-      // TODO: Add explicit "Enable Orchestration" toggle that creates .mcp.json
-      // for conductor sessions. Removed auto-creation because it pollutes projects
-      // with .mcp.json files that aren't in their .gitignore.
-      // See: /api/sessions/[id]/mcp-config, lib/mcp-config.ts
-
-      // Get parent session ID for forking
-      let parentSessionId: string | null = null;
-      if (!session.claude_session_id && session.parent_session_id) {
-        const parentSession = sessions.find(
-          (s) => s.id === session.parent_session_id
-        );
-        parentSessionId = parentSession?.claude_session_id || null;
-      }
-
-      // Check for pending initial prompt
-      const initialPrompt = getPendingPrompt(session.id);
-      if (initialPrompt) {
-        clearPendingPrompt(session.id);
-      }
-
-      const flags = provider.buildFlags({
-        sessionId: session.claude_session_id,
-        parentSessionId,
-        autoApprove: session.auto_approve,
-        model: session.model,
-        initialPrompt: initialPrompt || undefined,
-      });
-      const flagsStr = flags.join(" ");
-
-      const agentCmd = `${provider.command} ${flagsStr}`;
-      const command = await getInitScriptCommand(agentCmd);
-
-      return { sessionName, cwd, command };
-    },
-    [sessions, getInitScriptCommand]
-  );
-
-  // Attach a session to a terminal
-  const runSessionInTerminal = useCallback(
-    (
-      terminal: TerminalHandle,
-      paneId: string,
-      session: Session,
-      sessionInfo: { sessionName: string; cwd: string; command: string }
-    ) => {
-      const { sessionName, cwd, command } = sessionInfo;
-      // For shell sessions (empty command), just start tmux without a command so it opens the default shell
-      const tmuxNew = command
-        ? `tmux new -s ${sessionName} -c "${cwd}" "${command}"`
-        : `tmux new -s ${sessionName} -c "${cwd}"`;
-      terminal.sendCommand(
-        `tmux attach -t ${sessionName} 2>/dev/null || ${tmuxNew}`
-      );
-      attachSession(paneId, session.id, sessionName);
-      terminal.focus();
-    },
-    [attachSession]
-  );
-
   // Attach session to terminal
+  // Uses the new hook with locking to prevent race conditions
   const attachToSession = useCallback(
     async (session: Session) => {
       const terminalInfo = getTerminalWithFallback();
@@ -232,30 +144,21 @@ function HomeContent() {
       }
 
       const { terminal, paneId } = terminalInfo;
-      const activeTab = getActiveTab(paneId);
-      const isInTmux = !!activeTab?.attachedTmux;
+      debugLog(`Attaching to session ${session.name} in pane ${paneId}`);
 
-      if (isInTmux) {
-        terminal.sendInput("\x02d");
-      }
-
-      setTimeout(
-        () => {
-          terminal.sendInput("\x03");
-          setTimeout(async () => {
-            const sessionInfo = await buildSessionCommand(session);
-            runSessionInTerminal(terminal, paneId, session, sessionInfo);
-          }, 50);
-        },
-        isInTmux ? 100 : 0
+      // Use the new hook with locking - pass sessions for parent lookup during fork
+      const success = await attachToSessionWithLock(
+        session.id,
+        terminal,
+        paneId,
+        sessions
       );
+
+      if (!success) {
+        debugLog(`Failed to attach to session ${session.name}`);
+      }
     },
-    [
-      getTerminalWithFallback,
-      getActiveTab,
-      buildSessionCommand,
-      runSessionInTerminal,
-    ]
+    [getTerminalWithFallback, attachToSessionWithLock, sessions]
   );
 
   // Open session in new tab
@@ -274,14 +177,13 @@ function HomeContent() {
           if (!existingKeys.has(key) && key.startsWith(`${focusedPaneId}:`)) {
             const terminal = terminalRefs.current.get(key);
             if (terminal) {
-              buildSessionCommand(session).then((sessionInfo) => {
-                runSessionInTerminal(
-                  terminal,
-                  focusedPaneId,
-                  session,
-                  sessionInfo
-                );
-              });
+              // Use the new hook with locking
+              attachToSessionWithLock(
+                session.id,
+                terminal,
+                focusedPaneId,
+                sessions
+              );
               return;
             }
           }
@@ -296,7 +198,7 @@ function HomeContent() {
 
       setTimeout(waitForNewTerminal, 50);
     },
-    [addTab, focusedPaneId, buildSessionCommand, runSessionInTerminal]
+    [addTab, focusedPaneId, attachToSessionWithLock, sessions]
   );
 
   // Notification click handler
