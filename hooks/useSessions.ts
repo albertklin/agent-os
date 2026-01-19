@@ -4,7 +4,6 @@ import {
   useSessionsQuery,
   useRenameSession,
   useForkSession,
-  useSummarizeSession,
   useMoveSessionToGroup,
   useMoveSessionToProject,
   type ForkSessionInput,
@@ -17,7 +16,6 @@ export function useSessions() {
 
   const renameMutation = useRenameSession();
   const forkMutation = useForkSession();
-  const summarizeMutation = useSummarizeSession();
   const moveToGroupMutation = useMoveSessionToGroup();
   const moveToProjectMutation = useMoveSessionToProject();
 
@@ -39,13 +37,6 @@ export function useSessions() {
     [forkMutation]
   );
 
-  const summarizeSession = useCallback(
-    async (sessionId: string): Promise<Session | null> => {
-      return await summarizeMutation.mutateAsync(sessionId);
-    },
-    [summarizeMutation]
-  );
-
   const moveSessionToGroup = useCallback(
     async (sessionId: string, groupPath: string) => {
       await moveToGroupMutation.mutateAsync({ sessionId, groupPath });
@@ -63,13 +54,9 @@ export function useSessions() {
   return {
     sessions,
     groups,
-    summarizingSessionId: summarizeMutation.isPending
-      ? (summarizeMutation.variables as string)
-      : null,
     fetchSessions,
     renameSession,
     forkSession,
-    summarizeSession,
     moveSessionToGroup,
     moveSessionToProject,
   };

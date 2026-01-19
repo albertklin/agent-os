@@ -137,26 +137,6 @@ export function useForkSession() {
   });
 }
 
-export function useSummarizeSession() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (sessionId: string): Promise<Session | null> => {
-      const res = await fetch(`/api/sessions/${sessionId}/summarize`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ createFork: true }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      return data.newSession || null;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
-    },
-  });
-}
-
 export function useMoveSessionToGroup() {
   const queryClient = useQueryClient();
 

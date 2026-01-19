@@ -22,7 +22,6 @@ interface ProjectsSectionProps {
   groups: Group[]; // For backward compatibility with SessionCard move feature
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatus>;
-  summarizingSessionId?: string | null;
   isForkingSession?: boolean;
   devServers?: DevServer[];
   onToggleProject?: (projectId: string, expanded: boolean) => void;
@@ -38,7 +37,6 @@ interface ProjectsSectionProps {
     sessionId: string,
     options: ForkOptions | null
   ) => Promise<void>;
-  onSummarize?: (sessionId: string) => void;
   onDeleteSession?: (sessionId: string, sessionName?: string) => void;
   onRenameSession?: (sessionId: string, newName: string) => void;
   onCreatePR?: (sessionId: string) => void;
@@ -57,7 +55,6 @@ function ProjectsSectionComponent({
   groups,
   activeSessionId,
   sessionStatuses,
-  summarizingSessionId,
   isForkingSession,
   devServers = [],
   onToggleProject,
@@ -70,7 +67,6 @@ function ProjectsSectionComponent({
   onOpenSessionInTab,
   onMoveSession,
   onForkSession,
-  onSummarize,
   onDeleteSession,
   onRenameSession,
   onCreatePR,
@@ -259,9 +255,6 @@ function ProjectsSectionComponent({
                             <SessionCard
                               session={session}
                               isActive={session.id === activeSessionId}
-                              isSummarizing={
-                                summarizingSessionId === session.id
-                              }
                               isForking={isForkingSession}
                               tmuxStatus={sessionStatuses?.[session.id]?.status}
                               groups={groups}
@@ -287,11 +280,6 @@ function ProjectsSectionComponent({
                                 onForkSession
                                   ? async (options) =>
                                       onForkSession(session.id, options)
-                                  : undefined
-                              }
-                              onSummarize={
-                                onSummarize
-                                  ? () => onSummarize(session.id)
                                   : undefined
                               }
                               onDelete={

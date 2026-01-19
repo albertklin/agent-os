@@ -14,7 +14,6 @@ import {
   Trash2,
   Copy,
   Pencil,
-  Sparkles,
   Square,
   CheckSquare,
   ExternalLink,
@@ -50,7 +49,6 @@ type TmuxStatus = "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
 interface SessionCardProps {
   session: Session;
   isActive?: boolean;
-  isSummarizing?: boolean;
   isForking?: boolean;
   tmuxStatus?: TmuxStatus;
   groups?: Group[];
@@ -65,7 +63,6 @@ interface SessionCardProps {
   onMove?: (groupPath: string) => void;
   onMoveToProject?: (projectId: string) => void;
   onFork?: (options: ForkOptions | null) => Promise<void>;
-  onSummarize?: () => void;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
   onCreatePR?: () => void;
@@ -117,7 +114,6 @@ const statusConfig: Record<
 function SessionCardComponent({
   session,
   isActive,
-  isSummarizing,
   isForking,
   tmuxStatus,
   groups = [],
@@ -130,7 +126,6 @@ function SessionCardComponent({
   onMove,
   onMoveToProject,
   onFork,
-  onSummarize,
   onDelete,
   onRename,
   onCreatePR,
@@ -287,16 +282,6 @@ function SessionCardComponent({
           <MenuItem onClick={() => setForkDialogOpen(true)}>
             <Copy className="mr-2 h-3 w-3" />
             Fork session
-          </MenuItem>
-        )}
-        {onSummarize && (
-          <MenuItem onClick={() => onSummarize()} disabled={isSummarizing}>
-            {isSummarizing ? (
-              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-3 w-3" />
-            )}
-            {isSummarizing ? "Summarizing..." : "Fresh start"}
           </MenuItem>
         )}
         {onCreatePR && session.branch_name && (
@@ -550,7 +535,7 @@ function getTimeAgo(dateStr: string): string {
  * Only re-renders when:
  * - session.id, session.name, session.updated_at changes
  * - tmuxStatus changes
- * - isActive, isSelected, isInSelectMode, isSummarizing changes
+ * - isActive, isSelected, isInSelectMode, isForking changes
  * - groups or projects array references change (for menu rendering)
  */
 export const SessionCard = memo(SessionCardComponent, (prev, next) => {
@@ -564,7 +549,7 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
   if (prev.isActive !== next.isActive) return false;
   if (prev.isSelected !== next.isSelected) return false;
   if (prev.isInSelectMode !== next.isInSelectMode) return false;
-  if (prev.isSummarizing !== next.isSummarizing) return false;
+  if (prev.isForking !== next.isForking) return false;
 
   // Groups and projects are used for menu rendering
   // We do a shallow length check as a proxy for changes

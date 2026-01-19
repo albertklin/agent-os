@@ -31,7 +31,6 @@ interface GroupSectionProps {
   sessions: Session[];
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatus>;
-  summarizingSessionId: string | null;
   isForkingSession?: boolean;
   workersByConduct: Record<string, Session[]>;
   onToggleGroup: (path: string, expanded: boolean) => void;
@@ -42,7 +41,6 @@ interface GroupSectionProps {
     sessionId: string,
     options: ForkOptions | null
   ) => Promise<void>;
-  onSummarize: (sessionId: string) => void;
   onDeleteSession: (sessionId: string, sessionName?: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
   hoverHandlers: SessionHoverHandlers;
@@ -53,7 +51,6 @@ export function GroupSection({
   sessions,
   activeSessionId,
   sessionStatuses,
-  summarizingSessionId,
   isForkingSession,
   workersByConduct,
   onToggleGroup,
@@ -61,7 +58,6 @@ export function GroupSection({
   onDeleteGroup,
   onSelectSession,
   onForkSession,
-  onSummarize,
   onDeleteSession,
   onRenameSession,
   hoverHandlers,
@@ -220,7 +216,6 @@ export function GroupSection({
                       <SessionCard
                         session={session}
                         isActive={session.id === activeSessionId}
-                        isSummarizing={summarizingSessionId === session.id}
                         isForking={isForkingSession}
                         tmuxStatus={sessionStatuses?.[session.id]?.status}
                         groups={groups}
@@ -228,7 +223,6 @@ export function GroupSection({
                         onFork={async (options) =>
                           onForkSession(session.id, options)
                         }
-                        onSummarize={() => onSummarize(session.id)}
                         onDelete={() =>
                           onDeleteSession(session.id, session.name)
                         }

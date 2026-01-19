@@ -5,7 +5,6 @@ import {
   useDeleteSession,
   useRenameSession,
   useForkSession,
-  useSummarizeSession,
   useMoveSessionToProject,
   type ForkSessionInput,
 } from "@/data/sessions";
@@ -41,7 +40,6 @@ export function useSessionListMutations({
   const deleteSessionMutation = useDeleteSession();
   const renameSessionMutation = useRenameSession();
   const forkSessionMutation = useForkSession();
-  const summarizeSessionMutation = useSummarizeSession();
   const moveSessionToProjectMutation = useMoveSessionToProject();
 
   // Project mutations
@@ -67,11 +65,6 @@ export function useSessionListMutations({
       sessionName: "",
     }
   );
-
-  // Derived state
-  const summarizingSessionId = summarizeSessionMutation.isPending
-    ? (summarizeSessionMutation.variables as string)
-    : null;
 
   // Session handlers - opens the dialog instead of using confirm()
   const handleDeleteSession = useCallback(
@@ -122,14 +115,6 @@ export function useSessionListMutations({
       }
     },
     [forkSessionMutation, onSelectSession]
-  );
-
-  const handleSummarize = useCallback(
-    async (sessionId: string) => {
-      const newSession = await summarizeSessionMutation.mutateAsync(sessionId);
-      if (newSession) onSelectSession(newSession.id);
-    },
-    [summarizeSessionMutation, onSelectSession]
   );
 
   const handleMoveSessionToProject = useCallback(
@@ -281,7 +266,6 @@ export function useSessionListMutations({
 
   return {
     // Derived state
-    summarizingSessionId,
     isForkingSession: forkSessionMutation.isPending,
 
     // Delete dialog state and handlers
@@ -293,7 +277,6 @@ export function useSessionListMutations({
     handleDeleteSession,
     handleRenameSession,
     handleForkSession,
-    handleSummarize,
     handleMoveSessionToProject,
 
     // Project handlers
