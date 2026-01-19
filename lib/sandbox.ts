@@ -106,6 +106,7 @@ export async function ensureDevcontainerCli(): Promise<boolean> {
 /**
  * Ensure the .devcontainer config exists in the workspace.
  * If not present, copies from the template in data/devcontainer/
+ * and customizes paths so the container uses the same paths as the host.
  */
 export async function ensureDevcontainerConfig(
   workspaceFolder: string
@@ -113,9 +114,24 @@ export async function ensureDevcontainerConfig(
   const targetDir = path.join(workspaceFolder, ".devcontainer");
   const targetConfig = path.join(targetDir, "devcontainer.json");
 
-  // Check if config already exists
+  // Resolve to absolute path for consistent mounting
+  const absoluteWorkspaceFolder = path.resolve(workspaceFolder);
+
+  // Check if config already exists and has correct path
   if (fs.existsSync(targetConfig)) {
-    return true;
+    try {
+      const existingConfig = JSON.parse(fs.readFileSync(targetConfig, "utf-8"));
+      // Check if workspaceFolder matches - if so, config is already correct
+      if (existingConfig.workspaceFolder === absoluteWorkspaceFolder) {
+        return true;
+      }
+      // Otherwise, regenerate config with correct path
+      console.log(
+        `[sandbox] Regenerating devcontainer config for path ${absoluteWorkspaceFolder}`
+      );
+    } catch {
+      // Config exists but is invalid, regenerate
+    }
   }
 
   // Find the template config directory
@@ -132,9 +148,11 @@ export async function ensureDevcontainerConfig(
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    // Copy all files from template config
+    // Copy non-JSON files from template config
     const files = fs.readdirSync(configDir);
     for (const file of files) {
+      if (file === "devcontainer.json") continue; // Handle separately
+
       const sourcePath = path.join(configDir, file);
       const targetPath = path.join(targetDir, file);
       fs.copyFileSync(sourcePath, targetPath);
@@ -145,10 +163,23 @@ export async function ensureDevcontainerConfig(
       }
     }
 
-    console.log(`[sandbox] Copied devcontainer config to ${targetDir}`);
+    // Read and customize devcontainer.json
+    const templateConfig = JSON.parse(fs.readFileSync(sourceConfig, "utf-8"));
+
+    // Set workspace mount to use the same path inside the container as on the host
+    // This ensures the agent sees identical paths for seamless experience
+    templateConfig.workspaceMount = `source=\${localWorkspaceFolder},target=${absoluteWorkspaceFolder},type=bind,consistency=delegated`;
+    templateConfig.workspaceFolder = absoluteWorkspaceFolder;
+
+    // Write customized config
+    fs.writeFileSync(targetConfig, JSON.stringify(templateConfig, null, 2));
+
+    console.log(
+      `[sandbox] Created devcontainer config at ${targetDir} with workspace path ${absoluteWorkspaceFolder}`
+    );
     return true;
   } catch (error) {
-    console.error("[sandbox] Failed to copy devcontainer config:", error);
+    console.error("[sandbox] Failed to create devcontainer config:", error);
     return false;
   }
 }
@@ -161,12 +192,15 @@ export async function initializeSandbox(
 ): Promise<string | null> {
   const { sessionId, workingDirectory } = options;
 
+  // Resolve to absolute path for consistent behavior
+  const absoluteWorkingDirectory = path.resolve(workingDirectory);
+
   // Update status to initializing
   queries.updateSessionSandbox(db).run(null, "initializing", sessionId);
 
   try {
-    // Ensure devcontainer config exists
-    const hasConfig = await ensureDevcontainerConfig(workingDirectory);
+    // Ensure devcontainer config exists (with paths customized for this workspace)
+    const hasConfig = await ensureDevcontainerConfig(absoluteWorkingDirectory);
     if (!hasConfig) {
       queries.updateSessionSandbox(db).run(null, "failed", sessionId);
       return null;
@@ -174,10 +208,11 @@ export async function initializeSandbox(
 
     // Build and start the devcontainer
     console.log(`[sandbox] Starting devcontainer for session ${sessionId}...`);
+    console.log(`[sandbox] Workspace path: ${absoluteWorkingDirectory}`);
 
     // Use devcontainer up to start the container
     const { stdout, stderr } = await execAsync(
-      `devcontainer up --workspace-folder "${workingDirectory}" 2>&1`,
+      `devcontainer up --workspace-folder "${absoluteWorkingDirectory}" 2>&1`,
       { timeout: 300000 } // 5 minute timeout for container build
     );
 
@@ -200,7 +235,7 @@ export async function initializeSandbox(
       // JSON parsing failed, try to extract from docker ps
       try {
         const { stdout: dockerOut } = await execAsync(
-          `docker ps --filter "label=devcontainer.local_folder=${workingDirectory}" --format "{{.ID}}" | head -1`,
+          `docker ps --filter "label=devcontainer.local_folder=${absoluteWorkingDirectory}" --format "{{.ID}}" | head -1`,
           { timeout: 5000 }
         );
         containerId = dockerOut.trim() || null;
@@ -246,23 +281,26 @@ export function buildSandboxedCommand(
   workspaceFolder: string,
   command: string
 ): string {
+  // Resolve to absolute path for consistent container targeting
+  const absoluteWorkspaceFolder = path.resolve(workspaceFolder);
   // Escape the command for shell
   const escapedCommand = command.replace(/"/g, '\\"');
-  return `devcontainer exec --workspace-folder "${workspaceFolder}" ${escapedCommand}`;
+  return `devcontainer exec --workspace-folder "${absoluteWorkspaceFolder}" ${escapedCommand}`;
 }
 
 /**
  * Build a complete sandboxed session command for tmux
- * This wraps the agent command to run inside the devcontainer
+ * This wraps the agent command to run inside the devcontainer.
+ * The container mounts the workspace at the same path as the host,
+ * so the agent sees identical paths for a seamless experience.
  */
 export function buildSandboxedSessionCommand(
   workspaceFolder: string,
   agentCommand: string
 ): string {
-  // The command needs to:
-  // 1. Wait for container to be ready (in case initialization is still running)
-  // 2. Execute the agent inside the container
-  return `devcontainer exec --workspace-folder "${workspaceFolder}" ${agentCommand}`;
+  // Resolve to absolute path for consistent container targeting
+  const absoluteWorkspaceFolder = path.resolve(workspaceFolder);
+  return `devcontainer exec --workspace-folder "${absoluteWorkspaceFolder}" ${agentCommand}`;
 }
 
 /**
