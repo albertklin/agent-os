@@ -6,12 +6,12 @@ export interface GeneratedPRContent {
 }
 
 /**
- * Generate PR title and description using Claude CLI or fallback heuristics
+ * Generate PR title and description using heuristics from git context
  */
-export async function generatePRContent(
+export function generatePRContent(
   workingDir: string,
   baseBranch: string = "main"
-): Promise<GeneratedPRContent> {
+): GeneratedPRContent {
   try {
     // Get git context
     const { diff, commits, changedFiles } = getGitContext(
@@ -23,17 +23,6 @@ export async function generatePRContent(
       return generateFallbackContent(changedFiles);
     }
 
-    // Try Claude CLI first
-    try {
-      const result = await generateWithClaude(workingDir, diff, commits);
-      if (result) {
-        return result;
-      }
-    } catch (error) {
-      console.debug("Claude CLI generation failed, using fallback", error);
-    }
-
-    // Fallback to heuristic generation
     return generateHeuristicContent(diff, commits, changedFiles);
   } catch (error) {
     console.error("Failed to generate PR content", error);
@@ -139,87 +128,6 @@ function getGitContext(
   }
 
   return { diff, commits, changedFiles };
-}
-
-/**
- * Generate PR content using Claude CLI
- */
-async function generateWithClaude(
-  workingDir: string,
-  diff: string,
-  commits: string[]
-): Promise<GeneratedPRContent | null> {
-  // Check if Claude CLI is available
-  try {
-    execSync("claude --version", { stdio: "pipe", timeout: 5000 });
-  } catch {
-    return null;
-  }
-
-  const prompt = buildPRPrompt(diff, commits);
-
-  try {
-    // Use claude CLI with --print flag for non-interactive output
-    const output = execSync(`claude --print "${prompt.replace(/"/g, '\\"')}"`, {
-      cwd: workingDir,
-      encoding: "utf-8",
-      timeout: 30000,
-      maxBuffer: 1024 * 1024,
-    });
-
-    return parseClaudeResponse(output);
-  } catch (error) {
-    console.debug("Claude CLI invocation failed", error);
-    return null;
-  }
-}
-
-/**
- * Build prompt for PR generation
- */
-function buildPRPrompt(diff: string, commits: string[]): string {
-  const commitContext =
-    commits.length > 0
-      ? `Commits:\n${commits.map((c) => `- ${c}`).join("\n")}`
-      : "";
-  const diffContext = diff
-    ? `Diff summary:\n${diff.substring(0, 2000)}${diff.length > 2000 ? "..." : ""}`
-    : "";
-
-  return `Generate a concise PR title and description based on these changes:
-
-${commitContext}
-
-${diffContext}
-
-Respond ONLY with valid JSON in this exact format:
-{"title": "A concise PR title (max 72 chars)", "description": "A markdown description with ## headers and - bullet points"}`;
-}
-
-/**
- * Parse Claude response into PR content
- */
-function parseClaudeResponse(response: string): GeneratedPRContent | null {
-  try {
-    // Extract JSON from response
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.title && parsed.description) {
-        let description = String(parsed.description);
-        // Handle escaped newlines
-        description = description.replace(/\\n/g, "\n");
-        description = description.replace(/\\\\n/g, "\n");
-        return {
-          title: parsed.title.trim(),
-          description: description.trim(),
-        };
-      }
-    }
-  } catch (error) {
-    console.debug("Failed to parse Claude response", error);
-  }
-  return null;
 }
 
 /**
