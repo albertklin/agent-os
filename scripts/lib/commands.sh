@@ -81,6 +81,16 @@ cmd_install() {
 
     echo ""
     log_success "AgentOS installed successfully!"
+
+    # Set up MCP server for Claude Code (optional, non-fatal)
+    echo ""
+    if command -v claude &> /dev/null; then
+        log_info "Configuring MCP server for Claude Code..."
+        cmd_mcp || true
+    else
+        echo "Tip: Run 'agent-os mcp' after installing Claude Code to enable orchestration."
+    fi
+
     echo ""
 
     if [[ "$needs_path_update" == true ]]; then
@@ -314,6 +324,12 @@ cmd_update() {
         fi
     fi
 
+    # Re-apply MCP config in case it changed
+    if command -v claude &> /dev/null; then
+        log_info "Updating MCP server configuration..."
+        cmd_mcp || true
+    fi
+
     if [[ "$was_running" == true ]]; then
         cmd_start
     fi
@@ -486,6 +502,118 @@ cmd_start_foreground() {
     exec npm start
 }
 
+cmd_mcp() {
+    local claude_settings_dir="$HOME/.claude"
+    local claude_settings_file="$claude_settings_dir/settings.json"
+    local mcp_server_path="$REPO_DIR/mcp/orchestration-server.ts"
+
+    if [[ ! -f "$mcp_server_path" ]]; then
+        log_error "MCP server not found at $mcp_server_path"
+        log_error "Run 'agent-os install' first."
+        exit 1
+    fi
+
+    # Check for tsx
+    if ! command -v npx &> /dev/null; then
+        log_error "npx is required for MCP server. Install Node.js first."
+        exit 1
+    fi
+
+    log_info "Setting up AgentOS MCP server for Claude Code..."
+
+    # Create .claude directory if needed
+    mkdir -p "$claude_settings_dir"
+
+    # Read existing settings or start with empty object
+    local existing_settings="{}"
+    if [[ -f "$claude_settings_file" ]]; then
+        existing_settings=$(cat "$claude_settings_file")
+    fi
+
+    # Check if jq is available for proper JSON merging
+    if command -v jq &> /dev/null; then
+        # Use jq to merge settings
+        local mcp_config
+        mcp_config=$(cat << EOF
+{
+  "mcpServers": {
+    "agent-os": {
+      "command": "npx",
+      "args": ["tsx", "$mcp_server_path"],
+      "env": {
+        "AGENTOS_URL": "http://localhost:$PORT"
+      }
+    }
+  }
+}
+EOF
+)
+        echo "$existing_settings" | jq -s ".[0] * $mcp_config" > "$claude_settings_file"
+    else
+        # Fallback: simple check and manual merge
+        if [[ "$existing_settings" == "{}" ]] || [[ ! -f "$claude_settings_file" ]]; then
+            # No existing settings, write new file
+            cat > "$claude_settings_file" << EOF
+{
+  "mcpServers": {
+    "agent-os": {
+      "command": "npx",
+      "args": ["tsx", "$mcp_server_path"],
+      "env": {
+        "AGENTOS_URL": "http://localhost:$PORT"
+      }
+    }
+  }
+}
+EOF
+        elif echo "$existing_settings" | grep -q '"mcpServers"'; then
+            log_warn "mcpServers already exists in settings. Manual edit required."
+            echo ""
+            echo "Add this to your ~/.claude/settings.json under mcpServers:"
+            echo ""
+            echo "    \"agent-os\": {"
+            echo "      \"command\": \"npx\","
+            echo "      \"args\": [\"tsx\", \"$mcp_server_path\"],"
+            echo "      \"env\": {"
+            echo "        \"AGENTOS_URL\": \"http://localhost:$PORT\""
+            echo "      }"
+            echo "    }"
+            echo ""
+            return 0
+        else
+            # Has settings but no mcpServers - need manual merge without jq
+            log_warn "Cannot auto-merge without jq. Install jq for automatic setup."
+            echo ""
+            echo "Add this to your ~/.claude/settings.json:"
+            echo ""
+            echo "  \"mcpServers\": {"
+            echo "    \"agent-os\": {"
+            echo "      \"command\": \"npx\","
+            echo "      \"args\": [\"tsx\", \"$mcp_server_path\"],"
+            echo "      \"env\": {"
+            echo "        \"AGENTOS_URL\": \"http://localhost:$PORT\""
+            echo "      }"
+            echo "    }"
+            echo "  }"
+            echo ""
+            return 0
+        fi
+    fi
+
+    log_success "MCP server configured!"
+    echo ""
+    echo "The orchestration MCP server is now available to Claude Code."
+    echo "Restart Claude Code to enable the new tools:"
+    echo ""
+    echo "  - spawn_worker      Spawn a worker session with isolated worktree"
+    echo "  - list_workers      List all workers for a conductor"
+    echo "  - get_worker_output Read a worker's output"
+    echo "  - send_to_worker    Send a message to a worker"
+    echo "  - kill_worker       Terminate a worker"
+    echo ""
+    echo "Note: AgentOS server must be running (agent-os start) for MCP to work."
+}
+
 cmd_help() {
     echo ""
     echo -e "${BOLD}AgentOS${NC} - Self-hosted AI coding session manager"
@@ -503,6 +631,7 @@ cmd_help() {
     echo "  update      Update to latest version (use 'update local' for local source)"
     echo "  enable      Enable auto-start on boot"
     echo "  disable     Disable auto-start"
+    echo "  mcp         Set up MCP server for Claude Code orchestration"
     echo "  uninstall   Remove AgentOS completely"
     echo ""
     echo "Environment variables:"
