@@ -17,9 +17,14 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-interface HookDefinition {
+interface HookCommand {
   type: "command";
   command: string;
+}
+
+interface HookDefinition {
+  matcher: string; // Pattern to match tools: "" or "*" for all, "Bash" for exact, "Edit|Write" for regex
+  hooks: HookCommand[];
 }
 
 interface HooksSection {
@@ -80,25 +85,43 @@ exit 0
 
 /**
  * Generate the hooks section for settings.json
+ *
+ * Uses the new hooks format with matchers:
+ * { "matcher": {}, "hooks": [{ "type": "command", "command": "..." }] }
  */
 export function generateHooksSection(port: number = 3011): HooksSection {
   return {
     PreToolUse: [
       {
-        type: "command",
-        command: generateHookCommand("PreToolUse", port),
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("PreToolUse", port),
+          },
+        ],
       },
     ],
     PostToolUse: [
       {
-        type: "command",
-        command: generateHookCommand("PostToolUse", port),
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("PostToolUse", port),
+          },
+        ],
       },
     ],
     Stop: [
       {
-        type: "command",
-        command: generateHookCommand("Stop", port),
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("Stop", port),
+          },
+        ],
       },
     ],
   };
@@ -151,15 +174,21 @@ export function hasGlobalAgentOsHooks(): boolean {
     if (!settings.hooks) {
       return false;
     }
-    // Check if at least one hook type has our hook
+    // Check if at least one hook type has our hook (new format with matcher/hooks)
     for (const hookType of ["PreToolUse", "PostToolUse", "Stop"] as const) {
-      const hooks = settings.hooks[hookType];
-      if (Array.isArray(hooks)) {
-        const hasAgentOsHook = hooks.some(
-          (h) =>
-            h.type === "command" &&
-            h.command?.includes("/api/sessions/status-update")
-        );
+      const hookDefs = settings.hooks[hookType];
+      if (Array.isArray(hookDefs)) {
+        const hasAgentOsHook = hookDefs.some((def) => {
+          // New format: { matcher: "", hooks: [{ type, command }] }
+          if (def.hooks && Array.isArray(def.hooks)) {
+            return def.hooks.some(
+              (h: HookCommand) =>
+                h.type === "command" &&
+                h.command?.includes("/api/sessions/status-update")
+            );
+          }
+          return false;
+        });
         if (hasAgentOsHook) {
           return true;
         }
@@ -219,18 +248,25 @@ export function writeGlobalHooksConfig(port: number = 3011): {
     // Merge each hook type, preserving existing non-AgentOS hooks
     for (const hookType of ["PreToolUse", "PostToolUse", "Stop"] as const) {
       const existingHooks = settings.hooks[hookType] || [];
-      const newHook = generatedHooks[hookType]?.[0];
+      const newHookDef = generatedHooks[hookType]?.[0];
 
-      if (newHook) {
-        // Filter out any existing AgentOS hooks and malformed entries
+      if (newHookDef) {
+        // Filter out any existing AgentOS hooks (both old and new format)
         const filteredHooks = existingHooks.filter(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (h: any) => {
-            // Skip malformed entries (like nested "hooks" arrays)
-            if ("hooks" in h) {
-              return false;
+            // New format: { matcher: "", hooks: [...] }
+            if (h.hooks && Array.isArray(h.hooks)) {
+              const hasAgentOsHook = h.hooks.some(
+                (cmd: HookCommand) =>
+                  cmd.type === "command" &&
+                  cmd.command?.includes("/api/sessions/status-update")
+              );
+              if (hasAgentOsHook) {
+                return false;
+              }
             }
-            // Skip existing AgentOS hooks (we'll add the new one)
+            // Old format: { type: "command", command: "..." }
             if (
               h.type === "command" &&
               h.command?.includes("/api/sessions/status-update")
@@ -240,7 +276,7 @@ export function writeGlobalHooksConfig(port: number = 3011): {
             return true;
           }
         );
-        settings.hooks[hookType] = [...filteredHooks, newHook];
+        settings.hooks[hookType] = [...filteredHooks, newHookDef];
       }
     }
 
@@ -271,7 +307,7 @@ export function removeGlobalAgentOsHooks(): boolean {
       return true;
     }
 
-    // Filter out AgentOS hooks from each type
+    // Filter out AgentOS hooks from each type (handle both old and new format)
     for (const hookType of [
       "PreToolUse",
       "PostToolUse",
@@ -280,8 +316,23 @@ export function removeGlobalAgentOsHooks(): boolean {
     ] as const) {
       if (settings.hooks[hookType]) {
         settings.hooks[hookType] = settings.hooks[hookType]!.filter(
-          (h: HookDefinition) =>
-            !h.command?.includes("/api/sessions/status-update")
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (h: any) => {
+            // New format: { matcher: "", hooks: [...] }
+            if (h.hooks && Array.isArray(h.hooks)) {
+              const hasAgentOsHook = h.hooks.some(
+                (cmd: HookCommand) =>
+                  cmd.type === "command" &&
+                  cmd.command?.includes("/api/sessions/status-update")
+              );
+              return !hasAgentOsHook;
+            }
+            // Old format: { type: "command", command: "..." }
+            if (h.command?.includes("/api/sessions/status-update")) {
+              return false;
+            }
+            return true;
+          }
         );
         // Remove empty arrays
         if (settings.hooks[hookType]!.length === 0) {
