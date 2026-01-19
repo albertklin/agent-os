@@ -212,10 +212,9 @@ export async function branchHasChanges(
   const resolvedWorktreePath = resolvePath(worktreePath);
 
   try {
-    // Count commits ahead of the base branch
-    // Try origin/baseBranch first, fall back to just baseBranch
+    // Count commits ahead of the base branch (use local branch, not origin)
     const { stdout } = await execAsync(
-      `git -C "${resolvedWorktreePath}" rev-list --count origin/${baseBranch}..HEAD 2>/dev/null || git -C "${resolvedWorktreePath}" rev-list --count ${baseBranch}..HEAD`,
+      `git -C "${resolvedWorktreePath}" rev-list --count ${baseBranch}..HEAD`,
       { timeout: 5000 }
     );
 
