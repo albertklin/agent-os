@@ -157,7 +157,7 @@ export function DesktopView({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Copy session ID for orchestration</p>
+                    <p>Copy session ID</p>
                     <p className="text-muted-foreground font-mono text-xs">
                       {activeSession.id.slice(0, 8)}...
                     </p>

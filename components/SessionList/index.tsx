@@ -332,7 +332,6 @@ export function SessionList({
                 name,
                 workingDirectory: path,
                 agentType: "claude",
-                defaultModel: "opus",
                 devServers: [],
               },
               {

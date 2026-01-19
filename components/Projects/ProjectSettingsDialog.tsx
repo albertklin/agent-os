@@ -30,12 +30,6 @@ const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
   { value: "cursor", label: "Cursor CLI" },
 ];
 
-const MODEL_OPTIONS = [
-  { value: "opus", label: "Opus" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "haiku", label: "Haiku" },
-];
-
 interface ProjectSettingsDialogProps {
   project: ProjectWithDevServers | null;
   open: boolean;
@@ -52,7 +46,6 @@ export function ProjectSettingsDialog({
   const [name, setName] = useState("");
   const [workingDirectory, setWorkingDirectory] = useState("");
   const [agentType, setAgentType] = useState<AgentType>("claude");
-  const [defaultModel, setDefaultModel] = useState("opus");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +57,6 @@ export function ProjectSettingsDialog({
       setName(project.name);
       setWorkingDirectory(project.working_directory);
       setAgentType(project.agent_type);
-      setDefaultModel(project.default_model);
     }
   }, [project]);
 
@@ -86,7 +78,6 @@ export function ProjectSettingsDialog({
         name: name.trim(),
         workingDirectory,
         agentType,
-        defaultModel,
       });
 
       handleClose();
@@ -146,23 +137,6 @@ export function ProjectSettingsDialog({
               </SelectTrigger>
               <SelectContent>
                 {AGENT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Orchestration Model */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Orchestration Model</label>
-            <Select value={defaultModel} onValueChange={setDefaultModel}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MODEL_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>

@@ -80,7 +80,6 @@ npm run dev  # http://localhost:3011
 - **Git integration** - Status, diffs, commits, PRs from the UI
 - **Git worktrees** - Isolated branches with auto-setup
 - **Dev servers** - Start/stop Node.js and Docker servers
-- **Session orchestration** - Conductor/worker model via MCP
 
 ## CLI Commands
 

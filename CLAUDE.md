@@ -13,10 +13,9 @@ npm run format       # Format with Prettier
 ## Project Structure
 
 - `app/` - Next.js App Router pages and API routes
-- `lib/` - Core business logic (sessions, providers, orchestration, hooks)
+- `lib/` - Core business logic (sessions, providers, hooks)
 - `components/` - React components
 - `hooks/` - React hooks (e.g., useStatusStream for SSE)
-- `mcp/` - MCP server for Claude integration
 - `scripts/` - Setup and utility scripts
 - `src-tauri/` - Tauri desktop app (optional)
 

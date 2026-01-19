@@ -12,8 +12,3 @@ export const WS_RECONNECT_MAX_DELAY = 30000; // 30 seconds
 export function getTerminalThemeForApp(theme: string): TerminalTheme {
   return getTerminalTheme(theme);
 }
-
-// Legacy exports for compatibility - default dark themes
-export const TERMINAL_THEME_DARK = getTerminalTheme("dark");
-export const TERMINAL_THEME_LIGHT = getTerminalTheme("light");
-export const TERMINAL_THEME = TERMINAL_THEME_DARK;

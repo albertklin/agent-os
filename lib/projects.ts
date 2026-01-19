@@ -26,7 +26,6 @@ export interface CreateProjectOptions {
   name: string;
   workingDirectory: string;
   agentType?: AgentType;
-  defaultModel?: string;
   devServers?: CreateDevServerOptions[];
 }
 
@@ -79,7 +78,6 @@ export function createProject(
       opts.name,
       opts.workingDirectory,
       opts.agentType || "claude",
-      opts.defaultModel || "opus",
       maxOrder + 1
     );
 
@@ -184,9 +182,7 @@ export function getAllProjectsWithDevServers(): ProjectWithDevServers[] {
  */
 export function updateProject(
   id: string,
-  updates: Partial<
-    Pick<Project, "name" | "working_directory" | "agent_type" | "default_model">
-  >
+  updates: Partial<Pick<Project, "name" | "working_directory" | "agent_type">>
 ): Project | undefined {
   const project = getProject(id);
   if (!project || project.is_uncategorized) return undefined;
@@ -197,7 +193,6 @@ export function updateProject(
       updates.name ?? project.name,
       updates.working_directory ?? project.working_directory,
       updates.agent_type ?? project.agent_type,
-      updates.default_model ?? project.default_model,
       id
     );
 

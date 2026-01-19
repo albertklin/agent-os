@@ -36,11 +36,6 @@ interface HooksSection {
   SessionEnd?: HookDefinition[];
 }
 
-// Backwards compatibility interface for hooks.json format
-export interface HooksConfig {
-  hooks: HooksSection;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface ClaudeSettings extends Record<string, any> {
   hooks?: HooksSection;
@@ -159,16 +154,6 @@ export function generateHooksSection(port: number = 3011): HooksSection {
         ],
       },
     ],
-  };
-}
-
-/**
- * Generate the full hooks configuration (for hooks.json format)
- * @deprecated Use generateHooksSection() for settings.json format
- */
-export function generateHooksConfig(port: number = 3011): HooksConfig {
-  return {
-    hooks: generateHooksSection(port),
   };
 }
 
@@ -402,42 +387,4 @@ export function removeGlobalAgentOsHooks(): boolean {
   } catch {
     return false;
   }
-}
-
-// ============================================================================
-// DEPRECATED: Per-project hooks functions (kept for backwards compatibility)
-// These write to hooks.json which Claude Code does NOT read.
-// Use the global functions above instead.
-// ============================================================================
-
-/** @deprecated Use getGlobalSettingsPath() instead */
-export function getHooksConfigDir(projectDir: string): string {
-  return path.join(projectDir, ".claude");
-}
-
-/** @deprecated Claude Code reads from settings.json, not hooks.json */
-export function getHooksConfigPath(projectDir: string): string {
-  return path.join(getHooksConfigDir(projectDir), "hooks.json");
-}
-
-/** @deprecated Use hasGlobalAgentOsHooks() instead */
-export function hasAgentOsHooks(_projectDir: string): boolean {
-  // Redirect to global check since per-project hooks.json doesn't work
-  return hasGlobalAgentOsHooks();
-}
-
-/** @deprecated Use writeGlobalHooksConfig() instead */
-export function writeHooksConfig(
-  _projectDir: string,
-  port: number = 3011,
-  _merge: boolean = true
-): { success: boolean; path: string; merged: boolean } {
-  // Redirect to global config since per-project hooks.json doesn't work
-  return writeGlobalHooksConfig(port);
-}
-
-/** @deprecated Use removeGlobalAgentOsHooks() instead */
-export function removeAgentOsHooks(_projectDir: string): boolean {
-  // Redirect to global removal
-  return removeGlobalAgentOsHooks();
 }

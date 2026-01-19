@@ -108,13 +108,11 @@ export function useUpdateProject() {
       name,
       workingDirectory,
       agentType,
-      defaultModel,
     }: {
       projectId: string;
       name?: string;
       workingDirectory?: string;
       agentType?: string;
-      defaultModel?: string;
     }) => {
       const res = await fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
@@ -123,7 +121,6 @@ export function useUpdateProject() {
           name,
           workingDirectory,
           agentType,
-          defaultModel,
         }),
       });
       if (!res.ok) throw new Error("Failed to update project");
@@ -143,7 +140,6 @@ export function useCreateProject() {
       name: string;
       workingDirectory: string;
       agentType?: string;
-      defaultModel?: string;
       devServers?: Array<{
         name: string;
         type: string;
