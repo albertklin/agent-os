@@ -278,3 +278,94 @@ export function getGlobalClaudeConfigDir(): string {
   }
   return path.join(os.homedir(), ".claude");
 }
+
+/**
+ * Get the path to the global hooks.json file
+ */
+export function getGlobalHooksConfigPath(): string {
+  return path.join(getGlobalClaudeConfigDir(), "hooks.json");
+}
+
+/**
+ * Check if global hooks are configured with AgentOS status updates
+ */
+export function hasGlobalAgentOsHooks(): boolean {
+  const configPath = getGlobalHooksConfigPath();
+  try {
+    if (!fs.existsSync(configPath)) {
+      return false;
+    }
+    const content = fs.readFileSync(configPath, "utf-8");
+    return content.includes("/api/sessions/status-update");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write hooks configuration to the global Claude config directory
+ *
+ * @param port - The AgentOS server port (default 3011)
+ * @param merge - If true, merge with existing hooks instead of replacing
+ */
+export function writeGlobalHooksConfig(
+  port: number = 3011,
+  merge: boolean = true
+): { success: boolean; path: string; merged: boolean } {
+  const configDir = getGlobalClaudeConfigDir();
+  const configPath = getGlobalHooksConfigPath();
+
+  try {
+    // Ensure .claude directory exists
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+
+    let finalConfig: HooksConfig;
+    let merged = false;
+
+    if (merge && fs.existsSync(configPath)) {
+      // Read existing config and merge
+      try {
+        const existing = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        const generated = generateHooksConfig(port);
+
+        finalConfig = {
+          ...existing,
+          hooks: {
+            ...existing.hooks,
+          },
+        };
+
+        // Merge each hook type
+        for (const hookType of ["PreToolUse", "PostToolUse", "Stop"] as const) {
+          const existingHooks = existing.hooks?.[hookType] || [];
+          const newHook = generated.hooks[hookType]?.[0];
+
+          if (newHook) {
+            // Filter out any existing AgentOS hooks
+            const filteredHooks = existingHooks.filter(
+              (h: HookDefinition) =>
+                !h.command?.includes("/api/sessions/status-update")
+            );
+            finalConfig.hooks[hookType] = [...filteredHooks, newHook];
+          }
+        }
+
+        merged = true;
+      } catch {
+        // If parsing fails, use generated config
+        finalConfig = generateHooksConfig(port);
+      }
+    } else {
+      finalConfig = generateHooksConfig(port);
+    }
+
+    fs.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
+
+    return { success: true, path: configPath, merged };
+  } catch (error) {
+    console.error("Failed to write global hooks config:", error);
+    return { success: false, path: configPath, merged: false };
+  }
+}
