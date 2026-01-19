@@ -9,6 +9,7 @@ import type {
   TerminalScrollState,
 } from "@/components/Terminal";
 import type { Session, Project } from "@/lib/db";
+import { getTmuxSessionName } from "@/lib/sessions";
 import { sessionRegistry } from "@/lib/client/session-registry";
 import { cn } from "@/lib/utils";
 import { ConductorPanel } from "@/components/ConductorPanel";
@@ -187,10 +188,12 @@ export const Pane = memo(function Pane({
       onRegisterTerminal(paneId, tab.id, handle);
 
       // Determine tmux session name to attach
-      const tmuxName = tab.sessionId
-        ? sessions.find((s) => s.id === tab.sessionId)?.tmux_name ||
-          tab.attachedTmux
-        : tab.attachedTmux;
+      // IMPORTANT: Compute tmux name from session.agent_type + session.id
+      // instead of using stored tmux_name or attachedTmux to prevent desync
+      const session = tab.sessionId
+        ? sessions.find((s) => s.id === tab.sessionId)
+        : null;
+      const tmuxName = session ? getTmuxSessionName(session) : tab.attachedTmux; // Fallback for backwards compatibility
 
       if (tmuxName) {
         setTimeout(() => handle.sendCommand(`tmux attach -t ${tmuxName}`), 100);
