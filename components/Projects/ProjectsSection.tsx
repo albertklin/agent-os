@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, memo } from "react";
 import { useSnapshot } from "valtio";
 import { ProjectCard } from "./ProjectCard";
 import { SessionCard } from "@/components/SessionCard";
@@ -11,7 +11,7 @@ import type { ProjectWithDevServers } from "@/lib/projects";
 
 interface SessionStatus {
   sessionName: string;
-  status: "idle" | "running" | "waiting" | "error" | "dead";
+  status: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
   lastLine?: string;
 }
 
@@ -46,7 +46,7 @@ interface ProjectsSectionProps {
   onHoverEnd?: () => void;
 }
 
-export function ProjectsSection({
+function ProjectsSectionComponent({
   projects,
   sessions,
   groups,
@@ -110,43 +110,57 @@ export function ProjectsSection({
     [allSessionIds]
   );
 
-  // Group sessions by project_id
-  const sessionsByProject = sessions
-    .filter((s) => !s.conductor_session_id) // Exclude workers
-    .reduce(
-      (acc, session) => {
-        const projectId = session.project_id || "uncategorized";
-        if (!acc[projectId]) acc[projectId] = [];
-        acc[projectId].push(session);
-        return acc;
-      },
-      {} as Record<string, Session[]>
-    );
+  // Group sessions by project_id (memoized to prevent recalculation)
+  const sessionsByProject = useMemo(
+    () =>
+      sessions
+        .filter((s) => !s.conductor_session_id) // Exclude workers
+        .reduce(
+          (acc, session) => {
+            const projectId = session.project_id || "uncategorized";
+            if (!acc[projectId]) acc[projectId] = [];
+            acc[projectId].push(session);
+            return acc;
+          },
+          {} as Record<string, Session[]>
+        ),
+    [sessions]
+  );
 
-  // Group workers by conductor
-  const workersByConduct = sessions.reduce(
-    (acc, session) => {
-      if (session.conductor_session_id) {
-        if (!acc[session.conductor_session_id])
-          acc[session.conductor_session_id] = [];
-        acc[session.conductor_session_id].push(session);
-      }
-      return acc;
-    },
-    {} as Record<string, Session[]>
+  // Group workers by conductor (memoized)
+  const workersByConduct = useMemo(
+    () =>
+      sessions.reduce(
+        (acc, session) => {
+          if (session.conductor_session_id) {
+            if (!acc[session.conductor_session_id])
+              acc[session.conductor_session_id] = [];
+            acc[session.conductor_session_id].push(session);
+          }
+          return acc;
+        },
+        {} as Record<string, Session[]>
+      ),
+    [sessions]
   );
 
   // Get running dev servers for a project (for ProjectCard badge)
-  const getProjectRunningServers = (projectId: string): DevServer[] => {
-    return devServers.filter(
-      (ds) => ds.project_id === projectId && ds.status === "running"
-    );
-  };
+  const getProjectRunningServers = useCallback(
+    (projectId: string): DevServer[] => {
+      return devServers.filter(
+        (ds) => ds.project_id === projectId && ds.status === "running"
+      );
+    },
+    [devServers]
+  );
 
   // Get all dev servers for a project
-  const getProjectDevServers = (projectId: string): DevServer[] => {
-    return devServers.filter((ds) => ds.project_id === projectId);
-  };
+  const getProjectDevServers = useCallback(
+    (projectId: string): DevServer[] => {
+      return devServers.filter((ds) => ds.project_id === projectId);
+    },
+    [devServers]
+  );
 
   return (
     <div className="space-y-1">
@@ -361,3 +375,8 @@ export function ProjectsSection({
     </div>
   );
 }
+
+/**
+ * Memoized ProjectsSection to prevent unnecessary re-renders
+ */
+export const ProjectsSection = memo(ProjectsSectionComponent);

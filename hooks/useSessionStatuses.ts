@@ -1,6 +1,7 @@
 import type { Session } from "@/lib/db";
 import type { SessionStatus } from "@/components/views/types";
 import { useSessionStatusesQuery } from "@/data/statuses";
+import type { ConnectionStatus } from "@/data/statuses";
 
 interface UseSessionStatusesOptions {
   sessions: Session[];
@@ -15,16 +16,21 @@ interface UseSessionStatusesOptions {
   ) => void;
 }
 
+interface UseSessionStatusesResult {
+  sessionStatuses: Record<string, SessionStatus>;
+  connectionStatus: ConnectionStatus;
+}
+
 export function useSessionStatuses({
   sessions,
   activeSessionId,
   checkStateChanges,
-}: UseSessionStatusesOptions) {
-  const { sessionStatuses } = useSessionStatusesQuery({
+}: UseSessionStatusesOptions): UseSessionStatusesResult {
+  const { sessionStatuses, connectionStatus } = useSessionStatusesQuery({
     sessions,
     activeSessionId,
     checkStateChanges,
   });
 
-  return { sessionStatuses };
+  return { sessionStatuses, connectionStatus };
 }

@@ -28,6 +28,7 @@ export function DesktopView({
   sessions,
   projects,
   sessionStatuses,
+  connectionStatus,
   sidebarOpen,
   setSidebarOpen,
   activeSession,
@@ -69,6 +70,7 @@ export function DesktopView({
             <SessionList
               activeSessionId={focusedActiveTab?.sessionId || undefined}
               sessionStatuses={sessionStatuses}
+              connectionStatus={connectionStatus}
               onSelect={(id) => {
                 const session = sessions.find((s) => s.id === id);
                 if (session) attachToSession(session);

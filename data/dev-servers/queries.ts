@@ -13,13 +13,13 @@ export function useDevServersQuery() {
   return useQuery({
     queryKey: devServerKeys.list(),
     queryFn: fetchDevServers,
-    staleTime: 3000,
+    staleTime: 5000,
     refetchInterval: (query) => {
       const servers = query.state.data;
       if (!servers?.length) return false;
 
       const hasRunning = servers.some((s) => s.status === "running");
-      return hasRunning ? 5000 : 30000;
+      return hasRunning ? 10000 : 60000;
     },
   });
 }

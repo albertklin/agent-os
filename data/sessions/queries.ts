@@ -19,8 +19,8 @@ export function useSessionsQuery() {
   return useQuery({
     queryKey: sessionKeys.list(),
     queryFn: fetchSessions,
-    staleTime: 5000,
-    refetchInterval: 10000,
+    staleTime: 30000,
+    refetchInterval: 30000,
   });
 }
 

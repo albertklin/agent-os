@@ -7,7 +7,7 @@ import type { Session } from "@/lib/db";
 
 interface SessionPreviewPopoverProps {
   session: Session | null;
-  status?: "idle" | "running" | "waiting" | "error" | "dead";
+  status?: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
   position: { x: number; y: number };
 }
 
@@ -22,12 +22,14 @@ const statusColors: Record<string, string> = {
   idle: "text-gray-400 bg-gray-500/20",
   dead: "text-red-400 bg-red-500/20",
   error: "text-red-400 bg-red-500/20",
+  unknown: "text-gray-400/50 bg-gray-500/10",
 };
 
 const statusLabels: Record<string, string> = {
   running: "Working",
   waiting: "Waiting",
   idle: "Idle",
+  unknown: "No status",
   dead: "Dead",
   error: "Error",
 };

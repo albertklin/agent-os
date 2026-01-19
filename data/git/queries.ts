@@ -40,8 +40,8 @@ export function useGitStatus(
   return useQuery({
     queryKey: gitKeys.status(workingDir),
     queryFn: () => fetchGitStatus(workingDir),
-    staleTime: 10000, // Consider fresh for 10s
-    refetchInterval: 15000, // Poll every 15s (was 3s)
+    staleTime: 20000, // Consider fresh for 20s
+    refetchInterval: 30000, // Poll every 30s
     enabled: !!workingDir && (options?.enabled ?? true),
   });
 }

@@ -6,8 +6,8 @@ export function createQueryClient() {
       queries: {
         refetchOnWindowFocus: false,
         retry: 2,
-        staleTime: 10000,
-        gcTime: 5 * 60 * 1000,
+        staleTime: 30000, // 30s - increased from 10s for better performance
+        gcTime: 10 * 60 * 1000, // 10min - increased from 5min
       },
     },
   });

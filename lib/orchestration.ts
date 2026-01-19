@@ -12,7 +12,8 @@ import { db, queries, type Session } from "./db";
 import { createWorktree, deleteWorktree } from "./worktrees";
 import { setupWorktree } from "./env-setup";
 import { getProvider } from "./providers";
-import { statusDetector } from "./status-detector";
+import { tmuxSessionExists } from "./tmux";
+import { statusBroadcaster } from "./status-broadcaster";
 import { wrapWithBanner } from "./banner";
 import { runInBackground } from "./async-operations";
 
@@ -275,25 +276,25 @@ export async function getWorkers(
     const provider = getProvider(worker.agent_type || "claude");
     const tmuxSessionName = worker.tmux_name || `${provider.id}-${worker.id}`;
 
-    // Get live status from tmux
-    let liveStatus: string;
-    try {
-      liveStatus = await statusDetector.getStatus(tmuxSessionName);
-    } catch {
-      liveStatus = "dead";
-    }
+    // Check if tmux session is alive and get cached status from broadcaster
+    const sessionAlive = await tmuxSessionExists(tmuxSessionName);
+    const cachedStatus = statusBroadcaster.getStatus(worker.id);
 
-    // Combine DB status with live status
+    // Combine DB status with live/cached status
     let status: WorkerInfo["status"];
     if (
       worker.worker_status === "completed" ||
       worker.worker_status === "failed"
     ) {
       status = worker.worker_status;
-    } else if (liveStatus === "dead") {
+    } else if (!sessionAlive) {
       status = "dead";
+    } else if (cachedStatus) {
+      // Use cached status from hooks if available
+      status = cachedStatus.status === "unknown" ? "idle" : cachedStatus.status;
     } else {
-      status = liveStatus as WorkerInfo["status"];
+      // No cached status and session is alive - assume idle
+      status = "idle";
     }
 
     workerInfos.push({
