@@ -97,7 +97,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             model: {
               type: "string",
               description: "Model to use (sonnet, opus, haiku)",
-              default: "sonnet",
+              default: "opus",
             },
           },
           required: ["task", "workingDirectory"],

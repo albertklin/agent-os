@@ -350,7 +350,7 @@ export function SessionList({
                 name,
                 workingDirectory: path,
                 agentType: "claude",
-                defaultModel: "sonnet",
+                defaultModel: "opus",
                 devServers: [],
               },
               {

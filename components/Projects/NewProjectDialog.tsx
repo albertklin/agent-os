@@ -42,8 +42,8 @@ const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
 ];
 
 const MODEL_OPTIONS = [
-  { value: "sonnet", label: "Sonnet" },
   { value: "opus", label: "Opus" },
+  { value: "sonnet", label: "Sonnet" },
   { value: "haiku", label: "Haiku" },
 ];
 
@@ -70,7 +70,7 @@ export function NewProjectDialog({
   const [name, setName] = useState("");
   const [workingDirectory, setWorkingDirectory] = useState("~");
   const [agentType, setAgentType] = useState<AgentType>("claude");
-  const [defaultModel, setDefaultModel] = useState("sonnet");
+  const [defaultModel, setDefaultModel] = useState("opus");
   const [devServers, setDevServers] = useState<DevServerConfig[]>([]);
   const [isDetecting, setIsDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -249,7 +249,7 @@ export function NewProjectDialog({
     setName("");
     setWorkingDirectory("~");
     setAgentType("claude");
-    setDefaultModel("sonnet");
+    setDefaultModel("opus");
     setDevServers([]);
     setError(null);
     onClose();
@@ -332,9 +332,9 @@ export function NewProjectDialog({
             </Select>
           </div>
 
-          {/* Default Model */}
+          {/* Orchestration Model */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Default Model</label>
+            <label className="text-sm font-medium">Orchestration Model</label>
             <Select value={defaultModel} onValueChange={setDefaultModel}>
               <SelectTrigger>
                 <SelectValue />

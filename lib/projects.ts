@@ -79,7 +79,7 @@ export function createProject(
       opts.name,
       opts.workingDirectory,
       opts.agentType || "claude",
-      opts.defaultModel || "sonnet",
+      opts.defaultModel || "opus",
       maxOrder + 1
     );
 

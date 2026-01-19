@@ -10,7 +10,7 @@ export async function POST(request: Request) {
       workingDirectory,
       branchName,
       useWorktree = true,
-      model = "sonnet",
+      model = "opus",
       agentType = "claude",
     } = body;
 

@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       name: providedName,
       workingDirectory = "~",
       parentSessionId = null,
-      model = "sonnet",
+      model = "opus",
       systemPrompt = null,
       groupPath = "sessions",
       claudeSessionId = null,
@@ -113,7 +113,10 @@ export async function POST(request: NextRequest) {
         featureName: featureName.trim(),
         baseBranch,
       }).catch((error) => {
-        console.error(`[session-setup] Unhandled error for session ${id}:`, error);
+        console.error(
+          `[session-setup] Unhandled error for session ${id}:`,
+          error
+        );
       });
     }
 
@@ -147,10 +150,7 @@ export async function POST(request: NextRequest) {
     // This enables real-time status updates via the status-stream SSE endpoint
     let hooksConfigured = false;
     if (agentType === "claude" && workingDirectory) {
-      const projectDir = workingDirectory.replace(
-        "~",
-        process.env.HOME || ""
-      );
+      const projectDir = workingDirectory.replace("~", process.env.HOME || "");
       if (!hasAgentOsHooks(projectDir)) {
         const result = writeHooksConfig(projectDir);
         hooksConfigured = result.success;
@@ -165,10 +165,7 @@ export async function POST(request: NextRequest) {
     // Initialize Claude's native sandbox for auto-approve sessions
     // This creates .claude/settings.json with sandbox enabled
     if (autoApprove && agentType === "claude") {
-      const workDir = workingDirectory.replace(
-        "~",
-        process.env.HOME || ""
-      );
+      const workDir = workingDirectory.replace("~", process.env.HOME || "");
 
       console.log(`[sandbox] Initializing sandbox for session ${id}`);
       const sandboxReady = await initializeSandbox({

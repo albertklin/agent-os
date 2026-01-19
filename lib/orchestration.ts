@@ -88,7 +88,7 @@ export async function spawnWorker(
     workingDirectory: rawWorkingDir,
     branchName = taskToBranchName(task),
     useWorktree = true,
-    model = "sonnet",
+    model = "opus",
     agentType = "claude",
   } = options;
 
