@@ -46,6 +46,7 @@ export interface AgentProvider {
 export interface BuildFlagsOptions {
   sessionId?: string | null; // For resume
   parentSessionId?: string | null; // For fork
+  newSessionId?: string | null; // For new sessions - pre-generated UUID
   skipPermissions?: boolean;
   autoApprove?: boolean; // Use auto-approve flag from registry
   model?: string;
@@ -81,12 +82,21 @@ export const claudeProvider: AgentProvider = {
       flags.push(def.autoApproveFlag);
     }
 
-    // Resume/fork
+    // Resume/fork/new session
     if (options.sessionId && def.resumeFlag) {
+      // Resuming an existing session
       flags.push(`${def.resumeFlag} ${options.sessionId}`);
     } else if (options.parentSessionId && def.resumeFlag) {
+      // Forking from a parent session
       flags.push(`${def.resumeFlag} ${options.parentSessionId}`);
       flags.push("--fork-session");
+      // Use pre-generated session ID for the fork if provided
+      if (options.newSessionId) {
+        flags.push(`--session-id ${options.newSessionId}`);
+      }
+    } else if (options.newSessionId) {
+      // New session with pre-generated ID
+      flags.push(`--session-id ${options.newSessionId}`);
     }
 
     // Initial prompt (positional argument for Claude)
