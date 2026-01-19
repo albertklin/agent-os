@@ -17,7 +17,7 @@ import { useSessionListMutations } from "./hooks/useSessionListMutations";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ProjectSectionSkeleton } from "@/components/ui/skeleton";
-import { Plus, FolderPlus, Loader2, AlertCircle } from "lucide-react";
+import { Plus, FolderPlus, AlertCircle } from "lucide-react";
 import type { Session } from "@/lib/db";
 import type { ProjectWithDevServers } from "@/lib/projects";
 import { useViewport } from "@/hooks/useViewport";
@@ -176,14 +176,6 @@ export function SessionList({
         onDeleteSessions={mutations.handleBulkDelete}
       />
 
-      {/* Summarizing indicator */}
-      {mutations.summarizingSessionId && (
-        <div className="bg-primary/10 mx-4 mb-2 flex items-center gap-2 rounded-lg p-2 text-sm">
-          <Loader2 className="text-primary h-4 w-4 animate-spin" />
-          <span className="text-primary">Generating summary...</span>
-        </div>
-      )}
-
       {/* Session list */}
       <ScrollArea className="w-full flex-1">
         <div className="max-w-full space-y-0.5 px-1.5 py-1">
@@ -238,7 +230,6 @@ export function SessionList({
               groups={groups}
               activeSessionId={activeSessionId}
               sessionStatuses={sessionStatuses}
-              summarizingSessionId={mutations.summarizingSessionId}
               devServers={devServers}
               onToggleProject={mutations.handleToggleProject}
               onEditProject={(projectId) => {
@@ -253,7 +244,6 @@ export function SessionList({
               onOpenSessionInTab={onOpenInTab}
               onMoveSession={mutations.handleMoveSessionToProject}
               onForkSession={mutations.handleForkSession}
-              onSummarize={mutations.handleSummarize}
               onDeleteSession={mutations.handleDeleteSession}
               onRenameSession={mutations.handleRenameSession}
               onStartDevServer={onStartDevServer}
@@ -278,14 +268,12 @@ export function SessionList({
                 sessions={sessions}
                 activeSessionId={activeSessionId}
                 sessionStatuses={sessionStatuses}
-                summarizingSessionId={mutations.summarizingSessionId}
                 workersByConduct={workersByConduct}
                 onToggleGroup={mutations.handleToggleGroup}
                 onCreateGroup={mutations.handleCreateGroup}
                 onDeleteGroup={mutations.handleDeleteGroup}
                 onSelectSession={onSelect}
                 onForkSession={mutations.handleForkSession}
-                onSummarize={mutations.handleSummarize}
                 onDeleteSession={mutations.handleDeleteSession}
                 onRenameSession={mutations.handleRenameSession}
                 hoverHandlers={hoverHandlers}

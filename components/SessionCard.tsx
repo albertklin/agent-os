@@ -14,7 +14,6 @@ import {
   Trash2,
   Copy,
   Pencil,
-  Sparkles,
   Square,
   CheckSquare,
   ExternalLink,
@@ -49,7 +48,6 @@ type TmuxStatus = "idle" | "running" | "waiting" | "error" | "dead";
 interface SessionCardProps {
   session: Session;
   isActive?: boolean;
-  isSummarizing?: boolean;
   tmuxStatus?: TmuxStatus;
   groups?: Group[];
   projects?: ProjectWithDevServers[];
@@ -63,7 +61,6 @@ interface SessionCardProps {
   onMove?: (groupPath: string) => void;
   onMoveToProject?: (projectId: string) => void;
   onFork?: () => void;
-  onSummarize?: () => void;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
   onCreatePR?: () => void;
@@ -105,7 +102,6 @@ const statusConfig: Record<
 export function SessionCard({
   session,
   isActive,
-  isSummarizing,
   tmuxStatus,
   groups = [],
   projects = [],
@@ -117,7 +113,6 @@ export function SessionCard({
   onMove,
   onMoveToProject,
   onFork,
-  onSummarize,
   onDelete,
   onRename,
   onCreatePR,
@@ -273,16 +268,6 @@ export function SessionCard({
           <MenuItem onClick={() => onFork()}>
             <Copy className="mr-2 h-3 w-3" />
             Fork session
-          </MenuItem>
-        )}
-        {onSummarize && (
-          <MenuItem onClick={() => onSummarize()} disabled={isSummarizing}>
-            {isSummarizing ? (
-              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-3 w-3" />
-            )}
-            {isSummarizing ? "Summarizing..." : "Fresh start"}
           </MenuItem>
         )}
         {onCreatePR && session.branch_name && (
