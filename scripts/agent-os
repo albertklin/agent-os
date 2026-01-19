@@ -78,6 +78,7 @@ case "${1:-}" in
     update)           cmd_update ;;
     enable)           cmd_enable ;;
     disable)          cmd_disable ;;
+    mcp)              cmd_mcp ;;
     uninstall)        cmd_uninstall ;;
     start-foreground) cmd_start_foreground ;;
     help|--help|-h)   cmd_help ;;
