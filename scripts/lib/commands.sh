@@ -262,6 +262,9 @@ cmd_logs() {
 }
 
 cmd_update() {
+    local use_local=false
+    [[ "${1:-}" == "local" || "${1:-}" == "--local" ]] && use_local=true
+
     if [[ ! -d "$REPO_DIR" ]]; then
         log_error "AgentOS is not installed. Run 'agent-os install' first."
         exit 1
@@ -277,17 +280,9 @@ cmd_update() {
 
     cd "$REPO_DIR"
 
-    # Fetch and check
-    git fetch
-    local local_hash remote_hash
-    local_hash=$(git rev-parse HEAD)
-    remote_hash=$(git rev-parse @{u})
-
-    if [[ "$local_hash" == "$remote_hash" ]]; then
-        log_success "Already up to date"
-    else
-        log_info "Pulling latest changes..."
-        git pull --ff-only
+    if [[ "$use_local" == true ]]; then
+        log_info "Updating from local source..."
+        rsync -a --delete --exclude='.git' --exclude='node_modules' --exclude='.next' --exclude='*.db*' "$LOCAL_REPO/" "$REPO_DIR/"
 
         log_info "Installing dependencies..."
         npm install --legacy-peer-deps
@@ -296,6 +291,27 @@ cmd_update() {
         npm run build
 
         log_success "Update complete!"
+    else
+        # Fetch and check
+        git fetch
+        local local_hash remote_hash
+        local_hash=$(git rev-parse HEAD)
+        remote_hash=$(git rev-parse @{u})
+
+        if [[ "$local_hash" == "$remote_hash" ]]; then
+            log_success "Already up to date"
+        else
+            log_info "Pulling latest changes..."
+            git pull --ff-only
+
+            log_info "Installing dependencies..."
+            npm install --legacy-peer-deps
+
+            log_info "Rebuilding..."
+            npm run build
+
+            log_success "Update complete!"
+        fi
     fi
 
     if [[ "$was_running" == true ]]; then
@@ -484,7 +500,7 @@ cmd_help() {
     echo "  restart     Restart the server"
     echo "  status      Show server status and URLs"
     echo "  logs        Tail server logs"
-    echo "  update      Update to latest version"
+    echo "  update      Update to latest version (use 'update local' for local source)"
     echo "  enable      Enable auto-start on boot"
     echo "  disable     Disable auto-start"
     echo "  uninstall   Remove AgentOS completely"
