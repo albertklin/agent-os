@@ -56,7 +56,6 @@ docs/*
 .git-evening
 
 # Private development notes (open source repo)
-CLAUDE.md
 master.md
 progress.md
 .git-evening
