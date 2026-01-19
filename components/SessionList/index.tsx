@@ -36,6 +36,7 @@ export type { SessionListProps } from "./SessionList.types";
 export function SessionList({
   activeSessionId,
   sessionStatuses,
+  connectionStatus,
   onSelect,
   onOpenInTab,
   onNewSessionInProject,
@@ -139,9 +140,10 @@ export function SessionList({
     null
   );
 
-  const hoverHandlers = {
-    onHoverStart: useCallback(
-      (session: Session, rect: DOMRect) => {
+  // Memoize hover handlers to prevent creating new object references
+  const hoverHandlers = useMemo(
+    () => ({
+      onHoverStart: (session: Session, rect: DOMRect) => {
         if (isMobile) return;
         // Clear any pending hover
         if (hoverTimeoutRef.current) {
@@ -159,17 +161,17 @@ export function SessionList({
           }
         }, 400);
       },
-      [isMobile]
-    ),
-    onHoverEnd: useCallback(() => {
-      if (hoverTimeoutRef.current) {
-        clearTimeout(hoverTimeoutRef.current);
-        hoverTimeoutRef.current = null;
-      }
-      pendingHoverRef.current = null;
-      setHoveredSession(null);
-    }, []),
-  };
+      onHoverEnd: () => {
+        if (hoverTimeoutRef.current) {
+          clearTimeout(hoverTimeoutRef.current);
+          hoverTimeoutRef.current = null;
+        }
+        pendingHoverRef.current = null;
+        setHoveredSession(null);
+      },
+    }),
+    [isMobile]
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -178,6 +180,7 @@ export function SessionList({
         onNewProject={() => setShowNewProjectDialog(true)}
         onOpenProject={() => setShowFolderPicker(true)}
         onKillAll={() => setShowKillAllConfirm(true)}
+        connectionStatus={connectionStatus}
       />
 
       {/* Kill All Confirmation */}

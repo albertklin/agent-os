@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, memo } from "react";
 import { cn } from "@/lib/utils";
 import {
   GitFork,
@@ -45,7 +45,7 @@ import { ForkSessionDialog, type ForkOptions } from "./ForkSessionDialog";
 import type { Session, Group } from "@/lib/db";
 import type { ProjectWithDevServers } from "@/lib/projects";
 
-type TmuxStatus = "idle" | "running" | "waiting" | "error" | "dead";
+type TmuxStatus = "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
 
 interface SessionCardProps {
   session: Session;
@@ -102,9 +102,19 @@ const statusConfig: Record<
     label: "stopped",
     icon: <Circle className="h-2 w-2" />,
   },
+  unknown: {
+    color: "text-muted-foreground/30",
+    label: "no status - hooks not configured",
+    icon: (
+      <Circle
+        className="h-2 w-2 stroke-current stroke-1"
+        strokeDasharray="2 2"
+      />
+    ),
+  },
 };
 
-export function SessionCard({
+function SessionCardComponent({
   session,
   isActive,
   isSummarizing,
@@ -534,3 +544,33 @@ function getTimeAgo(dateStr: string): string {
 
   return date.toLocaleDateString();
 }
+
+/**
+ * Memoized SessionCard to prevent unnecessary re-renders
+ * Only re-renders when:
+ * - session.id, session.name, session.updated_at changes
+ * - tmuxStatus changes
+ * - isActive, isSelected, isInSelectMode, isSummarizing changes
+ * - groups or projects array references change (for menu rendering)
+ */
+export const SessionCard = memo(SessionCardComponent, (prev, next) => {
+  // Check primitive props that matter for rendering
+  if (prev.session.id !== next.session.id) return false;
+  if (prev.session.name !== next.session.name) return false;
+  if (prev.session.updated_at !== next.session.updated_at) return false;
+  if (prev.session.pr_status !== next.session.pr_status) return false;
+  if (prev.session.branch_name !== next.session.branch_name) return false;
+  if (prev.tmuxStatus !== next.tmuxStatus) return false;
+  if (prev.isActive !== next.isActive) return false;
+  if (prev.isSelected !== next.isSelected) return false;
+  if (prev.isInSelectMode !== next.isInSelectMode) return false;
+  if (prev.isSummarizing !== next.isSummarizing) return false;
+
+  // Groups and projects are used for menu rendering
+  // We do a shallow length check as a proxy for changes
+  if ((prev.groups?.length || 0) !== (next.groups?.length || 0)) return false;
+  if ((prev.projects?.length || 0) !== (next.projects?.length || 0))
+    return false;
+
+  return true;
+});

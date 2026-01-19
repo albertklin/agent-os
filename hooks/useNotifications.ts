@@ -17,7 +17,13 @@ import {
   clearTabNotifications,
 } from "@/lib/notifications";
 
-type SessionStatus = "idle" | "running" | "waiting" | "error" | "dead";
+type SessionStatus =
+  | "idle"
+  | "running"
+  | "waiting"
+  | "error"
+  | "dead"
+  | "unknown";
 
 interface SessionState {
   id: string;

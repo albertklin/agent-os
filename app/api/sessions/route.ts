@@ -6,6 +6,7 @@ import { createWorktree } from "@/lib/worktrees";
 import { setupWorktree, type SetupResult } from "@/lib/env-setup";
 import { findAvailablePort } from "@/lib/ports";
 import { runInBackground } from "@/lib/async-operations";
+import { hasAgentOsHooks, writeHooksConfig } from "@/lib/hooks/generate-config";
 
 // GET /api/sessions - List all sessions and groups
 export async function GET() {
@@ -181,12 +182,32 @@ export async function POST(request: NextRequest) {
 
     const session = queries.getSession(db).get(id) as Session;
 
+    // Auto-configure hooks for Claude sessions if not already configured
+    // This enables real-time status updates via the status-stream SSE endpoint
+    let hooksConfigured = false;
+    if (agentType === "claude" && actualWorkingDirectory) {
+      const projectDir = actualWorkingDirectory.replace(
+        "~",
+        process.env.HOME || ""
+      );
+      if (!hasAgentOsHooks(projectDir)) {
+        const result = writeHooksConfig(projectDir);
+        hooksConfigured = result.success;
+        if (result.success) {
+          console.log(`[hooks] Configured AgentOS hooks at ${result.path}`);
+        }
+      } else {
+        hooksConfigured = true;
+      }
+    }
+
     // Include setup result and initial prompt in response
     const response: {
       session: Session;
       setup?: SetupResult;
       initialPrompt?: string;
-    } = { session };
+      hooksConfigured?: boolean;
+    } = { session, hooksConfigured };
     if (setupResult) {
       response.setup = setupResult;
     }

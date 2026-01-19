@@ -16,18 +16,24 @@ import {
   FolderOpen,
   MoreHorizontal,
   Trash2,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { ConnectionStatus } from "@/hooks/useStatusStream";
 
 interface SessionListHeaderProps {
   onNewProject: () => void;
   onOpenProject: () => void;
   onKillAll: () => void;
+  connectionStatus?: ConnectionStatus;
 }
 
 export function SessionListHeader({
   onNewProject,
   onOpenProject,
   onKillAll,
+  connectionStatus = "connecting",
 }: SessionListHeaderProps) {
   return (
     <div className="flex items-center justify-between px-3 py-2">
@@ -50,6 +56,34 @@ export function SessionListHeader({
           <path d="M9 13v2" />
         </svg>
         <h2 className="font-semibold">AgentOS</h2>
+        {/* SSE Connection Status Indicator */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={cn(
+                "flex h-4 w-4 items-center justify-center",
+                connectionStatus === "connected" && "text-green-500",
+                connectionStatus === "connecting" && "text-yellow-500",
+                connectionStatus === "disconnected" && "text-red-500"
+              )}
+            >
+              {connectionStatus === "connected" ? (
+                <Wifi className="h-3 w-3" />
+              ) : connectionStatus === "connecting" ? (
+                <Wifi className="h-3 w-3 animate-pulse" />
+              ) : (
+                <WifiOff className="h-3 w-3" />
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {connectionStatus === "connected" && "Real-time updates active"}
+            {connectionStatus === "connecting" &&
+              "Connecting to status stream..."}
+            {connectionStatus === "disconnected" &&
+              "Disconnected - reconnecting..."}
+          </TooltipContent>
+        </Tooltip>
       </div>
       <div className="flex gap-1">
         <DropdownMenu>

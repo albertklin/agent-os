@@ -2,10 +2,11 @@ import type { Session } from "@/lib/db";
 import type { ProjectWithDevServers } from "@/lib/projects";
 import type { NotificationSettings } from "@/lib/notifications";
 import type { TabData } from "@/lib/panes";
+import type { ConnectionStatus } from "@/hooks/useStatusStream";
 
 export interface SessionStatus {
   sessionName: string;
-  status: "idle" | "running" | "waiting" | "error" | "dead";
+  status: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
   lastLine?: string;
   claudeSessionId?: string | null;
 }
@@ -14,6 +15,7 @@ export interface ViewProps {
   sessions: Session[];
   projects: ProjectWithDevServers[];
   sessionStatuses: Record<string, SessionStatus>;
+  connectionStatus?: ConnectionStatus;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
   activeSession: Session | undefined;

@@ -1,1 +1,2 @@
-export { useSessionStatusesQuery } from "./queries";
+export { useSessionStatusesQuery, useStatusStream } from "./queries";
+export type { StatusData, ConnectionStatus } from "./queries";

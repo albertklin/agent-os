@@ -320,7 +320,7 @@ function HomeContent() {
   } = useNotifications({ onSessionClick: handleNotificationClick });
 
   // Session statuses
-  const { sessionStatuses } = useSessionStatuses({
+  const { sessionStatuses, connectionStatus } = useSessionStatuses({
     sessions,
     activeSessionId: focusedActiveTab?.sessionId,
     checkStateChanges,
@@ -464,6 +464,7 @@ function HomeContent() {
     sessions,
     projects,
     sessionStatuses,
+    connectionStatus,
     sidebarOpen,
     setSidebarOpen,
     activeSession,
