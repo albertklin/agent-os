@@ -12,6 +12,7 @@ import { db, queries, type Session } from "./db";
 import { createWorktree, deleteWorktree } from "./worktrees";
 import { setupWorktree } from "./env-setup";
 import { getProvider } from "./providers";
+import { getCurrentBranch } from "./git";
 import { tmuxSessionExists } from "./tmux";
 import { statusBroadcaster } from "./status-broadcaster";
 import { wrapWithBanner } from "./banner";
@@ -99,13 +100,18 @@ export async function spawnWorker(
 
   let worktreePath: string | null = null;
   let actualWorkingDir = workingDirectory;
+  let baseBranch = "main";
 
   // Create worktree if requested
   if (useWorktree) {
     try {
+      // Get current branch to use as base (instead of hardcoded "main")
+      baseBranch = await getCurrentBranch(workingDirectory);
+
       const worktreeResult = await createWorktree({
         projectPath: workingDirectory,
         featureName: branchName,
+        baseBranch,
       });
       worktreePath = worktreeResult.worktreePath;
       actualWorkingDir = worktreePath;
@@ -151,7 +157,7 @@ export async function spawnWorker(
     queries.updateSessionWorktree(db).run(
       worktreePath,
       branchName,
-      "main", // base_branch
+      baseBranch,
       null, // dev_server_port
       sessionId
     );
