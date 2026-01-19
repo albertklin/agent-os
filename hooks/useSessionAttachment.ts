@@ -5,6 +5,7 @@ import { usePanes } from "@/contexts/PaneContext";
 import { getProvider } from "@/lib/providers";
 import { getTmuxSessionName, getSessionCwd } from "@/lib/sessions";
 import { getPendingPrompt, clearPendingPrompt } from "@/stores/initialPrompt";
+import { toast } from "sonner";
 import type { TerminalHandle } from "@/components/Terminal";
 import type { Session } from "@/lib/db";
 
@@ -138,6 +139,26 @@ export function useSessionAttachment() {
         const session = await fetchSession(sessionId);
         if (!session) {
           console.error("[useSessionAttachment] Session not found:", sessionId);
+          return false;
+        }
+
+        // 1.5. Check if session setup is complete
+        if (
+          session.setup_status &&
+          session.setup_status !== "ready" &&
+          session.setup_status !== "failed"
+        ) {
+          const statusMessages: Record<string, string> = {
+            pending: "Setting up session...",
+            creating_worktree: "Creating worktree...",
+            init_submodules: "Initializing submodules...",
+            installing_deps: "Installing dependencies...",
+          };
+          const message =
+            statusMessages[session.setup_status] || "Session is still setting up...";
+          toast.info(message, {
+            description: "Please wait for setup to complete",
+          });
           return false;
         }
 

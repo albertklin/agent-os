@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb, queries, type Session, type Group } from "@/lib/db";
 import { isValidAgentType, type AgentType } from "@/lib/providers";
-import { createWorktree } from "@/lib/worktrees";
-import { setupWorktree, type SetupResult } from "@/lib/env-setup";
-import { findAvailablePort } from "@/lib/ports";
-import { runInBackground } from "@/lib/async-operations";
+import { runSessionSetup } from "@/lib/session-setup";
 import { hasAgentOsHooks, writeHooksConfig } from "@/lib/hooks/generate-config";
 
 // GET /api/sessions - List all sessions and groups
@@ -85,61 +82,16 @@ export async function POST(request: NextRequest) {
 
     const id = randomUUID();
 
-    // Handle worktree creation if requested
-    let worktreePath: string | null = null;
-    let branchName: string | null = null;
-    let actualWorkingDirectory = workingDirectory;
-    let port: number | null = null;
-    let setupResult: SetupResult | null = null;
-
-    if (useWorktree && featureName) {
-      try {
-        const worktreeInfo = await createWorktree({
-          projectPath: workingDirectory,
-          featureName,
-          baseBranch,
-        });
-        worktreePath = worktreeInfo.worktreePath;
-        branchName = worktreeInfo.branchName;
-        actualWorkingDirectory = worktreeInfo.worktreePath;
-
-        // Find an available port for the dev server
-        port = await findAvailablePort();
-
-        // Run environment setup in background (non-blocking)
-        // This allows instant UI feedback while npm install runs async
-        const capturedWorktreePath = worktreeInfo.worktreePath;
-        const capturedSourcePath = workingDirectory;
-        const capturedPort = port;
-        runInBackground(async () => {
-          const result = await setupWorktree({
-            worktreePath: capturedWorktreePath,
-            sourcePath: capturedSourcePath,
-            port: capturedPort,
-          });
-          console.log("Worktree setup completed:", {
-            port: capturedPort,
-            envFilesCopied: result.envFilesCopied,
-            stepsRun: result.steps.length,
-            success: result.success,
-          });
-        }, `setup-worktree-${id}`);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
-        return NextResponse.json(
-          { error: `Failed to create worktree: ${message}` },
-          { status: 400 }
-        );
-      }
-    }
+    // For worktree sessions, we create the session immediately with pending status
+    // and run the setup (worktree creation, submodule init, dep install) in background
+    const isWorktreeSession = useWorktree && featureName;
 
     const tmuxName = useTmux ? `${agentType}-${id}` : null;
     queries.createSession(db).run(
       id,
       name,
       tmuxName,
-      actualWorkingDirectory,
+      workingDirectory, // Will be updated to worktree path by background setup
       parentSessionId,
       model,
       systemPrompt,
@@ -149,11 +101,19 @@ export async function POST(request: NextRequest) {
       projectId
     );
 
-    // Set worktree info if created
-    if (worktreePath) {
-      queries
-        .updateSessionWorktree(db)
-        .run(worktreePath, branchName, baseBranch, port, id);
+    // For worktree sessions, set setup_status to pending and trigger background setup
+    if (isWorktreeSession) {
+      queries.updateSessionSetupStatus(db).run("pending", null, id);
+
+      // Fire and forget - background setup will update status via SSE
+      runSessionSetup({
+        sessionId: id,
+        projectPath: workingDirectory,
+        featureName: featureName.trim(),
+        baseBranch,
+      }).catch((error) => {
+        console.error(`[session-setup] Unhandled error for session ${id}:`, error);
+      });
     }
 
     // Set claude_session_id if provided (for importing external sessions)
@@ -185,8 +145,8 @@ export async function POST(request: NextRequest) {
     // Auto-configure hooks for Claude sessions if not already configured
     // This enables real-time status updates via the status-stream SSE endpoint
     let hooksConfigured = false;
-    if (agentType === "claude" && actualWorkingDirectory) {
-      const projectDir = actualWorkingDirectory.replace(
+    if (agentType === "claude" && workingDirectory) {
+      const projectDir = workingDirectory.replace(
         "~",
         process.env.HOME || ""
       );
@@ -201,16 +161,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Include setup result and initial prompt in response
+    // Include initial prompt in response
     const response: {
       session: Session;
-      setup?: SetupResult;
       initialPrompt?: string;
       hooksConfigured?: boolean;
     } = { session, hooksConfigured };
-    if (setupResult) {
-      response.setup = setupResult;
-    }
     if (initialPrompt?.trim()) {
       response.initialPrompt = initialPrompt.trim();
     }

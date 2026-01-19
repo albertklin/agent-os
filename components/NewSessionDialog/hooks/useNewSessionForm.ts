@@ -62,9 +62,10 @@ export function useNewSessionForm({
   const [showDirectoryPicker, setShowDirectoryPicker] = useState(false);
 
   // Creation step for loading overlay
-  const [creationStep, setCreationStep] = useState<
-    "creating" | "worktree" | "setup" | "done"
-  >("creating");
+  // Note: Actual setup progress is now tracked via SSE in the session card
+  const [creationStep, setCreationStep] = useState<"creating" | "done">(
+    "creating"
+  );
 
   // Recent directories
   const [recentDirs, setRecentDirs] = useState<string[]>([]);
@@ -209,16 +210,6 @@ export function useNewSessionForm({
 
     setCreationStep("creating");
 
-    // For worktree sessions, show step progression
-    let stepTimer: NodeJS.Timeout | undefined;
-    if (useWorktree) {
-      setCreationStep("worktree");
-      // Progress to "setup" step after 2s (worktree creation is usually fast)
-      stepTimer = setTimeout(() => {
-        setCreationStep("setup");
-      }, 2000);
-    }
-
     createSession.mutate(
       {
         name: name.trim() || undefined,
@@ -234,20 +225,16 @@ export function useNewSessionForm({
       },
       {
         onSuccess: (data) => {
-          if (stepTimer) clearTimeout(stepTimer);
           setCreationStep("done");
           if (data.initialPrompt) {
             setPendingPrompt(data.session.id, data.initialPrompt);
           }
           addRecentDirectory(workingDirectory);
-          // Small delay to show "done" state before closing
-          setTimeout(() => {
-            resetForm();
-            onCreated(data.session.id);
-          }, 300);
+          // Close immediately - setup progress is shown in session card via SSE
+          resetForm();
+          onCreated(data.session.id);
         },
         onError: () => {
-          if (stepTimer) clearTimeout(stepTimer);
           setCreationStep("creating");
         },
       }

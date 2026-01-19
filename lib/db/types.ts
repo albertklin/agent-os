@@ -1,5 +1,13 @@
 import type { AgentType } from "../providers";
 
+export type SetupStatus =
+  | "pending"
+  | "creating_worktree"
+  | "init_submodules"
+  | "installing_deps"
+  | "ready"
+  | "failed";
+
 export interface Session {
   id: string;
   name: string;
@@ -29,6 +37,9 @@ export interface Session {
   conductor_session_id: string | null;
   worker_task: string | null;
   worker_status: "pending" | "running" | "completed" | "failed" | null;
+  // Setup tracking for worktree sessions
+  setup_status: SetupStatus;
+  setup_error: string | null;
 }
 
 export interface Group {

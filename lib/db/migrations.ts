@@ -156,6 +156,16 @@ const migrations: Migration[] = [
       );
     },
   },
+  {
+    id: 12,
+    name: "add_setup_status_to_sessions",
+    up: (db) => {
+      db.exec(
+        `ALTER TABLE sessions ADD COLUMN setup_status TEXT DEFAULT 'ready'`
+      );
+      db.exec(`ALTER TABLE sessions ADD COLUMN setup_error TEXT`);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

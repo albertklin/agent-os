@@ -12,12 +12,22 @@ export type SessionStatusType =
   | "dead"
   | "unknown";
 
+export type SetupStatusType =
+  | "pending"
+  | "creating_worktree"
+  | "init_submodules"
+  | "installing_deps"
+  | "ready"
+  | "failed";
+
 export interface StatusData {
   status: SessionStatusType;
   lastLine?: string;
   updatedAt?: number;
   hookEvent?: string;
   toolName?: string;
+  setupStatus?: SetupStatusType;
+  setupError?: string;
 }
 
 interface StatusUpdate {
@@ -26,6 +36,8 @@ interface StatusUpdate {
   lastLine?: string;
   hookEvent?: string;
   toolName?: string;
+  setupStatus?: SetupStatusType;
+  setupError?: string;
 }
 
 interface InitEvent {
@@ -70,16 +82,22 @@ export function useStatusStream(): UseStatusStreamResult {
     (update: StatusUpdate) => {
       if (!mountedRef.current) return;
 
-      setStatuses((prev) => ({
-        ...prev,
-        [update.sessionId]: {
-          status: update.status,
-          lastLine: update.lastLine,
-          updatedAt: Date.now(),
-          hookEvent: update.hookEvent,
-          toolName: update.toolName,
-        },
-      }));
+      setStatuses((prev) => {
+        const existing = prev[update.sessionId];
+        return {
+          ...prev,
+          [update.sessionId]: {
+            status: update.status,
+            lastLine: update.lastLine,
+            updatedAt: Date.now(),
+            hookEvent: update.hookEvent,
+            toolName: update.toolName,
+            // Preserve setup status from existing or use new value
+            setupStatus: update.setupStatus ?? existing?.setupStatus,
+            setupError: update.setupError ?? existing?.setupError,
+          },
+        };
+      });
 
       setLastUpdate(Date.now());
 

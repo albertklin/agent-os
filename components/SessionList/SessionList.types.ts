@@ -1,10 +1,12 @@
 import type { Session, Group } from "@/lib/db";
-import type { ConnectionStatus } from "@/hooks/useStatusStream";
+import type { ConnectionStatus, SetupStatusType } from "@/hooks/useStatusStream";
 
 export interface SessionStatus {
   sessionName: string;
   status: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
   lastLine?: string;
+  setupStatus?: SetupStatusType;
+  setupError?: string;
 }
 
 export interface SessionListProps {

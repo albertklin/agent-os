@@ -2,13 +2,15 @@ import type { Session } from "@/lib/db";
 import type { ProjectWithDevServers } from "@/lib/projects";
 import type { NotificationSettings } from "@/lib/notifications";
 import type { TabData } from "@/lib/panes";
-import type { ConnectionStatus } from "@/hooks/useStatusStream";
+import type { ConnectionStatus, SetupStatusType } from "@/hooks/useStatusStream";
 
 export interface SessionStatus {
   sessionName: string;
   status: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
   lastLine?: string;
   claudeSessionId?: string | null;
+  setupStatus?: SetupStatusType;
+  setupError?: string;
 }
 
 export interface ViewProps {

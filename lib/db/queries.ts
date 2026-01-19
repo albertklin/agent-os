@@ -111,6 +111,12 @@ export const queries = {
       `UPDATE sessions SET worker_status = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
+  updateSessionSetupStatus: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE sessions SET setup_status = ?, setup_error = ?, updated_at = datetime('now') WHERE id = ?`
+    ),
+
   createWorkerSession: (db: Database.Database) =>
     getStmt(
       db,

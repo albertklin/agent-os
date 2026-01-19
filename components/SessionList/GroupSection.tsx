@@ -218,6 +218,8 @@ export function GroupSection({
                         isActive={session.id === activeSessionId}
                         isForking={isForkingSession}
                         tmuxStatus={sessionStatuses?.[session.id]?.status}
+                        setupStatus={sessionStatuses?.[session.id]?.setupStatus}
+                        setupError={sessionStatuses?.[session.id]?.setupError}
                         groups={groups}
                         onClick={() => onSelectSession(session.id)}
                         onFork={async (options) =>
@@ -250,6 +252,8 @@ export function GroupSection({
                           session={worker}
                           isActive={worker.id === activeSessionId}
                           tmuxStatus={sessionStatuses?.[worker.id]?.status}
+                          setupStatus={sessionStatuses?.[worker.id]?.setupStatus}
+                          setupError={sessionStatuses?.[worker.id]?.setupError}
                           groups={groups}
                           onClick={() => onSelectSession(worker.id)}
                           onDelete={() =>

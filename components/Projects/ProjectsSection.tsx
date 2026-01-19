@@ -257,6 +257,8 @@ function ProjectsSectionComponent({
                               isActive={session.id === activeSessionId}
                               isForking={isForkingSession}
                               tmuxStatus={sessionStatuses?.[session.id]?.status}
+                              setupStatus={sessionStatuses?.[session.id]?.setupStatus}
+                              setupError={sessionStatuses?.[session.id]?.setupError}
                               groups={groups}
                               projects={projects}
                               isSelected={selectedIds.has(session.id)}
@@ -326,6 +328,8 @@ function ProjectsSectionComponent({
                                 tmuxStatus={
                                   sessionStatuses?.[worker.id]?.status
                                 }
+                                setupStatus={sessionStatuses?.[worker.id]?.setupStatus}
+                                setupError={sessionStatuses?.[worker.id]?.setupError}
                                 groups={groups}
                                 projects={projects}
                                 isSelected={selectedIds.has(worker.id)}

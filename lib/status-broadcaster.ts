@@ -8,6 +8,7 @@
  */
 
 import { getDb } from "@/lib/db";
+import type { SetupStatus } from "@/lib/db/types";
 
 export type SessionStatus = "running" | "waiting" | "idle" | "dead" | "unknown";
 
@@ -17,6 +18,8 @@ export interface StatusData {
   updatedAt: number;
   hookEvent?: string;
   toolName?: string;
+  setupStatus?: SetupStatus;
+  setupError?: string;
 }
 
 export interface StatusUpdate {
@@ -25,6 +28,8 @@ export interface StatusUpdate {
   lastLine?: string;
   hookEvent?: string;
   toolName?: string;
+  setupStatus?: SetupStatus;
+  setupError?: string;
 }
 
 type SSECallback = (data: StatusUpdate) => void;
@@ -42,7 +47,18 @@ class StatusBroadcaster {
    * Update status for a session and broadcast to all subscribers
    */
   updateStatus(update: StatusUpdate): void {
-    const { sessionId, status, lastLine, hookEvent, toolName } = update;
+    const {
+      sessionId,
+      status,
+      lastLine,
+      hookEvent,
+      toolName,
+      setupStatus,
+      setupError,
+    } = update;
+
+    // Get existing data to preserve fields not in this update
+    const existing = this.statusStore.get(sessionId);
 
     // Update in-memory store
     this.statusStore.set(sessionId, {
@@ -51,6 +67,8 @@ class StatusBroadcaster {
       updatedAt: Date.now(),
       hookEvent,
       toolName,
+      setupStatus: setupStatus ?? existing?.setupStatus,
+      setupError: setupError ?? existing?.setupError,
     });
 
     // Update DB timestamp for running/waiting states

@@ -17,7 +17,9 @@ import {
   Square,
   CheckSquare,
   ExternalLink,
+  XCircle,
 } from "lucide-react";
+import type { SetupStatusType } from "@/hooks/useStatusStream";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -51,6 +53,8 @@ interface SessionCardProps {
   isActive?: boolean;
   isForking?: boolean;
   tmuxStatus?: TmuxStatus;
+  setupStatus?: SetupStatusType;
+  setupError?: string;
   groups?: Group[];
   projects?: ProjectWithDevServers[];
   // Selection props
@@ -111,11 +115,24 @@ const statusConfig: Record<
   },
 };
 
+const setupStatusConfig: Record<
+  Exclude<SetupStatusType, "ready">,
+  { label: string; shortLabel: string }
+> = {
+  pending: { label: "Setting up...", shortLabel: "Setup" },
+  creating_worktree: { label: "Creating worktree...", shortLabel: "Worktree" },
+  init_submodules: { label: "Initializing submodules...", shortLabel: "Submodules" },
+  installing_deps: { label: "Installing dependencies...", shortLabel: "Installing" },
+  failed: { label: "Setup failed", shortLabel: "Failed" },
+};
+
 function SessionCardComponent({
   session,
   isActive,
   isForking,
   tmuxStatus,
+  setupStatus,
+  setupError,
   groups = [],
   projects = [],
   isSelected,
@@ -135,6 +152,15 @@ function SessionCardComponent({
   const timeAgo = getTimeAgo(session.updated_at);
   const status = tmuxStatus || "dead";
   const config = statusConfig[status];
+
+  // Check if session is still setting up
+  const isSettingUp =
+    setupStatus && setupStatus !== "ready" && setupStatus !== "failed";
+  const setupFailed = setupStatus === "failed";
+  const setupConfig =
+    setupStatus && setupStatus !== "ready"
+      ? setupStatusConfig[setupStatus]
+      : null;
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(session.name);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -213,6 +239,13 @@ function SessionCardComponent({
   // Handle card click - coordinates selection with navigation
   const handleCardClick = (e: React.MouseEvent) => {
     if (isEditing) return;
+
+    // Don't allow clicking if session is still setting up
+    if (isSettingUp) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
 
     // If in select mode (any items selected), any click toggles selection
     if (isInSelectMode && onToggleSelect) {
@@ -358,13 +391,17 @@ function SessionCardComponent({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       className={cn(
-        "group flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
+        "group flex w-full items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
         "min-h-[36px] md:min-h-0", // Compact touch target
+        isSettingUp ? "cursor-wait opacity-70" : "cursor-pointer",
+        setupFailed && "border-red-500/30 border",
         isSelected
           ? "bg-primary/20"
           : isActive
             ? "bg-primary/10"
-            : "hover:bg-accent/50",
+            : isSettingUp
+              ? "bg-muted/50"
+              : "hover:bg-accent/50",
         status === "waiting" && !isActive && !isSelected && "bg-yellow-500/5"
       )}
     >
@@ -382,16 +419,40 @@ function SessionCardComponent({
         </button>
       )}
 
-      {/* Status indicator - hidden when in select mode */}
+      {/* Status indicator - show setup status if setting up, otherwise normal status */}
       {!isInSelectMode && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className={cn("flex-shrink-0", config.color)}>
-              {config.icon}
+            <div
+              className={cn(
+                "flex-shrink-0",
+                isSettingUp
+                  ? "text-blue-500"
+                  : setupFailed
+                    ? "text-red-500"
+                    : config.color
+              )}
+            >
+              {isSettingUp ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : setupFailed ? (
+                <XCircle className="h-3 w-3" />
+              ) : (
+                config.icon
+              )}
             </div>
           </TooltipTrigger>
           <TooltipContent side="right">
-            <span className="capitalize">{config.label}</span>
+            {setupConfig ? (
+              <div className="flex flex-col gap-1">
+                <span>{setupConfig.label}</span>
+                {setupError && (
+                  <span className="text-red-400 text-xs">{setupError}</span>
+                )}
+              </div>
+            ) : (
+              <span className="capitalize">{config.label}</span>
+            )}
           </TooltipContent>
         </Tooltip>
       )}
@@ -454,10 +515,26 @@ function SessionCardComponent({
         </a>
       )}
 
-      {/* Time ago */}
-      <span className="text-muted-foreground hidden flex-shrink-0 text-[10px] group-hover:hidden sm:block">
-        {timeAgo}
-      </span>
+      {/* Setup status badge */}
+      {setupConfig && (
+        <span
+          className={cn(
+            "flex flex-shrink-0 items-center gap-0.5 rounded px-1 text-[10px]",
+            setupFailed
+              ? "bg-red-500/20 text-red-400"
+              : "bg-blue-500/20 text-blue-400"
+          )}
+        >
+          {setupConfig.shortLabel}
+        </span>
+      )}
+
+      {/* Time ago - hide when setting up */}
+      {!setupConfig && (
+        <span className="text-muted-foreground hidden flex-shrink-0 text-[10px] group-hover:hidden sm:block">
+          {timeAgo}
+        </span>
+      )}
 
       {/* Actions menu (button) */}
       {hasActions && (
@@ -534,7 +611,7 @@ function getTimeAgo(dateStr: string): string {
  * Memoized SessionCard to prevent unnecessary re-renders
  * Only re-renders when:
  * - session.id, session.name, session.updated_at changes
- * - tmuxStatus changes
+ * - tmuxStatus, setupStatus, setupError changes
  * - isActive, isSelected, isInSelectMode, isForking changes
  * - groups or projects array references change (for menu rendering)
  */
@@ -546,6 +623,8 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
   if (prev.session.pr_status !== next.session.pr_status) return false;
   if (prev.session.branch_name !== next.session.branch_name) return false;
   if (prev.tmuxStatus !== next.tmuxStatus) return false;
+  if (prev.setupStatus !== next.setupStatus) return false;
+  if (prev.setupError !== next.setupError) return false;
   if (prev.isActive !== next.isActive) return false;
   if (prev.isSelected !== next.isSelected) return false;
   if (prev.isInSelectMode !== next.isInSelectMode) return false;
