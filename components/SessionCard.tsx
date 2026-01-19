@@ -124,8 +124,15 @@ const setupStatusConfig: Record<
 > = {
   pending: { label: "Setting up...", shortLabel: "Setup" },
   creating_worktree: { label: "Creating worktree...", shortLabel: "Worktree" },
-  init_submodules: { label: "Initializing submodules...", shortLabel: "Submodules" },
-  installing_deps: { label: "Installing dependencies...", shortLabel: "Installing" },
+  init_sandbox: { label: "Initializing sandbox...", shortLabel: "Sandbox" },
+  init_submodules: {
+    label: "Initializing submodules...",
+    shortLabel: "Submodules",
+  },
+  installing_deps: {
+    label: "Installing dependencies...",
+    shortLabel: "Installing",
+  },
   failed: { label: "Setup failed", shortLabel: "Failed" },
 };
 
@@ -397,7 +404,7 @@ function SessionCardComponent({
         "group flex w-full items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
         "min-h-[36px] md:min-h-0", // Compact touch target
         isSettingUp ? "cursor-wait opacity-70" : "cursor-pointer",
-        setupFailed && "border-red-500/30 border",
+        setupFailed && "border border-red-500/30",
         isSelected
           ? "bg-primary/20"
           : isActive
@@ -450,7 +457,7 @@ function SessionCardComponent({
               <div className="flex flex-col gap-1">
                 <span>{setupConfig.label}</span>
                 {setupError && (
-                  <span className="text-red-400 text-xs">{setupError}</span>
+                  <span className="text-xs text-red-400">{setupError}</span>
                 )}
               </div>
             ) : (
@@ -488,7 +495,7 @@ function SessionCardComponent({
       )}
 
       {/* Sandbox status indicator - only for auto-approve sessions */}
-      {session.auto_approve && session.sandbox_status && (
+      {!!session.auto_approve && session.sandbox_status && (
         <Tooltip>
           <TooltipTrigger asChild>
             <div

@@ -15,6 +15,7 @@ export type SessionStatusType =
 export type SetupStatusType =
   | "pending"
   | "creating_worktree"
+  | "init_sandbox"
   | "init_submodules"
   | "installing_deps"
   | "ready"

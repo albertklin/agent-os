@@ -17,6 +17,7 @@ import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { createWorktree, type CreateWorktreeOptions } from "@/lib/worktrees";
 import { setupWorktree } from "@/lib/env-setup";
 import { findAvailablePort } from "@/lib/ports";
+import { initializeSandbox } from "@/lib/sandbox";
 
 const execAsync = promisify(exec);
 
@@ -37,7 +38,9 @@ function updateSetupStatus(
 ): void {
   try {
     const db = getDb();
-    queries.updateSessionSetupStatus(db).run(setupStatus, setupError, sessionId);
+    queries
+      .updateSessionSetupStatus(db)
+      .run(setupStatus, setupError, sessionId);
   } catch (error) {
     console.error(`[session-setup] Failed to update DB status:`, error);
   }
@@ -90,7 +93,28 @@ export async function runSessionSetup(
       "UPDATE sessions SET working_directory = ?, updated_at = datetime('now') WHERE id = ?"
     ).run(worktreeInfo.worktreePath, sessionId);
 
-    // Step 2: Initialize submodules
+    // Step 2: Initialize sandbox for auto-approve sessions
+    // This must happen AFTER worktree creation so settings go to the worktree
+    const session = queries.getSession(db).get(sessionId) as {
+      auto_approve: number;
+      agent_type: string;
+    } | null;
+
+    if (session?.auto_approve && session?.agent_type === "claude") {
+      updateSetupStatus(sessionId, "init_sandbox");
+
+      console.log(`[sandbox] Initializing sandbox for session ${sessionId}`);
+      const sandboxReady = await initializeSandbox({
+        sessionId,
+        workingDirectory: worktreeInfo.worktreePath,
+      });
+
+      if (!sandboxReady) {
+        throw new Error("Failed to initialize sandbox settings in worktree");
+      }
+    }
+
+    // Step 3: Initialize submodules
     updateSetupStatus(sessionId, "init_submodules");
 
     try {
@@ -105,7 +129,7 @@ export async function runSessionSetup(
       );
     }
 
-    // Step 3: Install dependencies
+    // Step 4: Install dependencies
     updateSetupStatus(sessionId, "installing_deps");
 
     const setupResult = await setupWorktree({
@@ -122,12 +146,15 @@ export async function runSessionSetup(
       throw new Error(errorMsg || "Dependency installation failed");
     }
 
-    // Step 4: Mark as ready
+    // Step 5: Mark as ready
     updateSetupStatus(sessionId, "ready");
     console.log(`[session-setup] Setup completed for session ${sessionId}`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error";
-    console.error(`[session-setup] Setup failed for session ${sessionId}:`, errorMsg);
+    console.error(
+      `[session-setup] Setup failed for session ${sessionId}:`,
+      errorMsg
+    );
     updateSetupStatus(sessionId, "failed", errorMsg);
   }
 }

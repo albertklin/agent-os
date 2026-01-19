@@ -9,7 +9,6 @@ import {
   Plus,
   FolderOpen,
   GitBranch,
-  Users,
   Home,
 } from "lucide-react";
 import {
@@ -20,7 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Session } from "@/lib/db";
 
-type ViewMode = "terminal" | "files" | "git" | "workers";
+type ViewMode = "terminal" | "files" | "git";
 
 interface Tab {
   id: string;
@@ -35,8 +34,6 @@ interface DesktopTabBarProps {
   sessions: Session[];
   viewMode: ViewMode;
   isFocused: boolean;
-  isConductor: boolean;
-  workerCount: number;
   canSplit: boolean;
   canClose: boolean;
   hasAttachedTmux: boolean;
@@ -61,8 +58,6 @@ export function DesktopTabBar({
   sessions,
   viewMode,
   isFocused,
-  isConductor,
-  workerCount,
   canSplit,
   canClose,
   hasAttachedTmux,
@@ -222,30 +217,6 @@ export function DesktopTabBar({
             </TooltipTrigger>
             <TooltipContent>Shell</TooltipContent>
           </Tooltip>
-          {isConductor && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onViewModeChange("workers");
-                  }}
-                  className={cn(
-                    "relative rounded px-2 py-1 transition-colors",
-                    viewMode === "workers"
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Users className="h-3.5 w-3.5" />
-                  <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full text-[9px] font-medium">
-                    {workerCount}
-                  </span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Workers</TooltipContent>
-            </Tooltip>
-          )}
         </div>
       )}
 
