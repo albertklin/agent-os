@@ -7,7 +7,7 @@ import { setupWorktree, type SetupResult } from "@/lib/env-setup";
 import { findAvailablePort } from "@/lib/ports";
 import { runInBackground } from "@/lib/async-operations";
 import { hasAgentOsHooks, writeHooksConfig } from "@/lib/hooks/generate-config";
-import { ensureDevcontainerCli, initializeSandboxAndWait } from "@/lib/sandbox";
+import { initializeSandbox } from "@/lib/sandbox";
 
 // GET /api/sessions - List all sessions and groups
 export async function GET() {
@@ -202,31 +202,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Initialize sandbox for auto-approve Claude sessions (required, no fallback)
+    // Initialize Claude's native sandbox for auto-approve sessions
+    // This creates .claude/settings.json with sandbox enabled
     if (autoApprove && agentType === "claude") {
       const workDir = actualWorkingDirectory.replace(
         "~",
         process.env.HOME || ""
       );
 
-      // Ensure devcontainer CLI is available (auto-install if needed)
-      const cliAvailable = await ensureDevcontainerCli();
-      if (!cliAvailable) {
-        // Clean up the session we just created
-        queries.deleteSession(db).run(id);
-        return NextResponse.json(
-          {
-            error:
-              "Auto-approve sessions require Docker and devcontainer CLI for sandboxing. " +
-              "Please install Docker and run 'npm run setup' to install devcontainer CLI.",
-          },
-          { status: 400 }
-        );
-      }
-
-      // Initialize sandbox and wait for it to be ready
       console.log(`[sandbox] Initializing sandbox for session ${id}`);
-      const sandboxReady = await initializeSandboxAndWait({
+      const sandboxReady = await initializeSandbox({
         sessionId: id,
         workingDirectory: workDir,
       });
@@ -238,7 +223,7 @@ export async function POST(request: NextRequest) {
           {
             error:
               "Failed to initialize sandbox for auto-approve session. " +
-              "Check Docker is running and try again.",
+              "Could not create sandbox settings.",
           },
           { status: 500 }
         );

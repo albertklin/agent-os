@@ -41,36 +41,6 @@ if ! command -v jq &> /dev/null; then
     echo "Install: brew install jq (macOS) or apt install jq (Linux)"
 fi
 
-# Check Docker (required for sandboxed auto-approve sessions)
-if ! command -v docker &> /dev/null; then
-    echo "Error: Docker is not installed"
-    echo "Docker is required for sandboxed auto-approve sessions"
-    echo "Install from https://docs.docker.com/get-docker/"
-    exit 1
-fi
-# Check if Docker daemon is running
-if ! docker info &> /dev/null; then
-    echo "Error: Docker daemon is not running"
-    echo "Please start Docker and try again"
-    exit 1
-fi
-echo "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
-
-# Check/install devcontainer CLI (required for sandbox feature)
-if ! command -v devcontainer &> /dev/null; then
-    echo ""
-    echo "Installing devcontainer CLI for sandboxed sessions..."
-    npm install -g @devcontainers/cli
-    if command -v devcontainer &> /dev/null; then
-        echo "devcontainer CLI: installed"
-    else
-        echo "Warning: Failed to install devcontainer CLI"
-        echo "Install manually: npm install -g @devcontainers/cli"
-    fi
-else
-    echo "devcontainer CLI: $(devcontainer --version)"
-fi
-
 # Copy .env if needed
 if [ ! -f .env ]; then
     if [ -f .env.example ]; then

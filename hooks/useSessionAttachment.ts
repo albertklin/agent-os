@@ -51,7 +51,8 @@ export function useSessionAttachment() {
 
   /**
    * Build the CLI command for the agent (e.g., "claude --resume abc123").
-   * If the session is sandboxed and ready, wraps with devcontainer exec.
+   * For auto-approve sessions, Claude's native sandbox is enabled via
+   * .claude/settings.json, so no command wrapping is needed.
    */
   const buildAgentCommand = useCallback(
     (session: Session, sessions: Session[]): string => {
@@ -86,16 +87,12 @@ export function useSessionAttachment() {
       });
 
       const flagsStr = flags.join(" ");
-      let command = flagsStr
+      const command = flagsStr
         ? `${provider.command} ${flagsStr}`
         : provider.command;
 
-      // If this is a sandboxed auto-approve session, wrap with devcontainer exec
-      if (session.auto_approve && session.sandbox_status === "ready") {
-        const workspaceFolder =
-          session.worktree_path || session.working_directory;
-        command = `devcontainer exec --workspace-folder "${workspaceFolder}" ${command}`;
-      }
+      // Note: For auto-approve sessions, sandbox is enabled via .claude/settings.json
+      // Claude will automatically apply sandbox restrictions when it starts
 
       return command;
     },
@@ -153,18 +150,19 @@ export function useSessionAttachment() {
           return false;
         }
 
-        // 2. For auto-approve sessions, sandbox is required (no fallback)
+        // 2. For auto-approve sessions, verify sandbox settings are ready
+        // (Sandbox initialization writes .claude/settings.json, which is fast)
         if (session.auto_approve && session.agent_type === "claude") {
-          // If sandbox is initializing, wait for it
+          // Brief wait if still initializing (should be very fast since it's just writing a file)
           if (
             session.sandbox_status === "pending" ||
             session.sandbox_status === "initializing"
           ) {
             console.log(
-              "[useSessionAttachment] Waiting for sandbox to be ready..."
+              "[useSessionAttachment] Waiting for sandbox settings..."
             );
-            const maxWaitMs = 120000; // 2 minute timeout for attachment
-            const pollIntervalMs = 2000;
+            const maxWaitMs = 5000; // 5 second timeout (file write should be instant)
+            const pollIntervalMs = 500;
             const startTime = Date.now();
 
             while (Date.now() - startTime < maxWaitMs) {
@@ -179,23 +177,22 @@ export function useSessionAttachment() {
               }
 
               if (session.sandbox_status === "ready") {
-                console.log("[useSessionAttachment] Sandbox is ready");
                 break;
               }
 
               if (session.sandbox_status === "failed") {
                 console.error(
-                  "[useSessionAttachment] Sandbox failed - cannot attach to auto-approve session without sandbox"
+                  "[useSessionAttachment] Sandbox settings failed - cannot attach"
                 );
                 return false;
               }
             }
           }
 
-          // Final check: refuse attachment if sandbox is not ready
+          // Refuse attachment if sandbox settings aren't ready
           if (session.sandbox_status !== "ready") {
             console.error(
-              "[useSessionAttachment] Cannot attach to auto-approve session: sandbox not ready",
+              "[useSessionAttachment] Cannot attach: sandbox settings not ready",
               { status: session.sandbox_status }
             );
             return false;
