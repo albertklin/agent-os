@@ -96,11 +96,10 @@ export async function createWorktree(
   await ensureWorktreesDir();
 
   // Create the worktree with a new branch
-  // Try multiple ref formats to avoid "ambiguous refname" errors
+  // Use local branches only (for local development)
   const refFormats = [
-    `origin/${baseBranch}`, // Try remote first (most explicit)
-    `refs/heads/${baseBranch}`, // Then local branch
-    baseBranch, // Finally, bare name as fallback
+    `refs/heads/${baseBranch}`, // Local branch (explicit)
+    baseBranch, // Bare name as fallback
   ];
 
   let lastError: Error | null = null;
