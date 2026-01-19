@@ -17,12 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Loader2, RefreshCw, Server } from "lucide-react";
 import { useUpdateProject } from "@/data/projects";
-import { useQueryClient } from "@tanstack/react-query";
-import { devServerKeys } from "@/data/dev-servers";
 import type { AgentType } from "@/lib/providers";
-import type { ProjectWithDevServers, DetectedDevServer } from "@/lib/projects";
+import type { ProjectWithDevServers } from "@/lib/projects";
 
 const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
   { value: "claude", label: "Claude Code" },
@@ -38,17 +35,6 @@ const MODEL_OPTIONS = [
   { value: "sonnet", label: "Sonnet" },
   { value: "haiku", label: "Haiku" },
 ];
-
-interface DevServerConfig {
-  id: string;
-  name: string;
-  type: "node" | "docker";
-  command: string;
-  port?: number;
-  portEnvVar?: string;
-  isNew?: boolean;
-  isDeleted?: boolean;
-}
 
 interface ProjectSettingsDialogProps {
   project: ProjectWithDevServers | null;
@@ -67,13 +53,10 @@ export function ProjectSettingsDialog({
   const [workingDirectory, setWorkingDirectory] = useState("");
   const [agentType, setAgentType] = useState<AgentType>("claude");
   const [defaultModel, setDefaultModel] = useState("opus");
-  const [devServers, setDevServers] = useState<DevServerConfig[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDetecting, setIsDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const updateProject = useUpdateProject();
-  const queryClient = useQueryClient();
 
   // Initialize form when project changes
   useEffect(() => {
@@ -82,94 +65,8 @@ export function ProjectSettingsDialog({
       setWorkingDirectory(project.working_directory);
       setAgentType(project.agent_type);
       setDefaultModel(project.default_model);
-      setDevServers(
-        project.devServers.map((ds) => ({
-          id: ds.id,
-          name: ds.name,
-          type: ds.type,
-          command: ds.command,
-          port: ds.port || undefined,
-          portEnvVar: ds.port_env_var || undefined,
-        }))
-      );
     }
   }, [project]);
-
-  // Detect dev servers
-  const detectDevServers = async () => {
-    if (!workingDirectory) return;
-
-    setIsDetecting(true);
-    try {
-      const res = await fetch("/api/projects/detect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workingDirectory }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const detected = (data.detected || []) as DetectedDevServer[];
-
-        // Add detected servers that don't already exist
-        const existingCommands = new Set(devServers.map((ds) => ds.command));
-        const newServers = detected
-          .filter((d) => !existingCommands.has(d.command))
-          .map((d, i) => ({
-            id: `new_${Date.now()}_${i}`,
-            name: d.name,
-            type: d.type,
-            command: d.command,
-            port: d.port,
-            portEnvVar: d.portEnvVar,
-            isNew: true,
-          }));
-
-        setDevServers((prev) => [...prev, ...newServers]);
-      }
-    } catch (err) {
-      console.error("Failed to detect dev servers:", err);
-    } finally {
-      setIsDetecting(false);
-    }
-  };
-
-  // Add new dev server config
-  const addDevServer = () => {
-    setDevServers((prev) => [
-      ...prev,
-      {
-        id: `new_${Date.now()}`,
-        name: "",
-        type: "node",
-        command: "",
-        isNew: true,
-      },
-    ]);
-  };
-
-  // Remove dev server config
-  const removeDevServer = (id: string) => {
-    setDevServers(
-      (prev) =>
-        prev
-          .map((ds) =>
-            ds.id === id
-              ? ds.isNew
-                ? null // Remove new items completely
-                : { ...ds, isDeleted: true } // Mark existing for deletion
-              : ds
-          )
-          .filter(Boolean) as DevServerConfig[]
-    );
-  };
-
-  // Update dev server config
-  const updateDevServer = (id: string, updates: Partial<DevServerConfig>) => {
-    setDevServers((prev) =>
-      prev.map((ds) => (ds.id === id ? { ...ds, ...updates } : ds))
-    );
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,50 +89,6 @@ export function ProjectSettingsDialog({
         defaultModel,
       });
 
-      // Handle dev server changes
-      for (const ds of devServers) {
-        if (ds.isDeleted && !ds.isNew) {
-          // Delete existing dev server
-          await fetch(`/api/projects/${project.id}/dev-servers/${ds.id}`, {
-            method: "DELETE",
-          });
-        } else if (
-          ds.isNew &&
-          !ds.isDeleted &&
-          ds.name.trim() &&
-          ds.command.trim()
-        ) {
-          // Create new dev server
-          await fetch(`/api/projects/${project.id}/dev-servers`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: ds.name.trim(),
-              type: ds.type,
-              command: ds.command.trim(),
-              port: ds.port || undefined,
-              portEnvVar: ds.portEnvVar || undefined,
-            }),
-          });
-        } else if (!ds.isNew && !ds.isDeleted) {
-          // Update existing dev server
-          await fetch(`/api/projects/${project.id}/dev-servers/${ds.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: ds.name.trim(),
-              type: ds.type,
-              command: ds.command.trim(),
-              port: ds.port || undefined,
-              portEnvVar: ds.portEnvVar || undefined,
-            }),
-          });
-        }
-      }
-
-      // Invalidate dev servers cache so list updates
-      queryClient.invalidateQueries({ queryKey: devServerKeys.list() });
-
       handleClose();
       onSave();
     } catch (err) {
@@ -250,8 +103,6 @@ export function ProjectSettingsDialog({
     setError(null);
     onClose();
   };
-
-  const visibleDevServers = devServers.filter((ds) => !ds.isDeleted);
 
   if (!project) return null;
 
@@ -318,125 +169,6 @@ export function ProjectSettingsDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          {/* Dev Servers */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <Server className="h-4 w-4" />
-                Dev Servers
-              </label>
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={detectDevServers}
-                  disabled={isDetecting || !workingDirectory}
-                >
-                  {isDetecting ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-1 h-3 w-3" />
-                  )}
-                  Detect
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={addDevServer}
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Add
-                </Button>
-              </div>
-            </div>
-
-            {visibleDevServers.length === 0 ? (
-              <p className="text-muted-foreground py-2 text-sm">
-                No dev servers configured.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {visibleDevServers.map((ds) => (
-                  <div
-                    key={ds.id}
-                    className="bg-accent/30 space-y-2 rounded-lg p-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={ds.name}
-                        onChange={(e) =>
-                          updateDevServer(ds.id, { name: e.target.value })
-                        }
-                        placeholder="Server name"
-                        className="h-8 flex-1"
-                      />
-                      <Select
-                        value={ds.type}
-                        onValueChange={(v) =>
-                          updateDevServer(ds.id, {
-                            type: v as "node" | "docker",
-                          })
-                        }
-                      >
-                        <SelectTrigger className="h-8 w-24">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="node">Node</SelectItem>
-                          <SelectItem value="docker">Docker</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => removeDevServer(ds.id)}
-                        className="text-red-500 hover:text-red-600"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                    <Input
-                      value={ds.command}
-                      onChange={(e) =>
-                        updateDevServer(ds.id, { command: e.target.value })
-                      }
-                      placeholder={
-                        ds.type === "docker" ? "Service name" : "npm run dev"
-                      }
-                      className="h-8"
-                    />
-                    <div className="flex gap-2">
-                      <Input
-                        type="number"
-                        value={ds.port || ""}
-                        onChange={(e) =>
-                          updateDevServer(ds.id, {
-                            port: e.target.value
-                              ? parseInt(e.target.value)
-                              : undefined,
-                          })
-                        }
-                        placeholder="Port"
-                        className="h-8 w-24"
-                      />
-                      <Input
-                        value={ds.portEnvVar || ""}
-                        onChange={(e) =>
-                          updateDevServer(ds.id, { portEnvVar: e.target.value })
-                        }
-                        placeholder="Port env var (e.g., PORT)"
-                        className="h-8 flex-1"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {error && <p className="text-sm text-red-500">{error}</p>}
