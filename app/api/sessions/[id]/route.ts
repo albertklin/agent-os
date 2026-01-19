@@ -133,6 +133,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       updates.push("project_id = ?");
       values.push(body.projectId);
     }
+    if (body.claude_session_id !== undefined) {
+      updates.push("claude_session_id = ?");
+      values.push(body.claude_session_id);
+    }
 
     if (updates.length > 0) {
       updates.push("updated_at = datetime('now')");

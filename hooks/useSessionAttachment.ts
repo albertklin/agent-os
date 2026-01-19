@@ -18,6 +18,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function generateUUID(): string {
+  return crypto.randomUUID();
+}
+
+/**
+ * Update a session's claude_session_id in the database.
+ */
+async function updateClaudeSessionId(
+  sessionId: string,
+  claudeSessionId: string
+): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claude_session_id: claudeSessionId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Hook for managing session attachment with proper locking and fresh data.
  *
@@ -53,9 +76,14 @@ export function useSessionAttachment() {
    * Build the CLI command for the agent (e.g., "claude --resume abc123").
    * For auto-approve sessions, Claude's native sandbox is enabled via
    * .claude/settings.json, so no command wrapping is needed.
+   * @param newSessionId - Pre-generated UUID for new sessions or forks
    */
   const buildAgentCommand = useCallback(
-    (session: Session, sessions: Session[]): string => {
+    (
+      session: Session,
+      sessions: Session[],
+      newSessionId?: string | null
+    ): string => {
       const provider = getProvider(session.agent_type || "claude");
 
       // Shell sessions don't have a command
@@ -81,6 +109,7 @@ export function useSessionAttachment() {
       const flags = provider.buildFlags({
         sessionId: session.claude_session_id,
         parentSessionId,
+        newSessionId: newSessionId || undefined,
         autoApprove: session.auto_approve,
         model: session.model,
         initialPrompt: initialPrompt || undefined,
@@ -214,8 +243,27 @@ export function useSessionAttachment() {
         terminal.sendInput("\x03"); // Ctrl+C
         await sleep(50);
 
-        // 6. Build tmux command
-        const agentCommand = buildAgentCommand(session, sessions);
+        // 6. Generate claude_session_id if needed (for Claude-type agents only)
+        let newSessionId: string | null = null;
+        const provider = getProvider(session.agent_type || "claude");
+        if (
+          provider.id === "claude" &&
+          !session.claude_session_id &&
+          provider.supportsResume
+        ) {
+          // Generate a new UUID for this session
+          newSessionId = generateUUID();
+          // Store it in the database before starting Claude
+          const updated = await updateClaudeSessionId(session.id, newSessionId);
+          if (!updated) {
+            console.warn(
+              "[useSessionAttachment] Failed to store claude_session_id, continuing anyway"
+            );
+          }
+        }
+
+        // 7. Build tmux command
+        const agentCommand = buildAgentCommand(session, sessions, newSessionId);
         const tmuxNew = agentCommand
           ? `tmux new -s ${tmuxName} -c "${cwd}" "${agentCommand}"`
           : `tmux new -s ${tmuxName} -c "${cwd}"`;
