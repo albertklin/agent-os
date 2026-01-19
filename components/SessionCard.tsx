@@ -18,6 +18,9 @@ import {
   CheckSquare,
   ExternalLink,
   XCircle,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 import type { SetupStatusType } from "@/hooks/useStatusStream";
 import { Button } from "./ui/button";
@@ -484,6 +487,49 @@ function SessionCardComponent({
         <GitFork className="text-muted-foreground h-3 w-3 flex-shrink-0" />
       )}
 
+      {/* Sandbox status indicator - only for auto-approve sessions */}
+      {session.auto_approve && session.sandbox_status && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={cn(
+                "flex flex-shrink-0 items-center gap-0.5 rounded px-1 text-[10px]",
+                session.sandbox_status === "ready" &&
+                  "bg-green-500/20 text-green-400",
+                session.sandbox_status === "initializing" &&
+                  "bg-blue-500/20 text-blue-400",
+                session.sandbox_status === "pending" &&
+                  "bg-yellow-500/20 text-yellow-400",
+                session.sandbox_status === "failed" &&
+                  "bg-red-500/20 text-red-400"
+              )}
+            >
+              {session.sandbox_status === "ready" ? (
+                <ShieldCheck className="h-2.5 w-2.5" />
+              ) : session.sandbox_status === "failed" ? (
+                <ShieldAlert className="h-2.5 w-2.5" />
+              ) : session.sandbox_status === "initializing" ? (
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              ) : (
+                <Shield className="h-2.5 w-2.5" />
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <span>
+              Sandbox:{" "}
+              {session.sandbox_status === "ready"
+                ? "Protected"
+                : session.sandbox_status === "initializing"
+                  ? "Starting container..."
+                  : session.sandbox_status === "pending"
+                    ? "Pending"
+                    : "Failed"}
+            </span>
+          </TooltipContent>
+        </Tooltip>
+      )}
+
       {/* TODO: Show port indicator once auto dev server management is implemented.
           Each worktree gets a unique port (3100, 3110, etc.) for running dev servers.
           See lib/ports.ts and ideas.md for the planned feature. */}
@@ -622,6 +668,7 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
   if (prev.session.updated_at !== next.session.updated_at) return false;
   if (prev.session.pr_status !== next.session.pr_status) return false;
   if (prev.session.branch_name !== next.session.branch_name) return false;
+  if (prev.session.sandbox_status !== next.session.sandbox_status) return false;
   if (prev.tmuxStatus !== next.tmuxStatus) return false;
   if (prev.setupStatus !== next.setupStatus) return false;
   if (prev.setupError !== next.setupError) return false;

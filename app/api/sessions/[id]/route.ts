@@ -11,6 +11,7 @@ import { releasePort } from "@/lib/ports";
 import { killWorker } from "@/lib/orchestration";
 import { generateBranchName, getCurrentBranch, renameBranch } from "@/lib/git";
 import { runInBackground } from "@/lib/async-operations";
+import { cleanupSandbox } from "@/lib/sandbox";
 
 const execAsync = promisify(exec);
 
@@ -132,6 +133,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       updates.push("project_id = ?");
       values.push(body.projectId);
     }
+    if (body.claude_session_id !== undefined) {
+      updates.push("claude_session_id = ?");
+      values.push(body.claude_session_id);
+    }
 
     if (updates.length > 0) {
       updates.push("updated_at = datetime('now')");
@@ -189,6 +194,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       } catch {
         // Ignore errors - session might already be dead
       }
+    }
+
+    // Clean up sandbox status in database
+    if (existing.sandbox_status) {
+      await cleanupSandbox(id);
     }
 
     // Check if branch has changes before deleting (for user feedback)

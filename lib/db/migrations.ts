@@ -166,6 +166,14 @@ const migrations: Migration[] = [
       db.exec(`ALTER TABLE sessions ADD COLUMN setup_error TEXT`);
     },
   },
+  {
+    id: 13,
+    name: "add_sandbox_columns_to_sessions",
+    up: (db) => {
+      db.exec(`ALTER TABLE sessions ADD COLUMN container_id TEXT`);
+      db.exec(`ALTER TABLE sessions ADD COLUMN sandbox_status TEXT`);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

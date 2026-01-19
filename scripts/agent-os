@@ -9,7 +9,6 @@ set -euo pipefail
 # Configuration
 AGENT_OS_HOME="${AGENT_OS_HOME:-$HOME/.agent-os}"
 PORT="${AGENT_OS_PORT:-3011}"
-REPO_URL="https://github.com/saadnvd1/agent-os.git"
 
 # Derived paths
 REPO_DIR="$AGENT_OS_HOME/repo"
@@ -60,6 +59,9 @@ SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
 # Local repo path (parent of scripts dir) - used for --local installs
 LOCAL_REPO="$(dirname "$SCRIPT_DIR")"
 
+# Get repo URL from local repo's origin remote
+REPO_URL="$(git -C "$LOCAL_REPO" remote get-url origin 2>/dev/null || echo "")"
+
 # Source library files
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/prerequisites.sh"
@@ -75,9 +77,10 @@ case "${1:-}" in
     run)              cmd_run ;;
     status)           cmd_status ;;
     logs)             cmd_logs ;;
-    update)           cmd_update ;;
+    update)           cmd_update "${2:-}" ;;
     enable)           cmd_enable ;;
     disable)          cmd_disable ;;
+    mcp)              cmd_mcp ;;
     uninstall)        cmd_uninstall ;;
     start-foreground) cmd_start_foreground ;;
     help|--help|-h)   cmd_help ;;

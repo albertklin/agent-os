@@ -75,9 +75,9 @@ export function DeleteSessionDialog({
     onConfirm();
   };
 
-  const requiresAcknowledgment = status?.hasUncommittedChanges ?? false;
-  const canDelete = !requiresAcknowledgment || acknowledged;
   const hasSiblings = (status?.siblingSessionNames?.length ?? 0) > 0;
+  const requiresAcknowledgment = (status?.hasUncommittedChanges && !hasSiblings) ?? false;
+  const canDelete = !requiresAcknowledgment || acknowledged;
 
   return (
     <ADialog
@@ -136,8 +136,8 @@ export function DeleteSessionDialog({
             </div>
           )}
 
-          {/* Uncommitted changes warning with checkbox */}
-          {status?.hasUncommittedChanges && (
+          {/* Uncommitted changes warning with checkbox - only show when worktree will be deleted */}
+          {status?.hasUncommittedChanges && !hasSiblings && (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />

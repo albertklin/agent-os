@@ -117,6 +117,12 @@ export const queries = {
       `UPDATE sessions SET setup_status = ?, setup_error = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
+  updateSessionSandbox: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE sessions SET container_id = ?, sandbox_status = ?, updated_at = datetime('now') WHERE id = ?`
+    ),
+
   createWorkerSession: (db: Database.Database) =>
     getStmt(
       db,

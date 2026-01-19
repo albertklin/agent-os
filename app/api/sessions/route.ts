@@ -4,6 +4,7 @@ import { getDb, queries, type Session, type Group } from "@/lib/db";
 import { isValidAgentType, type AgentType } from "@/lib/providers";
 import { runSessionSetup } from "@/lib/session-setup";
 import { hasAgentOsHooks, writeHooksConfig } from "@/lib/hooks/generate-config";
+import { initializeSandbox } from "@/lib/sandbox";
 
 // GET /api/sessions - List all sessions and groups
 export async function GET() {
@@ -158,6 +159,40 @@ export async function POST(request: NextRequest) {
         }
       } else {
         hooksConfigured = true;
+      }
+    }
+
+    // Initialize Claude's native sandbox for auto-approve sessions
+    // This creates .claude/settings.json with sandbox enabled
+    if (autoApprove && agentType === "claude") {
+      const workDir = workingDirectory.replace(
+        "~",
+        process.env.HOME || ""
+      );
+
+      console.log(`[sandbox] Initializing sandbox for session ${id}`);
+      const sandboxReady = await initializeSandbox({
+        sessionId: id,
+        workingDirectory: workDir,
+      });
+
+      if (!sandboxReady) {
+        // Clean up the session we just created
+        queries.deleteSession(db).run(id);
+        return NextResponse.json(
+          {
+            error:
+              "Failed to initialize sandbox for auto-approve session. " +
+              "Could not create sandbox settings.",
+          },
+          { status: 500 }
+        );
+      }
+
+      // Refresh session data after sandbox initialization
+      const updatedSession = queries.getSession(db).get(id) as Session;
+      if (updatedSession) {
+        Object.assign(session, updatedSession);
       }
     }
 

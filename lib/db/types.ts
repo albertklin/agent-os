@@ -40,6 +40,9 @@ export interface Session {
   // Setup tracking for worktree sessions
   setup_status: SetupStatus;
   setup_error: string | null;
+  // Sandbox fields
+  container_id: string | null;
+  sandbox_status: "pending" | "initializing" | "ready" | "failed" | null;
 }
 
 export interface Group {

@@ -12,10 +12,12 @@ import { db, queries, type Session } from "./db";
 import { createWorktree, deleteWorktree } from "./worktrees";
 import { setupWorktree } from "./env-setup";
 import { getProvider } from "./providers";
+import { getCurrentBranch } from "./git";
 import { tmuxSessionExists } from "./tmux";
 import { statusBroadcaster } from "./status-broadcaster";
 import { wrapWithBanner } from "./banner";
 import { runInBackground } from "./async-operations";
+import { initializeSandbox } from "./sandbox";
 
 const execAsync = promisify(exec);
 
@@ -99,13 +101,18 @@ export async function spawnWorker(
 
   let worktreePath: string | null = null;
   let actualWorkingDir = workingDirectory;
+  let baseBranch = "main";
 
   // Create worktree if requested
   if (useWorktree) {
     try {
+      // Get current branch to use as base (instead of hardcoded "main")
+      baseBranch = await getCurrentBranch(workingDirectory);
+
       const worktreeResult = await createWorktree({
         projectPath: workingDirectory,
         featureName: branchName,
+        baseBranch,
       });
       worktreePath = worktreeResult.worktreePath;
       actualWorkingDir = worktreePath;
@@ -151,7 +158,7 @@ export async function spawnWorker(
     queries.updateSessionWorktree(db).run(
       worktreePath,
       branchName,
-      "main", // base_branch
+      baseBranch,
       null, // dev_server_port
       sessionId
     );
@@ -167,8 +174,32 @@ export async function spawnWorker(
 
   // Create tmux session with the agent and banner
   const agentCmd = `${provider.command} ${flagsStr}`;
-  const newSessionCmd = wrapWithBanner(agentCmd);
-  const createCmd = `tmux new-session -d -s "${tmuxSessionName}" -c "${cwd}" "${newSessionCmd}"`;
+
+  // Workers always use auto-approve, so initialize Claude's native sandbox
+  // This creates .claude/settings.json with sandbox enabled
+  console.log(
+    `[orchestration] Initializing sandbox for worker ${sessionId}...`
+  );
+
+  const sandboxReady = await initializeSandbox({
+    sessionId,
+    workingDirectory: actualWorkingDir,
+  });
+
+  if (!sandboxReady) {
+    queries.updateWorkerStatus(db).run("failed", sessionId);
+    throw new Error(
+      `Failed to initialize sandbox for worker ${sessionId}. Could not create sandbox settings.`
+    );
+  }
+
+  // Claude will read .claude/settings.json and enable sandbox automatically
+  const finalCmd = wrapWithBanner(agentCmd);
+  console.log(
+    `[orchestration] Worker ${sessionId} will run with sandbox enabled`
+  );
+
+  const createCmd = `tmux new-session -d -s "${tmuxSessionName}" -c "${cwd}" "${finalCmd}"`;
 
   try {
     await execAsync(createCmd);

@@ -1,8 +1,11 @@
 /**
  * Claude Hooks Configuration Generator
  *
- * Generates hooks.json configuration for Claude that sends status updates
+ * Generates hooks configuration for Claude that sends status updates
  * to the AgentOS status-update endpoint.
+ *
+ * IMPORTANT: Claude Code reads hooks from settings.json files, NOT from hooks.json.
+ * This module writes to ~/.claude/settings.json (global) to avoid per-project bloat.
  *
  * The hooks are designed to:
  * - Be non-blocking (timeout after 2s)
@@ -14,18 +17,31 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-export interface HooksConfig {
-  hooks: {
-    PreToolUse?: HookDefinition[];
-    PostToolUse?: HookDefinition[];
-    Notification?: HookDefinition[];
-    Stop?: HookDefinition[];
-  };
+interface HookCommand {
+  type: "command";
+  command: string;
 }
 
 interface HookDefinition {
-  type: "command";
-  command: string;
+  matcher: string; // Pattern to match tools: "" or "*" for all, "Bash" for exact, "Edit|Write" for regex
+  hooks: HookCommand[];
+}
+
+interface HooksSection {
+  PreToolUse?: HookDefinition[];
+  PostToolUse?: HookDefinition[];
+  Notification?: HookDefinition[];
+  Stop?: HookDefinition[];
+}
+
+// Backwards compatibility interface for hooks.json format
+export interface HooksConfig {
+  hooks: HooksSection;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface ClaudeSettings extends Record<string, any> {
+  hooks?: HooksSection;
 }
 
 /**
@@ -68,208 +84,61 @@ exit 0
 }
 
 /**
- * Generate the full hooks configuration
+ * Generate the hooks section for settings.json
+ *
+ * Uses the new hooks format with matchers:
+ * { "matcher": {}, "hooks": [{ "type": "command", "command": "..." }] }
  */
-export function generateHooksConfig(port: number = 3011): HooksConfig {
+export function generateHooksSection(port: number = 3011): HooksSection {
   return {
-    hooks: {
-      PreToolUse: [
-        {
-          type: "command",
-          command: generateHookCommand("PreToolUse", port),
-        },
-      ],
-      PostToolUse: [
-        {
-          type: "command",
-          command: generateHookCommand("PostToolUse", port),
-        },
-      ],
-      Stop: [
-        {
-          type: "command",
-          command: generateHookCommand("Stop", port),
-        },
-      ],
-    },
+    PreToolUse: [
+      {
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("PreToolUse", port),
+          },
+        ],
+      },
+    ],
+    PostToolUse: [
+      {
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("PostToolUse", port),
+          },
+        ],
+      },
+    ],
+    Stop: [
+      {
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("Stop", port),
+          },
+        ],
+      },
+    ],
   };
 }
 
 /**
- * Get the path to the Claude hooks config directory for a project
+ * Generate the full hooks configuration (for hooks.json format)
+ * @deprecated Use generateHooksSection() for settings.json format
  */
-export function getHooksConfigDir(projectDir: string): string {
-  return path.join(projectDir, ".claude");
+export function generateHooksConfig(port: number = 3011): HooksConfig {
+  return {
+    hooks: generateHooksSection(port),
+  };
 }
 
 /**
- * Get the path to the hooks.json file for a project
- */
-export function getHooksConfigPath(projectDir: string): string {
-  return path.join(getHooksConfigDir(projectDir), "hooks.json");
-}
-
-/**
- * Check if hooks are configured for a project
- */
-export function isHooksConfigured(projectDir: string): boolean {
-  const configPath = getHooksConfigPath(projectDir);
-  try {
-    if (!fs.existsSync(configPath)) {
-      return false;
-    }
-    const content = fs.readFileSync(configPath, "utf-8");
-    const config = JSON.parse(content);
-    // Check if any hooks are configured
-    return !!(
-      config.hooks &&
-      (config.hooks.PreToolUse?.length ||
-        config.hooks.PostToolUse?.length ||
-        config.hooks.Stop?.length)
-    );
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check if hooks are configured with AgentOS status updates
- */
-export function hasAgentOsHooks(projectDir: string): boolean {
-  const configPath = getHooksConfigPath(projectDir);
-  try {
-    if (!fs.existsSync(configPath)) {
-      return false;
-    }
-    const content = fs.readFileSync(configPath, "utf-8");
-    // Check if the config contains our status-update URL
-    return content.includes("/api/sessions/status-update");
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Write hooks configuration to a project directory
- *
- * @param projectDir - The project directory to write hooks to
- * @param port - The AgentOS server port (default 3011)
- * @param merge - If true, merge with existing hooks instead of replacing
- */
-export function writeHooksConfig(
-  projectDir: string,
-  port: number = 3011,
-  merge: boolean = true
-): { success: boolean; path: string; merged: boolean } {
-  const configDir = getHooksConfigDir(projectDir);
-  const configPath = getHooksConfigPath(projectDir);
-
-  try {
-    // Ensure .claude directory exists
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
-    }
-
-    let finalConfig: HooksConfig;
-    let merged = false;
-
-    if (merge && fs.existsSync(configPath)) {
-      // Read existing config and merge
-      try {
-        const existing = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-        const generated = generateHooksConfig(port);
-
-        finalConfig = {
-          ...existing,
-          hooks: {
-            ...existing.hooks,
-          },
-        };
-
-        // Merge each hook type
-        for (const hookType of ["PreToolUse", "PostToolUse", "Stop"] as const) {
-          const existingHooks = existing.hooks?.[hookType] || [];
-          const newHook = generated.hooks[hookType]?.[0];
-
-          if (newHook) {
-            // Filter out any existing AgentOS hooks
-            const filteredHooks = existingHooks.filter(
-              (h: HookDefinition) =>
-                !h.command?.includes("/api/sessions/status-update")
-            );
-            finalConfig.hooks[hookType] = [...filteredHooks, newHook];
-          }
-        }
-
-        merged = true;
-      } catch {
-        // If parsing fails, use generated config
-        finalConfig = generateHooksConfig(port);
-      }
-    } else {
-      finalConfig = generateHooksConfig(port);
-    }
-
-    fs.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
-
-    return { success: true, path: configPath, merged };
-  } catch (error) {
-    console.error("Failed to write hooks config:", error);
-    return { success: false, path: configPath, merged: false };
-  }
-}
-
-/**
- * Remove AgentOS hooks from a project's hooks.json
- */
-export function removeAgentOsHooks(projectDir: string): boolean {
-  const configPath = getHooksConfigPath(projectDir);
-
-  try {
-    if (!fs.existsSync(configPath)) {
-      return true; // Nothing to remove
-    }
-
-    const content = fs.readFileSync(configPath, "utf-8");
-    const config = JSON.parse(content);
-
-    if (!config.hooks) {
-      return true;
-    }
-
-    // Filter out AgentOS hooks from each type
-    for (const hookType of [
-      "PreToolUse",
-      "PostToolUse",
-      "Stop",
-      "Notification",
-    ]) {
-      if (config.hooks[hookType]) {
-        config.hooks[hookType] = config.hooks[hookType].filter(
-          (h: HookDefinition) =>
-            !h.command?.includes("/api/sessions/status-update")
-        );
-        // Remove empty arrays
-        if (config.hooks[hookType].length === 0) {
-          delete config.hooks[hookType];
-        }
-      }
-    }
-
-    // Remove hooks object if empty
-    if (Object.keys(config.hooks).length === 0) {
-      delete config.hooks;
-    }
-
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get path to user's global Claude config
+ * Get path to user's global Claude config directory
  */
 export function getGlobalClaudeConfigDir(): string {
   const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -277,4 +146,247 @@ export function getGlobalClaudeConfigDir(): string {
     return claudeConfigDir;
   }
   return path.join(os.homedir(), ".claude");
+}
+
+/**
+ * Get the path to the global settings.json file
+ */
+export function getGlobalSettingsPath(): string {
+  return path.join(getGlobalClaudeConfigDir(), "settings.json");
+}
+
+/**
+ * Check if global hooks are configured with AgentOS status updates
+ */
+export function hasGlobalAgentOsHooks(): boolean {
+  const configPath = getGlobalSettingsPath();
+  try {
+    if (!fs.existsSync(configPath)) {
+      return false;
+    }
+    const content = fs.readFileSync(configPath, "utf-8");
+    // Check if the config contains our status-update URL in a properly structured hook
+    if (!content.includes("/api/sessions/status-update")) {
+      return false;
+    }
+    // Verify the structure is correct
+    const settings: ClaudeSettings = JSON.parse(content);
+    if (!settings.hooks) {
+      return false;
+    }
+    // Check if at least one hook type has our hook (new format with matcher/hooks)
+    for (const hookType of ["PreToolUse", "PostToolUse", "Stop"] as const) {
+      const hookDefs = settings.hooks[hookType];
+      if (Array.isArray(hookDefs)) {
+        const hasAgentOsHook = hookDefs.some((def) => {
+          // New format: { matcher: "", hooks: [{ type, command }] }
+          if (def.hooks && Array.isArray(def.hooks)) {
+            return def.hooks.some(
+              (h: HookCommand) =>
+                h.type === "command" &&
+                h.command?.includes("/api/sessions/status-update")
+            );
+          }
+          return false;
+        });
+        if (hasAgentOsHook) {
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write hooks configuration to the global Claude settings.json
+ *
+ * This merges AgentOS hooks into the existing settings, preserving
+ * all other settings (model, mcpServers, etc.)
+ *
+ * @param port - The AgentOS server port (default 3011)
+ */
+export function writeGlobalHooksConfig(port: number = 3011): {
+  success: boolean;
+  path: string;
+  merged: boolean;
+} {
+  const configDir = getGlobalClaudeConfigDir();
+  const configPath = getGlobalSettingsPath();
+
+  try {
+    // Ensure .claude directory exists
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+
+    let settings: ClaudeSettings = {};
+    let merged = false;
+
+    // Read existing settings if they exist
+    if (fs.existsSync(configPath)) {
+      try {
+        settings = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        merged = true;
+      } catch {
+        // If parsing fails, start fresh but preserve the file
+        console.warn(
+          "Failed to parse existing settings.json, creating new hooks section"
+        );
+      }
+    }
+
+    // Initialize hooks section if it doesn't exist
+    if (!settings.hooks) {
+      settings.hooks = {};
+    }
+
+    const generatedHooks = generateHooksSection(port);
+
+    // Merge each hook type, preserving existing non-AgentOS hooks
+    for (const hookType of ["PreToolUse", "PostToolUse", "Stop"] as const) {
+      const existingHooks = settings.hooks[hookType] || [];
+      const newHookDef = generatedHooks[hookType]?.[0];
+
+      if (newHookDef) {
+        // Filter out any existing AgentOS hooks (both old and new format)
+        const filteredHooks = existingHooks.filter(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (h: any) => {
+            // New format: { matcher: "", hooks: [...] }
+            if (h.hooks && Array.isArray(h.hooks)) {
+              const hasAgentOsHook = h.hooks.some(
+                (cmd: HookCommand) =>
+                  cmd.type === "command" &&
+                  cmd.command?.includes("/api/sessions/status-update")
+              );
+              if (hasAgentOsHook) {
+                return false;
+              }
+            }
+            // Old format: { type: "command", command: "..." }
+            if (
+              h.type === "command" &&
+              h.command?.includes("/api/sessions/status-update")
+            ) {
+              return false;
+            }
+            return true;
+          }
+        );
+        settings.hooks[hookType] = [...filteredHooks, newHookDef];
+      }
+    }
+
+    fs.writeFileSync(configPath, JSON.stringify(settings, null, 2));
+
+    return { success: true, path: configPath, merged };
+  } catch (error) {
+    console.error("Failed to write global hooks config:", error);
+    return { success: false, path: configPath, merged: false };
+  }
+}
+
+/**
+ * Remove AgentOS hooks from the global settings.json
+ */
+export function removeGlobalAgentOsHooks(): boolean {
+  const configPath = getGlobalSettingsPath();
+
+  try {
+    if (!fs.existsSync(configPath)) {
+      return true; // Nothing to remove
+    }
+
+    const content = fs.readFileSync(configPath, "utf-8");
+    const settings: ClaudeSettings = JSON.parse(content);
+
+    if (!settings.hooks) {
+      return true;
+    }
+
+    // Filter out AgentOS hooks from each type (handle both old and new format)
+    for (const hookType of [
+      "PreToolUse",
+      "PostToolUse",
+      "Stop",
+      "Notification",
+    ] as const) {
+      if (settings.hooks[hookType]) {
+        settings.hooks[hookType] = settings.hooks[hookType]!.filter(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (h: any) => {
+            // New format: { matcher: "", hooks: [...] }
+            if (h.hooks && Array.isArray(h.hooks)) {
+              const hasAgentOsHook = h.hooks.some(
+                (cmd: HookCommand) =>
+                  cmd.type === "command" &&
+                  cmd.command?.includes("/api/sessions/status-update")
+              );
+              return !hasAgentOsHook;
+            }
+            // Old format: { type: "command", command: "..." }
+            if (h.command?.includes("/api/sessions/status-update")) {
+              return false;
+            }
+            return true;
+          }
+        );
+        // Remove empty arrays
+        if (settings.hooks[hookType]!.length === 0) {
+          delete settings.hooks[hookType];
+        }
+      }
+    }
+
+    // Remove hooks object if empty
+    if (Object.keys(settings.hooks).length === 0) {
+      delete settings.hooks;
+    }
+
+    fs.writeFileSync(configPath, JSON.stringify(settings, null, 2));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
+// DEPRECATED: Per-project hooks functions (kept for backwards compatibility)
+// These write to hooks.json which Claude Code does NOT read.
+// Use the global functions above instead.
+// ============================================================================
+
+/** @deprecated Use getGlobalSettingsPath() instead */
+export function getHooksConfigDir(projectDir: string): string {
+  return path.join(projectDir, ".claude");
+}
+
+/** @deprecated Claude Code reads from settings.json, not hooks.json */
+export function getHooksConfigPath(projectDir: string): string {
+  return path.join(getHooksConfigDir(projectDir), "hooks.json");
+}
+
+/** @deprecated Use hasGlobalAgentOsHooks() instead */
+export function hasAgentOsHooks(_projectDir: string): boolean {
+  // Redirect to global check since per-project hooks.json doesn't work
+  return hasGlobalAgentOsHooks();
+}
+
+/** @deprecated Use writeGlobalHooksConfig() instead */
+export function writeHooksConfig(
+  _projectDir: string,
+  port: number = 3011,
+  _merge: boolean = true
+): { success: boolean; path: string; merged: boolean } {
+  // Redirect to global config since per-project hooks.json doesn't work
+  return writeGlobalHooksConfig(port);
+}
+
+/** @deprecated Use removeGlobalAgentOsHooks() instead */
+export function removeAgentOsHooks(_projectDir: string): boolean {
+  // Redirect to global removal
+  return removeGlobalAgentOsHooks();
 }

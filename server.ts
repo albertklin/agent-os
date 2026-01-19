@@ -3,6 +3,10 @@ import { parse } from "url";
 import next from "next";
 import { WebSocketServer, WebSocket } from "ws";
 import * as pty from "node-pty";
+import {
+  hasGlobalAgentOsHooks,
+  writeGlobalHooksConfig,
+} from "./lib/hooks/generate-config";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
@@ -12,6 +16,13 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
+  // Configure global Claude hooks once at startup
+  if (!hasGlobalAgentOsHooks()) {
+    const result = writeGlobalHooksConfig(port);
+    if (result.success) {
+      console.log(`> Claude hooks configured at ${result.path}`);
+    }
+  }
   const server = createServer(async (req, res) => {
     try {
       const parsedUrl = parse(req.url!, true);

@@ -19,6 +19,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function generateUUID(): string {
+  return crypto.randomUUID();
+}
+
+/**
+ * Update a session's claude_session_id in the database.
+ */
+async function updateClaudeSessionId(
+  sessionId: string,
+  claudeSessionId: string
+): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claude_session_id: claudeSessionId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Hook for managing session attachment with proper locking and fresh data.
  *
@@ -52,9 +75,16 @@ export function useSessionAttachment() {
 
   /**
    * Build the CLI command for the agent (e.g., "claude --resume abc123").
+   * For auto-approve sessions, Claude's native sandbox is enabled via
+   * .claude/settings.json, so no command wrapping is needed.
+   * @param newSessionId - Pre-generated UUID for new sessions or forks
    */
   const buildAgentCommand = useCallback(
-    (session: Session, sessions: Session[]): string => {
+    (
+      session: Session,
+      sessions: Session[],
+      newSessionId?: string | null
+    ): string => {
       const provider = getProvider(session.agent_type || "claude");
 
       // Shell sessions don't have a command
@@ -80,13 +110,21 @@ export function useSessionAttachment() {
       const flags = provider.buildFlags({
         sessionId: session.claude_session_id,
         parentSessionId,
+        newSessionId: newSessionId || undefined,
         autoApprove: session.auto_approve,
         model: session.model,
         initialPrompt: initialPrompt || undefined,
       });
 
       const flagsStr = flags.join(" ");
-      return flagsStr ? `${provider.command} ${flagsStr}` : provider.command;
+      const command = flagsStr
+        ? `${provider.command} ${flagsStr}`
+        : provider.command;
+
+      // Note: For auto-approve sessions, sandbox is enabled via .claude/settings.json
+      // Claude will automatically apply sandbox restrictions when it starts
+
+      return command;
     },
     []
   );
@@ -136,13 +174,13 @@ export function useSessionAttachment() {
 
       try {
         // 1. Fetch fresh session data from API
-        const session = await fetchSession(sessionId);
+        let session = await fetchSession(sessionId);
         if (!session) {
           console.error("[useSessionAttachment] Session not found:", sessionId);
           return false;
         }
 
-        // 1.5. Check if session setup is complete
+        // 1.5. Check if session setup is complete (for worktree sessions)
         if (
           session.setup_status &&
           session.setup_status !== "ready" &&
@@ -162,37 +200,105 @@ export function useSessionAttachment() {
           return false;
         }
 
-        // 2. Compute tmux session name (deterministic from agent_type + id)
+        // 2. For auto-approve sessions, verify sandbox settings are ready
+        // (Sandbox initialization writes .claude/settings.json, which is fast)
+        if (session.auto_approve && session.agent_type === "claude") {
+          // Brief wait if still initializing (should be very fast since it's just writing a file)
+          if (
+            session.sandbox_status === "pending" ||
+            session.sandbox_status === "initializing"
+          ) {
+            console.log(
+              "[useSessionAttachment] Waiting for sandbox settings..."
+            );
+            const maxWaitMs = 5000; // 5 second timeout (file write should be instant)
+            const pollIntervalMs = 500;
+            const startTime = Date.now();
+
+            while (Date.now() - startTime < maxWaitMs) {
+              await sleep(pollIntervalMs);
+              session = await fetchSession(sessionId);
+
+              if (!session) {
+                console.error(
+                  "[useSessionAttachment] Session disappeared while waiting"
+                );
+                return false;
+              }
+
+              if (session.sandbox_status === "ready") {
+                break;
+              }
+
+              if (session.sandbox_status === "failed") {
+                console.error(
+                  "[useSessionAttachment] Sandbox settings failed - cannot attach"
+                );
+                return false;
+              }
+            }
+          }
+
+          // Refuse attachment if sandbox settings aren't ready
+          if (session.sandbox_status !== "ready") {
+            console.error(
+              "[useSessionAttachment] Cannot attach: sandbox settings not ready",
+              { status: session.sandbox_status }
+            );
+            return false;
+          }
+        }
+
+        // 3. Compute tmux session name (deterministic from agent_type + id)
         const tmuxName = getTmuxSessionName(session);
         const cwd = getSessionCwd(session);
 
-        // 3. Detach from current tmux if needed
+        // 4. Detach from current tmux if needed
         const activeTab = getActiveTab(paneId);
         if (activeTab?.sessionId && activeTab.sessionId !== sessionId) {
           terminal.sendInput("\x02d"); // Ctrl+B d (tmux detach)
           await sleep(100);
         }
 
-        // 4. Clear any running command
+        // 5. Clear any running command
         terminal.sendInput("\x03"); // Ctrl+C
         await sleep(50);
 
-        // 5. Build tmux command
-        const agentCommand = buildAgentCommand(session, sessions);
+        // 6. Generate claude_session_id if needed (for Claude-type agents only)
+        let newSessionId: string | null = null;
+        const provider = getProvider(session.agent_type || "claude");
+        if (
+          provider.id === "claude" &&
+          !session.claude_session_id &&
+          provider.supportsResume
+        ) {
+          // Generate a new UUID for this session
+          newSessionId = generateUUID();
+          // Store it in the database before starting Claude
+          const updated = await updateClaudeSessionId(session.id, newSessionId);
+          if (!updated) {
+            console.warn(
+              "[useSessionAttachment] Failed to store claude_session_id, continuing anyway"
+            );
+          }
+        }
+
+        // 7. Build tmux command
+        const agentCommand = buildAgentCommand(session, sessions, newSessionId);
         const tmuxNew = agentCommand
           ? `tmux new -s ${tmuxName} -c "${cwd}" "${agentCommand}"`
           : `tmux new -s ${tmuxName} -c "${cwd}"`;
 
         const tmuxCmd = `tmux attach -t ${tmuxName} 2>/dev/null || ${tmuxNew}`;
 
-        // 6. Send the tmux command
+        // 7. Send the tmux command
         terminal.sendCommand(tmuxCmd);
 
-        // 7. Wait a moment for tmux to attach
+        // 8. Wait a moment for tmux to attach
         // (In the future, could poll terminal output to confirm)
         await sleep(150);
 
-        // 8. Update UI state
+        // 9. Update UI state
         attachSession(paneId, session.id, tmuxName);
         terminal.focus();
 
