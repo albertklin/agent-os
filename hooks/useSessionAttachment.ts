@@ -51,6 +51,8 @@ export function useSessionAttachment() {
 
   /**
    * Build the CLI command for the agent (e.g., "claude --resume abc123").
+   * For auto-approve sessions, Claude's native sandbox is enabled via
+   * .claude/settings.json, so no command wrapping is needed.
    */
   const buildAgentCommand = useCallback(
     (session: Session, sessions: Session[]): string => {
@@ -85,7 +87,14 @@ export function useSessionAttachment() {
       });
 
       const flagsStr = flags.join(" ");
-      return flagsStr ? `${provider.command} ${flagsStr}` : provider.command;
+      const command = flagsStr
+        ? `${provider.command} ${flagsStr}`
+        : provider.command;
+
+      // Note: For auto-approve sessions, sandbox is enabled via .claude/settings.json
+      // Claude will automatically apply sandbox restrictions when it starts
+
+      return command;
     },
     []
   );
@@ -135,28 +144,77 @@ export function useSessionAttachment() {
 
       try {
         // 1. Fetch fresh session data from API
-        const session = await fetchSession(sessionId);
+        let session = await fetchSession(sessionId);
         if (!session) {
           console.error("[useSessionAttachment] Session not found:", sessionId);
           return false;
         }
 
-        // 2. Compute tmux session name (deterministic from agent_type + id)
+        // 2. For auto-approve sessions, verify sandbox settings are ready
+        // (Sandbox initialization writes .claude/settings.json, which is fast)
+        if (session.auto_approve && session.agent_type === "claude") {
+          // Brief wait if still initializing (should be very fast since it's just writing a file)
+          if (
+            session.sandbox_status === "pending" ||
+            session.sandbox_status === "initializing"
+          ) {
+            console.log(
+              "[useSessionAttachment] Waiting for sandbox settings..."
+            );
+            const maxWaitMs = 5000; // 5 second timeout (file write should be instant)
+            const pollIntervalMs = 500;
+            const startTime = Date.now();
+
+            while (Date.now() - startTime < maxWaitMs) {
+              await sleep(pollIntervalMs);
+              session = await fetchSession(sessionId);
+
+              if (!session) {
+                console.error(
+                  "[useSessionAttachment] Session disappeared while waiting"
+                );
+                return false;
+              }
+
+              if (session.sandbox_status === "ready") {
+                break;
+              }
+
+              if (session.sandbox_status === "failed") {
+                console.error(
+                  "[useSessionAttachment] Sandbox settings failed - cannot attach"
+                );
+                return false;
+              }
+            }
+          }
+
+          // Refuse attachment if sandbox settings aren't ready
+          if (session.sandbox_status !== "ready") {
+            console.error(
+              "[useSessionAttachment] Cannot attach: sandbox settings not ready",
+              { status: session.sandbox_status }
+            );
+            return false;
+          }
+        }
+
+        // 3. Compute tmux session name (deterministic from agent_type + id)
         const tmuxName = getTmuxSessionName(session);
         const cwd = getSessionCwd(session);
 
-        // 3. Detach from current tmux if needed
+        // 4. Detach from current tmux if needed
         const activeTab = getActiveTab(paneId);
         if (activeTab?.sessionId && activeTab.sessionId !== sessionId) {
           terminal.sendInput("\x02d"); // Ctrl+B d (tmux detach)
           await sleep(100);
         }
 
-        // 4. Clear any running command
+        // 5. Clear any running command
         terminal.sendInput("\x03"); // Ctrl+C
         await sleep(50);
 
-        // 5. Build tmux command
+        // 6. Build tmux command
         const agentCommand = buildAgentCommand(session, sessions);
         const tmuxNew = agentCommand
           ? `tmux new -s ${tmuxName} -c "${cwd}" "${agentCommand}"`
@@ -164,14 +222,14 @@ export function useSessionAttachment() {
 
         const tmuxCmd = `tmux attach -t ${tmuxName} 2>/dev/null || ${tmuxNew}`;
 
-        // 6. Send the tmux command
+        // 7. Send the tmux command
         terminal.sendCommand(tmuxCmd);
 
-        // 7. Wait a moment for tmux to attach
+        // 8. Wait a moment for tmux to attach
         // (In the future, could poll terminal output to confirm)
         await sleep(150);
 
-        // 8. Update UI state
+        // 9. Update UI state
         attachSession(paneId, session.id, tmuxName);
         terminal.focus();
 

@@ -17,6 +17,7 @@ import { tmuxSessionExists } from "./tmux";
 import { statusBroadcaster } from "./status-broadcaster";
 import { wrapWithBanner } from "./banner";
 import { runInBackground } from "./async-operations";
+import { initializeSandbox } from "./sandbox";
 
 const execAsync = promisify(exec);
 
@@ -173,8 +174,32 @@ export async function spawnWorker(
 
   // Create tmux session with the agent and banner
   const agentCmd = `${provider.command} ${flagsStr}`;
-  const newSessionCmd = wrapWithBanner(agentCmd);
-  const createCmd = `tmux new-session -d -s "${tmuxSessionName}" -c "${cwd}" "${newSessionCmd}"`;
+
+  // Workers always use auto-approve, so initialize Claude's native sandbox
+  // This creates .claude/settings.json with sandbox enabled
+  console.log(
+    `[orchestration] Initializing sandbox for worker ${sessionId}...`
+  );
+
+  const sandboxReady = await initializeSandbox({
+    sessionId,
+    workingDirectory: actualWorkingDir,
+  });
+
+  if (!sandboxReady) {
+    queries.updateWorkerStatus(db).run("failed", sessionId);
+    throw new Error(
+      `Failed to initialize sandbox for worker ${sessionId}. Could not create sandbox settings.`
+    );
+  }
+
+  // Claude will read .claude/settings.json and enable sandbox automatically
+  const finalCmd = wrapWithBanner(agentCmd);
+  console.log(
+    `[orchestration] Worker ${sessionId} will run with sandbox enabled`
+  );
+
+  const createCmd = `tmux new-session -d -s "${tmuxSessionName}" -c "${cwd}" "${finalCmd}"`;
 
   try {
     await execAsync(createCmd);

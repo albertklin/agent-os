@@ -59,3 +59,6 @@ docs/*
 master.md
 progress.md
 .git-evening
+
+# Claude Code project config (auto-generated)
+.claude/
