@@ -128,6 +128,7 @@ const setupStatusConfig: Record<
 > = {
   pending: { label: "Setting up...", shortLabel: "Setup" },
   creating_worktree: { label: "Creating worktree...", shortLabel: "Worktree" },
+  init_sandbox: { label: "Initializing sandbox...", shortLabel: "Sandbox" },
   init_submodules: {
     label: "Initializing submodules...",
     shortLabel: "Submodules",
@@ -514,7 +515,7 @@ function SessionCardComponent({
       )}
 
       {/* Sandbox status indicator - only for auto-approve sessions */}
-      {session.auto_approve && session.sandbox_status && (
+      {!!session.auto_approve && session.sandbox_status && (
         <Tooltip>
           <TooltipTrigger asChild>
             <div

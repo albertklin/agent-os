@@ -1,13 +1,32 @@
 /**
  * Sandbox System
  *
- * Provides Claude's native sandbox isolation for auto-approve sessions.
- * When enabled, sessions run with OS-level isolation:
- * - Filesystem isolation (read/write only to working directory)
- * - Network isolation (proxy-based domain filtering)
+ * Provides comprehensive isolation for auto-approve sessions with both
+ * filesystem and network protection:
  *
- * Uses Claude Code's built-in sandbox via settings.json configuration,
- * enforced by bubblewrap (Linux) or seatbelt (macOS).
+ * FILESYSTEM PROTECTION:
+ * - Bash commands: OS-level sandbox (bubblewrap/seatbelt) restricts access
+ * - Write/Edit tools: Deny rules block all absolute (//**) and home (~/**)
+ *   paths. Allow rules permit only ./** (working directory).
+ * - Read tool: Sensitive files (.env, secrets, credentials) are denied
+ *
+ * NETWORK PROTECTION:
+ * - Bash commands: OS sandbox provides network isolation
+ * - WebFetch/WebSearch: Entirely blocked via deny rules
+ * - Network CLI tools: curl, wget, ssh, etc. blocked via Bash deny rules
+ *
+ * Uses Claude Code's built-in sandbox via settings.json configuration.
+ *
+ * Path syntax (critical for deny rules to work):
+ * - //path = absolute path from filesystem root
+ * - ~/path = path from home directory
+ * - /path = path relative to settings file directory (project root)
+ * - ./path = path relative to current working directory
+ * See: https://github.com/anthropics/claude-code/issues/6699#issuecomment-3243297584
+ *
+ * Limitations:
+ * - Can't use blanket "Write"/"Edit" deny (would block ./** too)
+ * - Path escapes via symlinks or .. may not be fully blocked
  */
 
 import * as fs from "fs";
@@ -21,7 +40,11 @@ export interface SandboxOptions {
 
 /**
  * Claude sandbox settings to write to .claude/settings.json
- * This enables OS-level isolation for bash commands.
+ * This enables OS-level isolation for bash commands and restricts
+ * Write/Edit tools to the working directory via permissions.
+ *
+ * Note: The OS sandbox (bubblewrap/seatbelt) only applies to Bash commands.
+ * Write/Edit/Read tools are restricted via the permissions system instead.
  */
 interface ClaudeSandboxSettings {
   sandbox: {
@@ -31,6 +54,7 @@ interface ClaudeSandboxSettings {
     excludedCommands?: string[];
   };
   permissions?: {
+    allow?: string[];
     deny?: string[];
   };
 }
@@ -38,6 +62,19 @@ interface ClaudeSandboxSettings {
 /**
  * Generate sandbox settings for auto-approve sessions.
  * These settings enable strict sandbox mode with no escape hatch.
+ *
+ * Security model:
+ * - Bash commands: Restricted by OS sandbox (bubblewrap/seatbelt)
+ * - Write/Edit tools: Explicit deny rules for sensitive paths
+ *   (Note: blanket deny doesn't work because deny rules take precedence
+ *   over allow rules - "Write" deny would block ALL writes including ./)
+ * - Read tool: Sensitive paths denied
+ *
+ * Path format (per Claude Code docs):
+ * - //path = absolute path from filesystem root
+ * - ~/path = path from home directory
+ * - /path = relative to settings file (NOT absolute!)
+ * - ./path = relative to current working directory
  */
 function generateSandboxSettings(): ClaudeSandboxSettings {
   return {
@@ -52,14 +89,56 @@ function generateSandboxSettings(): ClaudeSandboxSettings {
       excludedCommands: ["docker", "git"],
     },
     permissions: {
-      // Deny access to sensitive files even with read-only access
+      // Allow Write/Edit only within the working directory
+      allow: ["Write(./**)", "Edit(./**)"],
+      //
+      // DENY RULES - Comprehensive protection for filesystem and network
+      //
+      // Path format reference:
+      // - //path = absolute path from filesystem root
+      // - ~/path = path from home directory
+      // - /path = path relative to settings file directory (project root)
+      // - ./path = path relative to current working directory
+      //
+      // Note: Can't use blanket "Write"/"Edit" deny because deny takes
+      // precedence over allow, which would block ./** too.
       deny: [
-        "Read(.env)",
-        "Read(.env.*)",
-        "Read(./secrets/**)",
+        // ===== FILESYSTEM PROTECTION =====
+        // Block ALL writes/edits to absolute paths (covers /etc, /tmp, /usr, etc.)
+        "Write(//**)",
+        "Edit(//**)",
+        // Block ALL writes/edits to home directory
+        "Write(~/**)",
+        "Edit(~/**)",
+        // Block reading sensitive files in project
+        "Read(/.env)",
+        "Read(/**/.env)",
+        "Read(/.env.*)",
+        "Read(/**/.env.*)",
+        "Read(/secrets/**)",
+        // Block reading sensitive files in home directory
         "Read(~/.aws/**)",
         "Read(~/.ssh/**)",
+        "Read(~/.gnupg/**)",
         "Read(~/.config/gcloud/**)",
+
+        // ===== NETWORK PROTECTION =====
+        // Block web fetch and search tools entirely
+        "WebFetch",
+        "WebSearch",
+        // Block network-capable Bash commands
+        // (Note: OS sandbox also restricts network, this is defense in depth)
+        "Bash(curl:*)",
+        "Bash(wget:*)",
+        "Bash(nc:*)",
+        "Bash(netcat:*)",
+        "Bash(ssh:*)",
+        "Bash(scp:*)",
+        "Bash(rsync:*)",
+        "Bash(ftp:*)",
+        "Bash(sftp:*)",
+        "Bash(telnet:*)",
+        "Bash(nmap:*)",
       ],
     },
   };
@@ -94,16 +173,26 @@ export async function ensureSandboxSettings(
 
     // Merge sandbox settings (our sandbox config takes precedence)
     const sandboxSettings = generateSandboxSettings();
+    const existingPermissions =
+      (existingSettings.permissions as Record<string, unknown>) || {};
+
     const mergedSettings = {
       ...existingSettings,
       sandbox: sandboxSettings.sandbox,
       permissions: {
-        ...((existingSettings.permissions as Record<string, unknown>) || {}),
+        ...existingPermissions,
+        // Merge allow rules (sandbox rules take precedence by being first)
+        allow: [
+          ...new Set([
+            ...(sandboxSettings.permissions?.allow || []),
+            ...((existingPermissions.allow as string[]) || []),
+          ]),
+        ],
+        // Merge deny rules (sandbox rules take precedence by being first)
         deny: [
           ...new Set([
-            ...(((existingSettings.permissions as Record<string, unknown>)
-              ?.deny as string[]) || []),
             ...(sandboxSettings.permissions?.deny || []),
+            ...((existingPermissions.deny as string[]) || []),
           ]),
         ],
       },

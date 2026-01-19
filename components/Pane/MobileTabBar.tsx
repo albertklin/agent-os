@@ -15,7 +15,6 @@ import {
   Terminal as TerminalIcon,
   FolderOpen,
   GitBranch,
-  Users,
   ChevronDown,
   Circle,
 } from "lucide-react";
@@ -23,7 +22,7 @@ import { cn } from "@/lib/utils";
 import type { Session, Project } from "@/lib/db";
 import type { LucideIcon } from "lucide-react";
 
-type ViewMode = "terminal" | "files" | "git" | "workers";
+type ViewMode = "terminal" | "files" | "git";
 
 interface ViewModeButtonProps {
   mode: ViewMode;
@@ -65,8 +64,6 @@ interface MobileTabBarProps {
   sessions: Session[];
   projects: Project[];
   viewMode: ViewMode;
-  isConductor: boolean;
-  workerCount: number;
   onMenuClick?: () => void;
   onViewModeChange: (mode: ViewMode) => void;
   onSelectSession?: (sessionId: string) => void;
@@ -77,8 +74,6 @@ export function MobileTabBar({
   sessions,
   projects,
   viewMode,
-  isConductor,
-  workerCount,
   onMenuClick,
   onViewModeChange,
   onSelectSession,
@@ -188,41 +183,39 @@ export function MobileTabBar({
             align="center"
             className="max-h-[300px] min-w-[200px] overflow-y-auto"
           >
-            {sessions
-              .filter((s) => !s.conductor_session_id)
-              .map((s) => {
-                const sessionProject = s.project_id
-                  ? projects.find((p) => p.id === s.project_id)
-                  : null;
-                const isActive = s.id === session?.id;
+            {sessions.map((s) => {
+              const sessionProject = s.project_id
+                ? projects.find((p) => p.id === s.project_id)
+                : null;
+              const isActive = s.id === session?.id;
 
-                return (
-                  <DropdownMenuItem
-                    key={s.id}
-                    onSelect={() => onSelectSession?.(s.id)}
+              return (
+                <DropdownMenuItem
+                  key={s.id}
+                  onSelect={() => onSelectSession?.(s.id)}
+                  className={cn(
+                    "flex items-center gap-2",
+                    isActive && "bg-accent"
+                  )}
+                >
+                  <Circle
                     className={cn(
-                      "flex items-center gap-2",
-                      isActive && "bg-accent"
+                      "h-2 w-2",
+                      isActive
+                        ? "fill-primary text-primary"
+                        : "text-muted-foreground"
                     )}
-                  >
-                    <Circle
-                      className={cn(
-                        "h-2 w-2",
-                        isActive
-                          ? "fill-primary text-primary"
-                          : "text-muted-foreground"
-                      )}
-                    />
-                    <span className="flex-1 truncate">{s.name}</span>
-                    {sessionProject &&
-                      sessionProject.name !== "Uncategorized" && (
-                        <span className="text-muted-foreground text-xs">
-                          [{sessionProject.name}]
-                        </span>
-                      )}
-                  </DropdownMenuItem>
-                );
-              })}
+                  />
+                  <span className="flex-1 truncate">{s.name}</span>
+                  {sessionProject &&
+                    sessionProject.name !== "Uncategorized" && (
+                      <span className="text-muted-foreground text-xs">
+                        [{sessionProject.name}]
+                      </span>
+                    )}
+                </DropdownMenuItem>
+              );
+            })}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -258,19 +251,6 @@ export function MobileTabBar({
             icon={GitBranch}
             onClick={onViewModeChange}
           />
-          {isConductor && (
-            <ViewModeButton
-              mode="workers"
-              currentMode={viewMode}
-              icon={Users}
-              onClick={onViewModeChange}
-              badge={
-                <span className="bg-primary/20 text-primary rounded px-1 text-[10px]">
-                  {workerCount}
-                </span>
-              }
-            />
-          )}
         </div>
       )}
     </div>

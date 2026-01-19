@@ -12,7 +12,6 @@ import type { Session, Project } from "@/lib/db";
 import { getTmuxSessionName } from "@/lib/sessions";
 import { sessionRegistry } from "@/lib/client/session-registry";
 import { cn } from "@/lib/utils";
-import { ConductorPanel } from "@/components/ConductorPanel";
 import { useFileEditor } from "@/hooks/useFileEditor";
 import { MobileTabBar } from "./MobileTabBar";
 import { DesktopTabBar } from "./DesktopTabBar";
@@ -60,7 +59,7 @@ interface PaneProps {
   onSelectSession?: (sessionId: string) => void;
 }
 
-type ViewMode = "terminal" | "files" | "git" | "workers";
+type ViewMode = "terminal" | "files" | "git";
 
 export const Pane = memo(function Pane({
   paneId,
@@ -113,14 +112,6 @@ export const Pane = memo(function Pane({
 
   // File editor state - lifted here so it persists across view switches
   const fileEditor = useFileEditor();
-
-  // Check if this session is a conductor (has workers)
-  const workerCount = useMemo(() => {
-    if (!session) return 0;
-    return sessions.filter((s) => s.conductor_session_id === session.id).length;
-  }, [session, sessions]);
-
-  const isConductor = workerCount > 0;
 
   // Watch for file open requests
   const { request: fileOpenRequest } = useSnapshot(fileOpenStore);
@@ -269,8 +260,6 @@ export const Pane = memo(function Pane({
           sessions={sessions}
           projects={projects}
           viewMode={viewMode}
-          isConductor={isConductor}
-          workerCount={workerCount}
           onMenuClick={onMenuClick}
           onViewModeChange={setViewMode}
           onSelectSession={onSelectSession}
@@ -283,8 +272,6 @@ export const Pane = memo(function Pane({
           sessions={sessions}
           viewMode={viewMode}
           isFocused={isFocused}
-          isConductor={isConductor}
-          workerCount={workerCount}
           canSplit={canSplit}
           canClose={canClose}
           hasAttachedTmux={!!activeTab?.attachedTmux}
@@ -365,27 +352,6 @@ export const Pane = memo(function Pane({
               <GitPanel workingDirectory={session.working_directory} />
             </div>
           )}
-
-          {/* Workers */}
-          {viewMode === "workers" && session && (
-            <ConductorPanel
-              conductorSessionId={session.id}
-              onAttachToWorker={(workerId) => {
-                setViewMode("terminal");
-                const worker = sessions.find((s) => s.id === workerId);
-                if (worker && terminalRef) {
-                  const sessionName = `claude-${workerId}`;
-                  terminalRef.sendInput("\x02d");
-                  setTimeout(() => {
-                    terminalRef?.sendInput("\x15");
-                    setTimeout(() => {
-                      terminalRef?.sendCommand(`tmux attach -t ${sessionName}`);
-                    }, 50);
-                  }, 100);
-                }
-              }}
-            />
-          )}
         </div>
       ) : (
         <ResizablePanelGroup
@@ -451,29 +417,6 @@ export const Pane = memo(function Pane({
                         fileEditor={fileEditor}
                       />
                     </div>
-                  )}
-
-                  {/* Workers */}
-                  {viewMode === "workers" && session && (
-                    <ConductorPanel
-                      conductorSessionId={session.id}
-                      onAttachToWorker={(workerId) => {
-                        setViewMode("terminal");
-                        const worker = sessions.find((s) => s.id === workerId);
-                        if (worker && terminalRef) {
-                          const sessionName = `claude-${workerId}`;
-                          terminalRef.sendInput("\x02d");
-                          setTimeout(() => {
-                            terminalRef?.sendInput("\x15");
-                            setTimeout(() => {
-                              terminalRef?.sendCommand(
-                                `tmux attach -t ${sessionName}`
-                              );
-                            }, 50);
-                          }, 100);
-                        }
-                      }}
-                    />
                   )}
                 </div>
               </ResizablePanel>

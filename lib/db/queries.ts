@@ -91,24 +91,11 @@ export const queries = {
       `SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC`
     ),
 
-  // Orchestration
-  getWorkersByConductor: (db: Database.Database) =>
-    getStmt(
-      db,
-      `SELECT * FROM sessions WHERE conductor_session_id = ? ORDER BY created_at ASC`
-    ),
-
   // Get sessions sharing the same worktree (excluding the given session)
   getSiblingSessionsByWorktree: (db: Database.Database) =>
     getStmt(
       db,
       `SELECT * FROM sessions WHERE worktree_path = ? AND id != ? ORDER BY updated_at DESC`
-    ),
-
-  updateWorkerStatus: (db: Database.Database) =>
-    getStmt(
-      db,
-      `UPDATE sessions SET worker_status = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
   updateSessionSetupStatus: (db: Database.Database) =>
@@ -121,13 +108,6 @@ export const queries = {
     getStmt(
       db,
       `UPDATE sessions SET container_id = ?, sandbox_status = ?, updated_at = datetime('now') WHERE id = ?`
-    ),
-
-  createWorkerSession: (db: Database.Database) =>
-    getStmt(
-      db,
-      `INSERT INTO sessions (id, name, tmux_name, working_directory, conductor_session_id, worker_task, worker_status, model, group_path, agent_type, project_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
     ),
 
   // Messages

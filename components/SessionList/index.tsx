@@ -112,23 +112,6 @@ export function SessionList({
     [sessions]
   );
 
-  // Separate workers from regular sessions
-  const workersByConduct = useMemo(
-    () =>
-      sessions.reduce(
-        (acc, session) => {
-          if (session.conductor_session_id) {
-            if (!acc[session.conductor_session_id])
-              acc[session.conductor_session_id] = [];
-            acc[session.conductor_session_id].push(session);
-          }
-          return acc;
-        },
-        {} as Record<string, Session[]>
-      ),
-    [sessions]
-  );
-
   // Find server for logs modal
   const logsServer = logsServerId
     ? devServers.find((s) => s.id === logsServerId)
@@ -292,7 +275,6 @@ export function SessionList({
                 activeSessionId={activeSessionId}
                 sessionStatuses={sessionStatuses}
                 isForkingSession={mutations.isForkingSession}
-                workersByConduct={workersByConduct}
                 onToggleGroup={mutations.handleToggleGroup}
                 onCreateGroup={mutations.handleCreateGroup}
                 onDeleteGroup={mutations.handleDeleteGroup}

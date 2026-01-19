@@ -32,7 +32,6 @@ interface GroupSectionProps {
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatus>;
   isForkingSession?: boolean;
-  workersByConduct: Record<string, Session[]>;
   onToggleGroup: (path: string, expanded: boolean) => void;
   onCreateGroup: (name: string, parentPath?: string) => void;
   onDeleteGroup: (path: string) => void;
@@ -52,7 +51,6 @@ export function GroupSection({
   activeSessionId,
   sessionStatuses,
   isForkingSession,
-  workersByConduct,
   onToggleGroup,
   onCreateGroup,
   onDeleteGroup,
@@ -67,18 +65,16 @@ export function GroupSection({
     null
   );
 
-  // Group non-worker sessions by group_path
-  const sessionsByGroup = sessions
-    .filter((s) => !s.conductor_session_id)
-    .reduce(
-      (acc, session) => {
-        const path = session.group_path || "sessions";
-        if (!acc[path]) acc[path] = [];
-        acc[path].push(session);
-        return acc;
-      },
-      {} as Record<string, Session[]>
-    );
+  // Group sessions by group_path
+  const sessionsByGroup = sessions.reduce(
+    (acc, session) => {
+      const path = session.group_path || "sessions";
+      if (!acc[path]) acc[path] = [];
+      acc[path].push(session);
+      return acc;
+    },
+    {} as Record<string, Session[]>
+  );
 
   // Build group hierarchy
   const rootGroups = groups.filter((g) => !g.path.includes("/"));
@@ -205,80 +201,28 @@ export function GroupSection({
           >
             {childGroups.map((child) => renderGroup(child, level + 1))}
 
-            {groupSessions.map((session) => {
-              const workers = workersByConduct[session.id] || [];
-              const hasWorkers = workers.length > 0;
-
-              return (
-                <div key={session.id} className="space-y-0.5">
-                  <div className="flex items-center gap-1">
-                    <div className="min-w-0 flex-1">
-                      <SessionCard
-                        session={session}
-                        isActive={session.id === activeSessionId}
-                        isForking={isForkingSession}
-                        tmuxStatus={sessionStatuses?.[session.id]?.status}
-                        toolName={sessionStatuses?.[session.id]?.toolName}
-                        toolDetail={sessionStatuses?.[session.id]?.toolDetail}
-                        setupStatus={sessionStatuses?.[session.id]?.setupStatus}
-                        setupError={sessionStatuses?.[session.id]?.setupError}
-                        groups={groups}
-                        onClick={() => onSelectSession(session.id)}
-                        onFork={async (options) =>
-                          onForkSession(session.id, options)
-                        }
-                        onDelete={() =>
-                          onDeleteSession(session.id, session.name)
-                        }
-                        onRename={(newName) =>
-                          onRenameSession(session.id, newName)
-                        }
-                        onHoverStart={(rect) =>
-                          hoverHandlers.onHoverStart(session, rect)
-                        }
-                        onHoverEnd={hoverHandlers.onHoverEnd}
-                      />
-                    </div>
-                    {hasWorkers && (
-                      <span className="bg-primary/20 text-primary flex-shrink-0 rounded-full px-1.5 py-0.5 text-xs">
-                        {workers.length}
-                      </span>
-                    )}
-                  </div>
-
-                  {hasWorkers && (
-                    <div className="border-border/30 ml-3 space-y-px border-l pl-1.5">
-                      {workers.map((worker) => (
-                        <SessionCard
-                          key={worker.id}
-                          session={worker}
-                          isActive={worker.id === activeSessionId}
-                          tmuxStatus={sessionStatuses?.[worker.id]?.status}
-                          toolName={sessionStatuses?.[worker.id]?.toolName}
-                          toolDetail={sessionStatuses?.[worker.id]?.toolDetail}
-                          setupStatus={
-                            sessionStatuses?.[worker.id]?.setupStatus
-                          }
-                          setupError={sessionStatuses?.[worker.id]?.setupError}
-                          groups={groups}
-                          onClick={() => onSelectSession(worker.id)}
-                          onDelete={() =>
-                            onDeleteSession(worker.id, worker.name)
-                          }
-                          onRename={(newName) =>
-                            onRenameSession(worker.id, newName)
-                          }
-                          onHoverStart={(rect) =>
-                            hoverHandlers.onHoverStart(worker, rect)
-                          }
-                          onHoverEnd={hoverHandlers.onHoverEnd}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {groupSessions.map((session) => (
+              <SessionCard
+                key={session.id}
+                session={session}
+                isActive={session.id === activeSessionId}
+                isForking={isForkingSession}
+                tmuxStatus={sessionStatuses?.[session.id]?.status}
+                toolName={sessionStatuses?.[session.id]?.toolName}
+                toolDetail={sessionStatuses?.[session.id]?.toolDetail}
+                setupStatus={sessionStatuses?.[session.id]?.setupStatus}
+                setupError={sessionStatuses?.[session.id]?.setupError}
+                groups={groups}
+                onClick={() => onSelectSession(session.id)}
+                onFork={async (options) => onForkSession(session.id, options)}
+                onDelete={() => onDeleteSession(session.id, session.name)}
+                onRename={(newName) => onRenameSession(session.id, newName)}
+                onHoverStart={(rect) =>
+                  hoverHandlers.onHoverStart(session, rect)
+                }
+                onHoverEnd={hoverHandlers.onHoverEnd}
+              />
+            ))}
           </div>
         )}
       </div>

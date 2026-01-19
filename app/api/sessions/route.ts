@@ -4,7 +4,7 @@ import { getDb, queries, type Session, type Group } from "@/lib/db";
 import { isValidAgentType, type AgentType } from "@/lib/providers";
 import { runSessionSetup } from "@/lib/session-setup";
 // Note: Global Claude hooks are configured at server startup (see server.ts)
-import { initializeSandbox } from "@/lib/sandbox";
+import { isGitRepo } from "@/lib/git";
 
 // GET /api/sessions - List all sessions and groups
 export async function GET() {
@@ -76,6 +76,36 @@ export async function POST(request: NextRequest) {
       ? rawAgentType
       : "claude";
 
+    // Sandboxed sessions require an isolated worktree for clean settings management
+    if (autoApprove && agentType === "claude") {
+      if (!useWorktree || !featureName) {
+        return NextResponse.json(
+          {
+            error:
+              "Sandboxed (auto-approve) sessions require an isolated worktree. " +
+              "Please provide useWorktree: true and a featureName.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // Worktrees require a git repository
+      const resolvedWorkDir = workingDirectory.replace(
+        "~",
+        process.env.HOME || ""
+      );
+      if (!(await isGitRepo(resolvedWorkDir))) {
+        return NextResponse.json(
+          {
+            error:
+              "Sandboxed sessions require a git repository (for worktree isolation). " +
+              "The specified working directory is not a git repository.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Auto-generate name if not provided
     const name =
       providedName?.trim() ||
@@ -146,36 +176,9 @@ export async function POST(request: NextRequest) {
 
     const session = queries.getSession(db).get(id) as Session;
 
-    // Initialize Claude's native sandbox for auto-approve sessions
-    // This creates .claude/settings.json with sandbox enabled
-    if (autoApprove && agentType === "claude") {
-      const workDir = workingDirectory.replace("~", process.env.HOME || "");
-
-      console.log(`[sandbox] Initializing sandbox for session ${id}`);
-      const sandboxReady = await initializeSandbox({
-        sessionId: id,
-        workingDirectory: workDir,
-      });
-
-      if (!sandboxReady) {
-        // Clean up the session we just created
-        queries.deleteSession(db).run(id);
-        return NextResponse.json(
-          {
-            error:
-              "Failed to initialize sandbox for auto-approve session. " +
-              "Could not create sandbox settings.",
-          },
-          { status: 500 }
-        );
-      }
-
-      // Refresh session data after sandbox initialization
-      const updatedSession = queries.getSession(db).get(id) as Session;
-      if (updatedSession) {
-        Object.assign(session, updatedSession);
-      }
-    }
+    // Note: Sandbox initialization for auto-approve sessions is handled in
+    // session-setup.ts after the worktree is created, so settings go to the
+    // worktree's .claude/settings.json (not the main project)
 
     // Include initial prompt in response
     const response: {

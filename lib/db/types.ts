@@ -3,6 +3,7 @@ import type { AgentType } from "../providers";
 export type SetupStatus =
   | "pending"
   | "creating_worktree"
+  | "init_sandbox"
   | "init_submodules"
   | "installing_deps"
   | "ready"
@@ -33,10 +34,6 @@ export interface Session {
   pr_url: string | null;
   pr_number: number | null;
   pr_status: "open" | "merged" | "closed" | null;
-  // Orchestration fields
-  conductor_session_id: string | null;
-  worker_task: string | null;
-  worker_status: "pending" | "running" | "completed" | "failed" | null;
   // Setup tracking for worktree sessions
   setup_status: SetupStatus;
   setup_error: string | null;

@@ -17,6 +17,7 @@ interface SessionStatus {
   setupStatus?:
     | "pending"
     | "creating_worktree"
+    | "init_sandbox"
     | "init_submodules"
     | "installing_deps"
     | "ready"
@@ -94,19 +95,10 @@ function ProjectsSectionComponent({
     const ids: string[] = [];
     for (const project of projects) {
       const projectSessions = sessions.filter(
-        (s) =>
-          !s.conductor_session_id &&
-          (s.project_id || "uncategorized") === project.id
+        (s) => (s.project_id || "uncategorized") === project.id
       );
       for (const session of projectSessions) {
         ids.push(session.id);
-        // Include workers under this session
-        const workers = sessions.filter(
-          (s) => s.conductor_session_id === session.id
-        );
-        for (const worker of workers) {
-          ids.push(worker.id);
-        }
       }
     }
     return ids;
@@ -123,30 +115,11 @@ function ProjectsSectionComponent({
   // Group sessions by project_id (memoized to prevent recalculation)
   const sessionsByProject = useMemo(
     () =>
-      sessions
-        .filter((s) => !s.conductor_session_id) // Exclude workers
-        .reduce(
-          (acc, session) => {
-            const projectId = session.project_id || "uncategorized";
-            if (!acc[projectId]) acc[projectId] = [];
-            acc[projectId].push(session);
-            return acc;
-          },
-          {} as Record<string, Session[]>
-        ),
-    [sessions]
-  );
-
-  // Group workers by conductor (memoized)
-  const workersByConduct = useMemo(
-    () =>
       sessions.reduce(
         (acc, session) => {
-          if (session.conductor_session_id) {
-            if (!acc[session.conductor_session_id])
-              acc[session.conductor_session_id] = [];
-            acc[session.conductor_session_id].push(session);
-          }
+          const projectId = session.project_id || "uncategorized";
+          if (!acc[projectId]) acc[projectId] = [];
+          acc[projectId].push(session);
           return acc;
         },
         {} as Record<string, Session[]>
@@ -252,138 +225,60 @@ function ProjectsSectionComponent({
                     No sessions yet
                   </p>
                 ) : projectSessions.length === 0 ? null : (
-                  projectSessions.map((session) => {
-                    const workers = workersByConduct[session.id] || [];
-                    const hasWorkers = workers.length > 0;
-
-                    return (
-                      <div key={session.id} className="space-y-0.5">
-                        <div className="flex items-center gap-1">
-                          <div className="min-w-0 flex-1">
-                            <SessionCard
-                              session={session}
-                              isActive={session.id === activeSessionId}
-                              isForking={isForkingSession}
-                              tmuxStatus={sessionStatuses?.[session.id]?.status}
-                              setupStatus={
-                                sessionStatuses?.[session.id]?.setupStatus
-                              }
-                              setupError={
-                                sessionStatuses?.[session.id]?.setupError
-                              }
-                              groups={groups}
-                              projects={projects}
-                              isSelected={selectedIds.has(session.id)}
-                              isInSelectMode={isInSelectMode}
-                              onToggleSelect={(shiftKey) =>
-                                handleToggleSelect(session.id, shiftKey)
-                              }
-                              onClick={() => onSelectSession(session.id)}
-                              onOpenInTab={
-                                onOpenSessionInTab
-                                  ? () => onOpenSessionInTab(session.id)
-                                  : undefined
-                              }
-                              onMoveToProject={
-                                onMoveSession
-                                  ? (projectId) =>
-                                      onMoveSession(session.id, projectId)
-                                  : undefined
-                              }
-                              onFork={
-                                onForkSession
-                                  ? async (options) =>
-                                      onForkSession(session.id, options)
-                                  : undefined
-                              }
-                              onDelete={
-                                onDeleteSession
-                                  ? () =>
-                                      onDeleteSession(session.id, session.name)
-                                  : undefined
-                              }
-                              onRename={
-                                onRenameSession
-                                  ? (newName) =>
-                                      onRenameSession(session.id, newName)
-                                  : undefined
-                              }
-                              onCreatePR={
-                                onCreatePR
-                                  ? () => onCreatePR(session.id)
-                                  : undefined
-                              }
-                              onHoverStart={
-                                onHoverStart
-                                  ? (rect) => onHoverStart(session, rect)
-                                  : undefined
-                              }
-                              onHoverEnd={onHoverEnd}
-                            />
-                          </div>
-                          {/* Workers badge */}
-                          {hasWorkers && (
-                            <span className="bg-primary/20 text-primary flex-shrink-0 rounded-full px-1.5 py-0.5 text-xs">
-                              {workers.length}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Nested workers */}
-                        {hasWorkers && (
-                          <div className="border-border/30 ml-3 space-y-px border-l pl-1.5">
-                            {workers.map((worker) => (
-                              <SessionCard
-                                key={worker.id}
-                                session={worker}
-                                isActive={worker.id === activeSessionId}
-                                tmuxStatus={
-                                  sessionStatuses?.[worker.id]?.status
-                                }
-                                setupStatus={
-                                  sessionStatuses?.[worker.id]?.setupStatus
-                                }
-                                setupError={
-                                  sessionStatuses?.[worker.id]?.setupError
-                                }
-                                groups={groups}
-                                projects={projects}
-                                isSelected={selectedIds.has(worker.id)}
-                                isInSelectMode={isInSelectMode}
-                                onToggleSelect={(shiftKey) =>
-                                  handleToggleSelect(worker.id, shiftKey)
-                                }
-                                onClick={() => onSelectSession(worker.id)}
-                                onOpenInTab={
-                                  onOpenSessionInTab
-                                    ? () => onOpenSessionInTab(worker.id)
-                                    : undefined
-                                }
-                                onDelete={
-                                  onDeleteSession
-                                    ? () =>
-                                        onDeleteSession(worker.id, worker.name)
-                                    : undefined
-                                }
-                                onRename={
-                                  onRenameSession
-                                    ? (newName) =>
-                                        onRenameSession(worker.id, newName)
-                                    : undefined
-                                }
-                                onHoverStart={
-                                  onHoverStart
-                                    ? (rect) => onHoverStart(worker, rect)
-                                    : undefined
-                                }
-                                onHoverEnd={onHoverEnd}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
+                  projectSessions.map((session) => (
+                    <SessionCard
+                      key={session.id}
+                      session={session}
+                      isActive={session.id === activeSessionId}
+                      isForking={isForkingSession}
+                      tmuxStatus={sessionStatuses?.[session.id]?.status}
+                      setupStatus={sessionStatuses?.[session.id]?.setupStatus}
+                      setupError={sessionStatuses?.[session.id]?.setupError}
+                      groups={groups}
+                      projects={projects}
+                      isSelected={selectedIds.has(session.id)}
+                      isInSelectMode={isInSelectMode}
+                      onToggleSelect={(shiftKey) =>
+                        handleToggleSelect(session.id, shiftKey)
+                      }
+                      onClick={() => onSelectSession(session.id)}
+                      onOpenInTab={
+                        onOpenSessionInTab
+                          ? () => onOpenSessionInTab(session.id)
+                          : undefined
+                      }
+                      onMoveToProject={
+                        onMoveSession
+                          ? (projectId) => onMoveSession(session.id, projectId)
+                          : undefined
+                      }
+                      onFork={
+                        onForkSession
+                          ? async (options) =>
+                              onForkSession(session.id, options)
+                          : undefined
+                      }
+                      onDelete={
+                        onDeleteSession
+                          ? () => onDeleteSession(session.id, session.name)
+                          : undefined
+                      }
+                      onRename={
+                        onRenameSession
+                          ? (newName) => onRenameSession(session.id, newName)
+                          : undefined
+                      }
+                      onCreatePR={
+                        onCreatePR ? () => onCreatePR(session.id) : undefined
+                      }
+                      onHoverStart={
+                        onHoverStart
+                          ? (rect) => onHoverStart(session, rect)
+                          : undefined
+                      }
+                      onHoverEnd={onHoverEnd}
+                    />
+                  ))
                 )}
               </div>
             )}
