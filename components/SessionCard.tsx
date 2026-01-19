@@ -56,6 +56,10 @@ interface SessionCardProps {
   isActive?: boolean;
   isForking?: boolean;
   tmuxStatus?: TmuxStatus;
+  /** Current tool name (e.g., "Bash", "Edit") */
+  toolName?: string;
+  /** Current tool detail (e.g., the command or file path) */
+  toolDetail?: string;
   setupStatus?: SetupStatusType;
   setupError?: string;
   groups?: Group[];
@@ -124,8 +128,14 @@ const setupStatusConfig: Record<
 > = {
   pending: { label: "Setting up...", shortLabel: "Setup" },
   creating_worktree: { label: "Creating worktree...", shortLabel: "Worktree" },
-  init_submodules: { label: "Initializing submodules...", shortLabel: "Submodules" },
-  installing_deps: { label: "Installing dependencies...", shortLabel: "Installing" },
+  init_submodules: {
+    label: "Initializing submodules...",
+    shortLabel: "Submodules",
+  },
+  installing_deps: {
+    label: "Installing dependencies...",
+    shortLabel: "Installing",
+  },
   failed: { label: "Setup failed", shortLabel: "Failed" },
 };
 
@@ -134,6 +144,8 @@ function SessionCardComponent({
   isActive,
   isForking,
   tmuxStatus,
+  toolName,
+  toolDetail,
   setupStatus,
   setupError,
   groups = [],
@@ -397,7 +409,7 @@ function SessionCardComponent({
         "group flex w-full items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
         "min-h-[36px] md:min-h-0", // Compact touch target
         isSettingUp ? "cursor-wait opacity-70" : "cursor-pointer",
-        setupFailed && "border-red-500/30 border",
+        setupFailed && "border border-red-500/30",
         isSelected
           ? "bg-primary/20"
           : isActive
@@ -450,11 +462,25 @@ function SessionCardComponent({
               <div className="flex flex-col gap-1">
                 <span>{setupConfig.label}</span>
                 {setupError && (
-                  <span className="text-red-400 text-xs">{setupError}</span>
+                  <span className="text-xs text-red-400">{setupError}</span>
                 )}
               </div>
             ) : (
-              <span className="capitalize">{config.label}</span>
+              <div className="flex flex-col gap-1">
+                <span className="capitalize">
+                  {config.label}
+                  {toolName && status === "running" && (
+                    <span className="text-muted-foreground ml-1">
+                      ({toolName})
+                    </span>
+                  )}
+                </span>
+                {toolDetail && status === "running" && (
+                  <span className="text-muted-foreground max-w-[300px] truncate font-mono text-xs">
+                    {toolDetail}
+                  </span>
+                )}
+              </div>
             )}
           </TooltipContent>
         </Tooltip>
@@ -670,6 +696,8 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
   if (prev.session.branch_name !== next.session.branch_name) return false;
   if (prev.session.sandbox_status !== next.session.sandbox_status) return false;
   if (prev.tmuxStatus !== next.tmuxStatus) return false;
+  if (prev.toolName !== next.toolName) return false;
+  if (prev.toolDetail !== next.toolDetail) return false;
   if (prev.setupStatus !== next.setupStatus) return false;
   if (prev.setupError !== next.setupError) return false;
   if (prev.isActive !== next.isActive) return false;

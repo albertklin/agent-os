@@ -2,13 +2,20 @@ import type { Session } from "@/lib/db";
 import type { ProjectWithDevServers } from "@/lib/projects";
 import type { NotificationSettings } from "@/lib/notifications";
 import type { TabData } from "@/lib/panes";
-import type { ConnectionStatus, SetupStatusType } from "@/hooks/useStatusStream";
+import type {
+  ConnectionStatus,
+  SetupStatusType,
+} from "@/hooks/useStatusStream";
 
 export interface SessionStatus {
   sessionName: string;
   status: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
   lastLine?: string;
   claudeSessionId?: string | null;
+  /** Current tool name (e.g., "Bash", "Edit") */
+  toolName?: string;
+  /** Current tool detail (e.g., the command or file path) */
+  toolDetail?: string;
   setupStatus?: SetupStatusType;
   setupError?: string;
 }

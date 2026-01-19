@@ -32,6 +32,8 @@ interface HooksSection {
   PostToolUse?: HookDefinition[];
   Notification?: HookDefinition[];
   Stop?: HookDefinition[];
+  SessionStart?: HookDefinition[];
+  SessionEnd?: HookDefinition[];
 }
 
 // Backwards compatibility interface for hooks.json format
@@ -113,6 +115,17 @@ export function generateHooksSection(port: number = 3011): HooksSection {
         ],
       },
     ],
+    Notification: [
+      {
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("Notification", port),
+          },
+        ],
+      },
+    ],
     Stop: [
       {
         matcher: "",
@@ -120,6 +133,28 @@ export function generateHooksSection(port: number = 3011): HooksSection {
           {
             type: "command",
             command: generateHookCommand("Stop", port),
+          },
+        ],
+      },
+    ],
+    SessionStart: [
+      {
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("SessionStart", port),
+          },
+        ],
+      },
+    ],
+    SessionEnd: [
+      {
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("SessionEnd", port),
           },
         ],
       },
@@ -175,7 +210,14 @@ export function hasGlobalAgentOsHooks(): boolean {
       return false;
     }
     // Check if at least one hook type has our hook (new format with matcher/hooks)
-    for (const hookType of ["PreToolUse", "PostToolUse", "Stop"] as const) {
+    for (const hookType of [
+      "PreToolUse",
+      "PostToolUse",
+      "Notification",
+      "Stop",
+      "SessionStart",
+      "SessionEnd",
+    ] as const) {
       const hookDefs = settings.hooks[hookType];
       if (Array.isArray(hookDefs)) {
         const hasAgentOsHook = hookDefs.some((def) => {
@@ -246,7 +288,14 @@ export function writeGlobalHooksConfig(port: number = 3011): {
     const generatedHooks = generateHooksSection(port);
 
     // Merge each hook type, preserving existing non-AgentOS hooks
-    for (const hookType of ["PreToolUse", "PostToolUse", "Stop"] as const) {
+    for (const hookType of [
+      "PreToolUse",
+      "PostToolUse",
+      "Notification",
+      "Stop",
+      "SessionStart",
+      "SessionEnd",
+    ] as const) {
       const existingHooks = settings.hooks[hookType] || [];
       const newHookDef = generatedHooks[hookType]?.[0];
 
@@ -311,8 +360,10 @@ export function removeGlobalAgentOsHooks(): boolean {
     for (const hookType of [
       "PreToolUse",
       "PostToolUse",
-      "Stop",
       "Notification",
+      "Stop",
+      "SessionStart",
+      "SessionEnd",
     ] as const) {
       if (settings.hooks[hookType]) {
         settings.hooks[hookType] = settings.hooks[hookType]!.filter(

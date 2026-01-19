@@ -18,6 +18,8 @@ export interface StatusData {
   updatedAt: number;
   hookEvent?: string;
   toolName?: string;
+  /** For Bash: the command, for file tools: the file path */
+  toolDetail?: string;
   setupStatus?: SetupStatus;
   setupError?: string;
 }
@@ -28,6 +30,8 @@ export interface StatusUpdate {
   lastLine?: string;
   hookEvent?: string;
   toolName?: string;
+  /** For Bash: the command, for file tools: the file path */
+  toolDetail?: string;
   setupStatus?: SetupStatus;
   setupError?: string;
 }
@@ -53,6 +57,7 @@ class StatusBroadcaster {
       lastLine,
       hookEvent,
       toolName,
+      toolDetail,
       setupStatus,
       setupError,
     } = update;
@@ -67,6 +72,7 @@ class StatusBroadcaster {
       updatedAt: Date.now(),
       hookEvent,
       toolName,
+      toolDetail,
       setupStatus: setupStatus ?? existing?.setupStatus,
       setupError: setupError ?? existing?.setupError,
     });

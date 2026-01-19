@@ -1,10 +1,17 @@
 import type { Session, Group } from "@/lib/db";
-import type { ConnectionStatus, SetupStatusType } from "@/hooks/useStatusStream";
+import type {
+  ConnectionStatus,
+  SetupStatusType,
+} from "@/hooks/useStatusStream";
 
 export interface SessionStatus {
   sessionName: string;
   status: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
   lastLine?: string;
+  /** Current tool name (e.g., "Bash", "Edit") */
+  toolName?: string;
+  /** Current tool detail (e.g., the command or file path) */
+  toolDetail?: string;
   setupStatus?: SetupStatusType;
   setupError?: string;
 }

@@ -14,13 +14,18 @@ import {
  * - PreToolUse, PostToolUse → "running" (Claude is actively working)
  * - Notification → "running" or "waiting" (depends on content)
  * - Stop → "idle" (Claude finished or was interrupted)
+ * - SessionStart → "running" (session started)
+ * - SessionEnd → "idle" (session ended)
  *
  * Hook payload from Claude (as JSON on stdin):
  * {
- *   "hook_type": "PreToolUse" | "PostToolUse" | "Notification" | "Stop",
- *   "session_id": "...",  // Claude's internal session ID
- *   "tool_name": "...",   // For tool use events
- *   "message": "...",     // For notifications
+ *   "hook_event_name": "PreToolUse" | "PostToolUse" | "Notification" | "Stop" | "SessionStart" | "SessionEnd",
+ *   "session_id": "...",     // Claude's internal session ID
+ *   "tool_name": "...",      // For tool use events
+ *   "tool_input": {...},     // Tool-specific input (command for Bash, file_path for Read/Write/Edit)
+ *   "message": "...",        // For notifications
+ *   "source": "...",         // For SessionStart: "startup" | "resume" | "clear" | "compact"
+ *   "reason": "...",         // For SessionEnd: "clear" | "logout" | "prompt_input_exit" | "other"
  *   ...
  * }
  *
@@ -29,6 +34,20 @@ import {
  * - Or a simplified payload with just the fields we need
  */
 
+/** Tool input structure varies by tool */
+interface ToolInput {
+  // Bash
+  command?: string;
+  description?: string;
+  // Read/Write/Edit
+  file_path?: string;
+  // Edit specific
+  old_string?: string;
+  new_string?: string;
+  // Generic
+  [key: string]: unknown;
+}
+
 interface HookPayload {
   // Required: At least one of these to identify the AgentOS session
   agentos_session_id?: string; // Direct AgentOS session ID
@@ -36,11 +55,16 @@ interface HookPayload {
   tmux_session?: string; // Tmux session name (e.g., "claude-abc123")
 
   // Hook event info
-  hook_type?: string; // PreToolUse, PostToolUse, Notification, Stop
+  hook_type?: string; // PreToolUse, PostToolUse, Notification, Stop, SessionStart, SessionEnd
   hook_event_name?: string; // Alias for hook_type
   event?: string; // Alias for hook_type
   tool_name?: string; // For tool use events
+  tool_input?: ToolInput; // Tool-specific input data
   message?: string; // For notifications
+
+  // SessionStart/SessionEnd specific
+  source?: string; // For SessionStart: "startup" | "resume" | "clear" | "compact"
+  reason?: string; // For SessionEnd: "clear" | "logout" | "prompt_input_exit" | "other"
 
   // Optional: Direct status override (for testing or manual updates)
   status?: SessionStatus;
@@ -78,6 +102,51 @@ function mapEventToStatus(event: string, message?: string): SessionStatus {
       // Unknown events default to running (activity is happening)
       return "running";
   }
+}
+
+/**
+ * Extract a human-readable detail from tool_input based on tool_name
+ * Returns a short string suitable for display (e.g., command or file path)
+ */
+function extractToolDetail(
+  toolName: string | undefined,
+  toolInput: ToolInput | undefined
+): string | undefined {
+  if (!toolName || !toolInput) return undefined;
+
+  const name = toolName.toLowerCase();
+
+  // Bash: show the command (truncated if long)
+  if (name === "bash") {
+    const cmd = toolInput.command;
+    if (cmd) {
+      // Truncate long commands for display
+      return cmd.length > 100 ? cmd.slice(0, 100) + "..." : cmd;
+    }
+  }
+
+  // File tools: show the file path
+  if (["read", "write", "edit", "glob", "grep"].includes(name)) {
+    const filePath = toolInput.file_path;
+    if (filePath) {
+      // Show just the filename for brevity, or short paths
+      if (filePath.length > 50) {
+        const parts = filePath.split("/");
+        return ".../" + parts.slice(-2).join("/");
+      }
+      return filePath;
+    }
+  }
+
+  // Task/subagent: show description if available
+  if (name === "task") {
+    const desc = toolInput.description;
+    if (typeof desc === "string") {
+      return desc.length > 50 ? desc.slice(0, 50) + "..." : desc;
+    }
+  }
+
+  return undefined;
 }
 
 // Validate that session exists in our DB
@@ -154,12 +223,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Extract tool detail from tool_input (command, file path, etc.)
+    const toolDetail = extractToolDetail(payload.tool_name, payload.tool_input);
+
     // Broadcast the update
     statusBroadcaster.updateStatus({
       sessionId,
       status,
       hookEvent: event,
       toolName: payload.tool_name,
+      toolDetail,
     });
 
     return NextResponse.json({
@@ -167,6 +240,7 @@ export async function POST(request: NextRequest) {
       sessionId,
       status,
       event,
+      toolDetail,
     });
   } catch (error) {
     console.error("Error processing status update:", error);

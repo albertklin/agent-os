@@ -26,6 +26,8 @@ export interface StatusData {
   updatedAt?: number;
   hookEvent?: string;
   toolName?: string;
+  /** For Bash: the command, for file tools: the file path */
+  toolDetail?: string;
   setupStatus?: SetupStatusType;
   setupError?: string;
 }
@@ -36,6 +38,7 @@ interface StatusUpdate {
   lastLine?: string;
   hookEvent?: string;
   toolName?: string;
+  toolDetail?: string;
   setupStatus?: SetupStatusType;
   setupError?: string;
 }
@@ -92,6 +95,7 @@ export function useStatusStream(): UseStatusStreamResult {
             updatedAt: Date.now(),
             hookEvent: update.hookEvent,
             toolName: update.toolName,
+            toolDetail: update.toolDetail,
             // Preserve setup status from existing or use new value
             setupStatus: update.setupStatus ?? existing?.setupStatus,
             setupError: update.setupError ?? existing?.setupError,

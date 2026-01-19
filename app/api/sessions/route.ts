@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { getDb, queries, type Session, type Group } from "@/lib/db";
 import { isValidAgentType, type AgentType } from "@/lib/providers";
 import { runSessionSetup } from "@/lib/session-setup";
-import { hasAgentOsHooks, writeHooksConfig } from "@/lib/hooks/generate-config";
+// Note: Global Claude hooks are configured at server startup (see server.ts)
 import { initializeSandbox } from "@/lib/sandbox";
 
 // GET /api/sessions - List all sessions and groups
@@ -146,22 +146,6 @@ export async function POST(request: NextRequest) {
 
     const session = queries.getSession(db).get(id) as Session;
 
-    // Auto-configure hooks for Claude sessions if not already configured
-    // This enables real-time status updates via the status-stream SSE endpoint
-    let hooksConfigured = false;
-    if (agentType === "claude" && workingDirectory) {
-      const projectDir = workingDirectory.replace("~", process.env.HOME || "");
-      if (!hasAgentOsHooks(projectDir)) {
-        const result = writeHooksConfig(projectDir);
-        hooksConfigured = result.success;
-        if (result.success) {
-          console.log(`[hooks] Configured AgentOS hooks at ${result.path}`);
-        }
-      } else {
-        hooksConfigured = true;
-      }
-    }
-
     // Initialize Claude's native sandbox for auto-approve sessions
     // This creates .claude/settings.json with sandbox enabled
     if (autoApprove && agentType === "claude") {
@@ -197,8 +181,7 @@ export async function POST(request: NextRequest) {
     const response: {
       session: Session;
       initialPrompt?: string;
-      hooksConfigured?: boolean;
-    } = { session, hooksConfigured };
+    } = { session };
     if (initialPrompt?.trim()) {
       response.initialPrompt = initialPrompt.trim();
     }

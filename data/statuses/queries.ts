@@ -48,6 +48,8 @@ function toSessionStatus(
     sessionName,
     status: data.status === "unknown" ? "dead" : data.status,
     lastLine: data.lastLine,
+    toolName: data.toolName,
+    toolDetail: data.toolDetail,
     setupStatus: data.setupStatus,
     setupError: data.setupError,
   };
