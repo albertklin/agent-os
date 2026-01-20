@@ -429,6 +429,13 @@ export async function createContainer(
         }
       }
 
+      // Create screenshots temp directory on host if it doesn't exist
+      // This is where uploaded images are stored, and we need to mount it into the container
+      const screenshotsTempDir = path.join(os.tmpdir(), "agent-os-screenshots");
+      if (!fs.existsSync(screenshotsTempDir)) {
+        fs.mkdirSync(screenshotsTempDir, { recursive: true });
+      }
+
       const { stdout } = await execAsync(
         `docker run -d \
         --name "${containerName}" \
@@ -441,6 +448,7 @@ export async function createContainer(
         --ulimit nofile=1024:2048 \
         --security-opt=no-new-privileges \
         -v "${worktreePath}:/workspace:rw" \
+        -v "${screenshotsTempDir}:${screenshotsTempDir}:ro" \
         ${gitDirMount} \
         ${sshAgentMount} \
         -e NODE_OPTIONS="--max-old-space-size=4096" \
