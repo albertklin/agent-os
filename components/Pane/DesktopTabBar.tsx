@@ -206,6 +206,10 @@ export function DesktopTabBar({
   const getTabName = useCallback(
     (tab: Tab) => {
       if (tab.isQuickRespond) {
+        if (tab.sessionId) {
+          const s = sessions.find((sess) => sess.id === tab.sessionId);
+          return s?.name || "Quick Respond";
+        }
         return "Quick Respond";
       }
       if (tab.sessionId) {
