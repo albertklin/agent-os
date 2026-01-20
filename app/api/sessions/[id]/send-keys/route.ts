@@ -3,6 +3,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { getDb, queries, type Session } from "@/lib/db";
 import { appendFileSync } from "fs";
+import { TMUX_SOCKET } from "@/lib/tmux";
 
 const execAsync = promisify(exec);
 
@@ -60,7 +61,9 @@ export async function POST(
 
     // Check if tmux session exists
     try {
-      await execAsync(`tmux has-session -t "${tmuxSessionName}" 2>/dev/null`);
+      await execAsync(
+        `tmux -L ${TMUX_SOCKET} has-session -t "${tmuxSessionName}" 2>/dev/null`
+      );
       log(`Tmux session exists`);
     } catch {
       log(`ERROR: Tmux session ${tmuxSessionName} not running`);
@@ -82,7 +85,7 @@ export async function POST(
     try {
       // Load file into named tmux buffer
       log(`Loading buffer "${bufferName}" from ${tempFile}`);
-      const loadCmd = `tmux load-buffer -b "${bufferName}" "${tempFile}"`;
+      const loadCmd = `tmux -L ${TMUX_SOCKET} load-buffer -b "${bufferName}" "${tempFile}"`;
       log(`Running: ${loadCmd}`);
       const loadResult = await execAsync(loadCmd);
       log(
@@ -91,7 +94,7 @@ export async function POST(
 
       // Paste the named buffer to the session
       log(`Pasting buffer "${bufferName}" to ${tmuxSessionName}`);
-      const pasteCmd = `tmux paste-buffer -b "${bufferName}" -t "${tmuxSessionName}"`;
+      const pasteCmd = `tmux -L ${TMUX_SOCKET} paste-buffer -b "${bufferName}" -t "${tmuxSessionName}"`;
       log(`Running: ${pasteCmd}`);
       const pasteResult = await execAsync(pasteCmd);
       log(
@@ -99,12 +102,14 @@ export async function POST(
       );
 
       // Delete the buffer after use
-      await execAsync(`tmux delete-buffer -b "${bufferName}"`).catch(() => {});
+      await execAsync(
+        `tmux -L ${TMUX_SOCKET} delete-buffer -b "${bufferName}"`
+      ).catch(() => {});
 
       // Send Enter if requested
       if (pressEnter) {
         log(`Sending Enter to ${tmuxSessionName}`);
-        const enterCmd = `tmux send-keys -t "${tmuxSessionName}" Enter`;
+        const enterCmd = `tmux -L ${TMUX_SOCKET} send-keys -t "${tmuxSessionName}" Enter`;
         log(`Running: ${enterCmd}`);
         const enterResult = await execAsync(enterCmd);
         log(

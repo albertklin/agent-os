@@ -522,6 +522,50 @@ cmd_notify_off() {
     fi
 }
 
+cmd_tmux() {
+    local subcmd="${1:-ls}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        ls|list)
+            echo ""
+            echo -e "${BOLD}AgentOS tmux sessions${NC} (socket: agentos)"
+            echo ""
+            local sessions
+            sessions=$(tmux -L agentos list-sessions 2>/dev/null || true)
+            if [[ -z "$sessions" ]]; then
+                echo "  No sessions running"
+            else
+                echo "$sessions" | while read -r line; do
+                    echo "  $line"
+                done
+            fi
+            echo ""
+            ;;
+        attach|a)
+            local session_name="$1"
+            if [[ -z "$session_name" ]]; then
+                log_error "Usage: agent-os tmux attach <session-name>"
+                exit 1
+            fi
+            exec tmux -L agentos attach -t "$session_name"
+            ;;
+        kill)
+            local session_name="$1"
+            if [[ -z "$session_name" ]]; then
+                log_error "Usage: agent-os tmux kill <session-name>"
+                exit 1
+            fi
+            tmux -L agentos kill-session -t "$session_name"
+            log_success "Killed session: $session_name"
+            ;;
+        *)
+            # Pass through any other tmux command
+            exec tmux -L agentos "$subcmd" "$@"
+            ;;
+    esac
+}
+
 cmd_help() {
     echo ""
     echo -e "${BOLD}AgentOS${NC} - Self-hosted AI coding session manager"
@@ -542,6 +586,13 @@ cmd_help() {
     echo "  notify-on   Enable push notifications (ntfy.sh)"
     echo "  notify-off  Disable push notifications"
     echo "  uninstall   Remove AgentOS completely"
+    echo "  tmux        Manage AgentOS tmux sessions (separate from system tmux)"
+    echo ""
+    echo "Tmux subcommands:"
+    echo "  tmux ls              List AgentOS tmux sessions"
+    echo "  tmux attach <name>   Attach to a session"
+    echo "  tmux kill <name>     Kill a session"
+    echo "  tmux <cmd>           Pass any tmux command to the AgentOS server"
     echo ""
     echo "Environment variables:"
     echo "  AGENT_OS_HOME   Installation directory (default: ~/.agent-os)"

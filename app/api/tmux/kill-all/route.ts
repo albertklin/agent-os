@@ -5,6 +5,7 @@ import { getDb, queries, type Session } from "@/lib/db";
 import { destroyContainer } from "@/lib/container";
 import { deleteWorktree, isAgentOSWorktree } from "@/lib/worktrees";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
+import { TMUX_SOCKET } from "@/lib/tmux";
 
 const execAsync = promisify(exec);
 
@@ -13,9 +14,9 @@ export async function POST() {
   try {
     const db = getDb();
 
-    // Get all tmux sessions
+    // Get all tmux sessions from the AgentOS server
     const { stdout } = await execAsync(
-      'tmux list-sessions -F "#{session_name}" 2>/dev/null || echo ""',
+      `tmux -L ${TMUX_SOCKET} list-sessions -F "#{session_name}" 2>/dev/null || echo ""`,
       { timeout: 5000 }
     );
 
@@ -30,7 +31,9 @@ export async function POST() {
     const killed: string[] = [];
     for (const session of tmuxSessions) {
       try {
-        await execAsync(`tmux kill-session -t "${session}"`, { timeout: 5000 });
+        await execAsync(`tmux -L ${TMUX_SOCKET} kill-session -t "${session}"`, {
+          timeout: 5000,
+        });
         killed.push(session);
       } catch {
         // Session might already be dead, continue
