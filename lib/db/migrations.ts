@@ -160,6 +160,44 @@ const migrations: Migration[] = [
       db.exec(`ALTER TABLE sessions ADD COLUMN sandbox_status TEXT`);
     },
   },
+  {
+    id: 14,
+    name: "add_sort_order_to_sessions",
+    up: (db) => {
+      db.exec(
+        `ALTER TABLE sessions ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`
+      );
+      // Backfill sort_order based on created_at (oldest first)
+      db.exec(`
+        WITH ranked AS (
+          SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(project_id, 'uncategorized')
+            ORDER BY created_at ASC
+          ) - 1 as new_order
+          FROM sessions
+        )
+        UPDATE sessions SET sort_order = (
+          SELECT new_order FROM ranked WHERE ranked.id = sessions.id
+        )
+      `);
+    },
+  },
+  {
+    id: 15,
+    name: "add_container_health_tracking",
+    up: (db) => {
+      // Add columns for tracking container health
+      db.exec(
+        `ALTER TABLE sessions ADD COLUMN container_health_last_check TEXT`
+      );
+      db.exec(`ALTER TABLE sessions ADD COLUMN container_health_status TEXT`);
+
+      // Add index for faster container lookups
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_container ON sessions(container_id)`
+      );
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

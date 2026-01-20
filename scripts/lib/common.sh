@@ -74,6 +74,15 @@ get_pid() {
             return 0
         fi
     fi
+
+    # Fallback: check for process on the port if PID file is stale/missing
+    local port_pid
+    port_pid=$(lsof -ti:"$PORT" 2>/dev/null | head -1)
+    if [[ -n "$port_pid" ]]; then
+        echo "$port_pid"
+        return 0
+    fi
+
     return 1
 }
 

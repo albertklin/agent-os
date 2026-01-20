@@ -24,7 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Session, Group } from "@/lib/db";
-import type { SessionStatus, SessionHoverHandlers } from "./SessionList.types";
+import type { SessionStatus } from "./SessionList.types";
 
 interface GroupSectionProps {
   groups: Group[];
@@ -42,7 +42,6 @@ interface GroupSectionProps {
   ) => Promise<void>;
   onDeleteSession: (sessionId: string, sessionName?: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
-  hoverHandlers: SessionHoverHandlers;
 }
 
 export function GroupSection({
@@ -58,7 +57,6 @@ export function GroupSection({
   onForkSession,
   onDeleteSession,
   onRenameSession,
-  hoverHandlers,
 }: GroupSectionProps) {
   const [newGroupName, setNewGroupName] = useState("");
   const [showNewGroupInput, setShowNewGroupInput] = useState<string | null>(
@@ -217,10 +215,6 @@ export function GroupSection({
                 onFork={async (options) => onForkSession(session.id, options)}
                 onDelete={() => onDeleteSession(session.id, session.name)}
                 onRename={(newName) => onRenameSession(session.id, newName)}
-                onHoverStart={(rect) =>
-                  hoverHandlers.onHoverStart(session, rect)
-                }
-                onHoverEnd={hoverHandlers.onHoverEnd}
               />
             ))}
           </div>

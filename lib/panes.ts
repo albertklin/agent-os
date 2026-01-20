@@ -198,6 +198,24 @@ export function getAllPaneIds(layout: PaneLayout): string[] {
   return layout.children.flatMap(getAllPaneIds);
 }
 
+/**
+ * Get panes in reading order (left-to-right, top-to-bottom).
+ * For a layout like:
+ *   [A] | [B]
+ *       | [C]
+ * Returns: [A, B, C]
+ *
+ * This works because children are already stored in visual order
+ * (left-to-right for horizontal splits, top-to-bottom for vertical).
+ */
+export function getPanesInReadingOrder(layout: PaneLayout): string[] {
+  if (layout.type === "leaf") {
+    return [layout.paneId];
+  }
+  // Flatten children in order - works for both horizontal and vertical splits
+  return layout.children.flatMap(getPanesInReadingOrder);
+}
+
 // localStorage key for persisting pane state
 const PANE_STATE_KEY = "agent-os-pane-state";
 

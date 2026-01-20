@@ -185,6 +185,16 @@ cmd_stop() {
         sleep 1
     fi
 
+    # Also kill any orphaned server processes not on the port
+    # (e.g., servers that failed to bind but are still running)
+    local server_pids
+    server_pids=$(pgrep -f "tsx server.ts" 2>/dev/null || true)
+    if [[ -n "$server_pids" ]]; then
+        log_warn "Cleaning up orphaned server processes..."
+        echo "$server_pids" | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+
     rm -f "$PID_FILE"
     log_success "AgentOS stopped"
 }
@@ -286,6 +296,9 @@ cmd_update() {
 
         log_info "Installing dependencies..."
         npm install --legacy-peer-deps
+
+        # Clear build cache to ensure fresh build
+        rm -rf .next
 
         log_info "Rebuilding..."
         npm run build

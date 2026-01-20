@@ -17,7 +17,13 @@ import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { createWorktree, type CreateWorktreeOptions } from "@/lib/worktrees";
 import { setupWorktree } from "@/lib/env-setup";
 import { findAvailablePort } from "@/lib/ports";
-import { initializeSandbox } from "@/lib/sandbox";
+import {
+  createContainer,
+  isDockerAvailable,
+  verifyContainerHealth,
+  destroyContainer,
+  logSecurityEvent,
+} from "@/lib/container";
 
 const execAsync = promisify(exec);
 
@@ -93,24 +99,92 @@ export async function runSessionSetup(
       "UPDATE sessions SET working_directory = ?, updated_at = datetime('now') WHERE id = ?"
     ).run(worktreeInfo.worktreePath, sessionId);
 
-    // Step 2: Initialize sandbox for auto-approve sessions
-    // This must happen AFTER worktree creation so settings go to the worktree
+    // Step 2: Initialize container for auto-approve sessions
+    // This must happen AFTER worktree creation so container can mount the worktree
     const session = queries.getSession(db).get(sessionId) as {
       auto_approve: number;
       agent_type: string;
     } | null;
 
     if (session?.auto_approve && session?.agent_type === "claude") {
-      updateSetupStatus(sessionId, "init_sandbox");
+      // Check if Docker is available before attempting container creation
+      if (await isDockerAvailable()) {
+        updateSetupStatus(sessionId, "init_container");
 
-      console.log(`[sandbox] Initializing sandbox for session ${sessionId}`);
-      const sandboxReady = await initializeSandbox({
-        sessionId,
-        workingDirectory: worktreeInfo.worktreePath,
-      });
+        try {
+          console.log(
+            `[container] Creating container for session ${sessionId}`
+          );
+          const { containerId } = await createContainer({
+            sessionId,
+            worktreePath: worktreeInfo.worktreePath,
+          });
 
-      if (!sandboxReady) {
-        throw new Error("Failed to initialize sandbox settings in worktree");
+          // SECURITY: Verify health BEFORE marking ready
+          const health = await verifyContainerHealth(
+            containerId,
+            worktreeInfo.worktreePath
+          );
+
+          if (!health.healthy) {
+            // Unhealthy - destroy and fail
+            console.error(
+              `[container] Health check failed for session ${sessionId}: ${health.error}`
+            );
+            await destroyContainer(containerId).catch(() => {});
+
+            logSecurityEvent({
+              type: "container_created",
+              sessionId,
+              containerId,
+              success: false,
+              error: `Health check failed: ${health.error}`,
+            });
+
+            queries
+              .updateSessionSandboxWithHealth(db)
+              .run(null, "failed", "unhealthy", sessionId);
+          } else {
+            // Healthy - mark as ready
+            logSecurityEvent({
+              type: "container_created",
+              sessionId,
+              containerId,
+              success: true,
+            });
+
+            // ATOMIC: Update DB with health status
+            queries
+              .updateSessionSandboxWithHealth(db)
+              .run(containerId, "ready", "healthy", sessionId);
+          }
+        } catch (error) {
+          // Container creation failed - mark as failed to prevent terminal access
+          const errorMsg =
+            error instanceof Error ? error.message : "Unknown error";
+          console.error(
+            `[container] Failed to create container for session ${sessionId}: ${errorMsg}`
+          );
+
+          logSecurityEvent({
+            type: "container_created",
+            sessionId,
+            success: false,
+            error: errorMsg,
+          });
+
+          queries
+            .updateSessionSandboxWithHealth(db)
+            .run(null, "failed", "unhealthy", sessionId);
+        }
+      } else {
+        console.warn(
+          `[container] Docker not available, skipping container for session ${sessionId}`
+        );
+        // Mark sandbox as failed since we can't provide isolation
+        queries
+          .updateSessionSandboxWithHealth(db)
+          .run(null, "failed", null, sessionId);
       }
     }
 

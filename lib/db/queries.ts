@@ -26,7 +26,10 @@ export const queries = {
     getStmt(db, `SELECT * FROM sessions WHERE id = ?`),
 
   getAllSessions: (db: Database.Database) =>
-    getStmt(db, `SELECT * FROM sessions ORDER BY updated_at DESC`),
+    getStmt(
+      db,
+      `SELECT * FROM sessions ORDER BY sort_order ASC, created_at ASC`
+    ),
 
   updateSessionStatus: (db: Database.Database) =>
     getStmt(
@@ -70,7 +73,7 @@ export const queries = {
   getSessionsByGroup: (db: Database.Database) =>
     getStmt(
       db,
-      `SELECT * FROM sessions WHERE group_path = ? ORDER BY updated_at DESC`
+      `SELECT * FROM sessions WHERE group_path = ? ORDER BY sort_order ASC, created_at ASC`
     ),
 
   moveSessionsToGroup: (db: Database.Database) =>
@@ -85,10 +88,28 @@ export const queries = {
       `UPDATE sessions SET project_id = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
+  updateSessionSortOrder: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE sessions SET sort_order = ?, updated_at = datetime('now') WHERE id = ?`
+    ),
+
+  updateSessionProjectAndOrder: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE sessions SET project_id = ?, sort_order = ?, updated_at = datetime('now') WHERE id = ?`
+    ),
+
+  getMaxSortOrderForProject: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT COALESCE(MAX(sort_order), -1) as max_order FROM sessions WHERE project_id = ?`
+    ),
+
   getSessionsByProject: (db: Database.Database) =>
     getStmt(
       db,
-      `SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC`
+      `SELECT * FROM sessions WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC`
     ),
 
   // Get sessions sharing the same worktree (excluding the given session)
@@ -108,6 +129,47 @@ export const queries = {
     getStmt(
       db,
       `UPDATE sessions SET container_id = ?, sandbox_status = ?, updated_at = datetime('now') WHERE id = ?`
+    ),
+
+  updateSessionSandboxWithHealth: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE sessions SET
+        container_id = ?,
+        sandbox_status = ?,
+        container_health_last_check = datetime('now'),
+        container_health_status = ?,
+        updated_at = datetime('now')
+      WHERE id = ?`
+    ),
+
+  getSessionsWithUnhealthyContainers: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT * FROM sessions
+       WHERE container_id IS NOT NULL
+       AND sandbox_status = 'ready'
+       AND (container_health_status != 'healthy'
+            OR container_health_last_check IS NULL
+            OR datetime(container_health_last_check) < datetime('now', '-5 minutes'))`
+    ),
+
+  getSessionsWithContainers: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT * FROM sessions
+       WHERE container_id IS NOT NULL
+       AND sandbox_status = 'ready'`
+    ),
+
+  validateAutoApproveSandboxConstraints: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT * FROM sessions
+       WHERE auto_approve = 1
+       AND agent_type = 'claude'
+       AND sandbox_status = 'ready'
+       AND container_id IS NULL`
     ),
 
   // Messages

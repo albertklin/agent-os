@@ -34,6 +34,7 @@ interface HooksSection {
   Stop?: HookDefinition[];
   SessionStart?: HookDefinition[];
   SessionEnd?: HookDefinition[];
+  UserPromptSubmit?: HookDefinition[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -75,7 +76,7 @@ if command -v jq >/dev/null 2>&1 && [ -n "$HOOK_INPUT" ]; then
 else
   PAYLOAD="{\\"tmux_session\\":\\"$TMUX_SESSION\\",\\"hook_type\\":\\"${hookType}\\"}"
 fi
-curl -X POST "${url}" -H "Content-Type: application/json" -d "$PAYLOAD" --silent --max-time 2 >/dev/null 2>&1 || true
+curl -X POST "${url}" -H "Content-Type: application/json" -d "$PAYLOAD" --silent --max-time 0.5 >/dev/null 2>&1 || true
 exit 0
 '`;
 }
@@ -154,6 +155,17 @@ export function generateHooksSection(port: number = 3011): HooksSection {
         ],
       },
     ],
+    UserPromptSubmit: [
+      {
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command: generateHookCommand("UserPromptSubmit", port),
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -202,6 +214,7 @@ export function hasGlobalAgentOsHooks(): boolean {
       "Stop",
       "SessionStart",
       "SessionEnd",
+      "UserPromptSubmit",
     ] as const) {
       const hookDefs = settings.hooks[hookType];
       if (Array.isArray(hookDefs)) {
@@ -280,6 +293,7 @@ export function writeGlobalHooksConfig(port: number = 3011): {
       "Stop",
       "SessionStart",
       "SessionEnd",
+      "UserPromptSubmit",
     ] as const) {
       const existingHooks = settings.hooks[hookType] || [];
       const newHookDef = generatedHooks[hookType]?.[0];
@@ -349,6 +363,7 @@ export function removeGlobalAgentOsHooks(): boolean {
       "Stop",
       "SessionStart",
       "SessionEnd",
+      "UserPromptSubmit",
     ] as const) {
       if (settings.hooks[hookType]) {
         settings.hooks[hookType] = settings.hooks[hookType]!.filter(

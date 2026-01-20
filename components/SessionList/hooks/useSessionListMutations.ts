@@ -23,6 +23,7 @@ import { sessionKeys } from "@/data/sessions/keys";
 
 interface UseSessionListMutationsOptions {
   onSelectSession: (sessionId: string) => void;
+  onSessionDeleted?: (sessionId: string) => void;
 }
 
 export interface DeleteDialogState {
@@ -33,6 +34,7 @@ export interface DeleteDialogState {
 
 export function useSessionListMutations({
   onSelectSession,
+  onSessionDeleted,
 }: UseSessionListMutationsOptions) {
   const queryClient = useQueryClient();
 
@@ -83,7 +85,8 @@ export function useSessionListMutations({
     const { sessionId } = deleteDialogState;
     setDeleteDialogState((s) => ({ ...s, open: false }));
     await deleteSessionMutation.mutateAsync(sessionId);
-  }, [deleteDialogState, deleteSessionMutation]);
+    onSessionDeleted?.(sessionId);
+  }, [deleteDialogState, deleteSessionMutation, onSessionDeleted]);
 
   // Called when dialog is dismissed
   const closeDeleteDialog = useCallback(() => {
@@ -213,6 +216,7 @@ export function useSessionListMutations({
 
       let succeeded = 0;
       let failed = 0;
+      const deletedIds: string[] = [];
 
       // Delete all sessions in parallel for speed
       await Promise.allSettled(
@@ -223,6 +227,7 @@ export function useSessionListMutations({
             });
             if (response.ok) {
               succeeded++;
+              deletedIds.push(sessionId);
             } else {
               failed++;
             }
@@ -232,6 +237,11 @@ export function useSessionListMutations({
           }
         })
       );
+
+      // Clear deleted sessions from tabs
+      for (const sessionId of deletedIds) {
+        onSessionDeleted?.(sessionId);
+      }
 
       // Invalidate cache to refresh UI
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
@@ -256,7 +266,7 @@ export function useSessionListMutations({
         );
       }
     },
-    [queryClient]
+    [queryClient, onSessionDeleted]
   );
 
   // Refresh handler

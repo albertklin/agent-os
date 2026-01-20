@@ -22,7 +22,7 @@ export function WorkingDirectoryInput({
 }: WorkingDirectoryInputProps) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">Working Directory</label>
+      <label className="text-sm font-medium">Directory</label>
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Input

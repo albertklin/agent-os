@@ -61,6 +61,33 @@ The installer can automatically install these on macOS and Linux:
 - **npm** - Package manager (comes with Node.js)
 - **git** - Version control
 - **tmux** - Terminal multiplexer for session management
+- **Docker** - Container runtime for sandboxed sessions
+
+### Docker Installation
+
+Docker is required for sandboxed (auto-approve) sessions. The installer will guide you through installation:
+
+**macOS**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+
+**Linux (Ubuntu/Debian)**:
+
+```bash
+# The installer handles this, but for manual install:
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Log out and back in for group changes to take effect
+```
+
+**Linux (RHEL/CentOS)**:
+
+```bash
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum install -y docker-ce docker-ce-cli containerd.io
+sudo systemctl start docker && sudo systemctl enable docker
+sudo usermod -aG docker $USER
+# Log out and back in for group changes to take effect
+```
 
 ### AI Coding CLIs
 
@@ -200,6 +227,7 @@ Common issues:
 - Port already in use: Change `AGENT_OS_PORT`
 - Missing dependencies: Run `agent-os install` again
 - Node.js version: Ensure Node.js 20+ is installed
+- Docker not running: Start Docker and ensure your user is in the `docker` group
 
 ### Can't connect from phone
 

@@ -5,8 +5,11 @@ import type { ProjectWithDevServers } from "@/lib/projects";
 export const SKIP_PERMISSIONS_KEY = "agentOS:skipPermissions";
 export const AGENT_TYPE_KEY = "agentOS:defaultAgentType";
 export const RECENT_DIRS_KEY = "agentOS:recentDirectories";
-export const USE_TMUX_KEY = "agentOS:useTmux";
+export const USE_WORKTREE_KEY = "agentOS:useWorktree";
 export const MAX_RECENT_DIRS = 5;
+
+// Model localStorage key prefix (per agent)
+export const MODEL_KEY_PREFIX = "agentOS:model:";
 
 // Random feature name generator
 const ADJECTIVES = [
@@ -105,11 +108,6 @@ export interface NewSessionDialogProps {
   selectedProjectId?: string;
   onClose: () => void;
   onCreated: (sessionId: string) => void;
-  onCreateProject?: (
-    name: string,
-    workingDirectory: string,
-    agentType: AgentType
-  ) => Promise<string | null>;
 }
 
 // Form state
@@ -118,8 +116,8 @@ export interface NewSessionFormState {
   workingDirectory: string;
   projectId: string | null;
   agentType: AgentType;
+  model: string;
   skipPermissions: boolean;
-  useTmux: boolean;
   initialPrompt: string;
   // Worktree
   useWorktree: boolean;
@@ -128,11 +126,6 @@ export interface NewSessionFormState {
   // Git
   gitInfo: GitInfo | null;
   checkingGit: boolean;
-  // UI
-  showNewProject: boolean;
-  newProjectName: string;
-  creatingProject: boolean;
-  advancedOpen: boolean;
   // Submission
   isLoading: boolean;
   error: string | null;

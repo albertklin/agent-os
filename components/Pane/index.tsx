@@ -9,7 +9,6 @@ import type {
   TerminalScrollState,
 } from "@/components/Terminal";
 import type { Session, Project } from "@/lib/db";
-import { getTmuxSessionName } from "@/lib/sessions";
 import { sessionRegistry } from "@/lib/client/session-registry";
 import { cn } from "@/lib/utils";
 import { useFileEditor } from "@/hooks/useFileEditor";
@@ -19,6 +18,7 @@ import {
   TerminalSkeleton,
   FileExplorerSkeleton,
   GitPanelSkeleton,
+  EmptySessionPlaceholder,
 } from "./PaneSkeletons";
 import {
   Panel as ResizablePanel,
@@ -83,6 +83,7 @@ export const Pane = memo(function Pane({
     addTab,
     closeTab,
     switchTab,
+    reorderTabs,
     detachSession,
   } = usePanes();
 
@@ -178,19 +179,17 @@ export const Pane = memo(function Pane({
 
       onRegisterTerminal(paneId, tab.id, handle);
 
-      // Determine tmux session name to attach
-      // IMPORTANT: Compute tmux name from session.agent_type + session.id
-      // instead of using stored tmux_name or attachedTmux to prevent desync
-      const session = tab.sessionId
-        ? sessions.find((s) => s.id === tab.sessionId)
-        : null;
-      const tmuxName = session ? getTmuxSessionName(session) : tab.attachedTmux; // Fallback for backwards compatibility
-
-      if (tmuxName) {
-        setTimeout(() => handle.sendCommand(`tmux attach -t ${tmuxName}`), 100);
+      // Only auto-reattach if we have a stored tmux name from a previous attachment.
+      // For new attachments (tab.attachedTmux is null), let useSessionAttachment handle it
+      // to properly create the tmux session if needed.
+      if (tab.attachedTmux) {
+        setTimeout(
+          () => handle.sendCommand(`tmux attach -t ${tab.attachedTmux}`),
+          100
+        );
       }
     },
-    [paneId, sessions, onRegisterTerminal]
+    [paneId, onRegisterTerminal]
   );
 
   // Track current tab ID for cleanup
@@ -280,6 +279,9 @@ export const Pane = memo(function Pane({
           onTabSwitch={(tabId) => switchTab(paneId, tabId)}
           onTabClose={(tabId) => closeTab(paneId, tabId)}
           onTabAdd={() => addTab(paneId)}
+          onReorderTabs={(fromIndex, toIndex) =>
+            reorderTabs(paneId, fromIndex, toIndex)
+          }
           onViewModeChange={setViewMode}
           onGitDrawerToggle={() => setGitDrawerOpen((prev) => !prev)}
           onShellDrawerToggle={() => setShellDrawerOpen((prev) => !prev)}
@@ -297,9 +299,10 @@ export const Pane = memo(function Pane({
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
-          {/* Terminals - one per tab */}
+          {/* Terminals - one per tab, or placeholder if no session */}
           {paneData.tabs.map((tab) => {
             const isActive = tab.id === activeTab?.id;
+            const hasSession = tab.sessionId !== null;
             const savedState = sessionRegistry.getTerminalState(paneId, tab.id);
 
             return (
@@ -311,27 +314,32 @@ export const Pane = memo(function Pane({
                     : "hidden"
                 }
               >
-                <Terminal
-                  ref={getTerminalRef(tab.id)}
-                  onConnected={getTerminalConnectedHandler(tab)}
-                  onBeforeUnmount={(scrollState) => {
-                    sessionRegistry.saveTerminalState(paneId, tab.id, {
-                      scrollTop: scrollState.scrollTop,
-                      scrollHeight: 0,
-                      lastActivity: Date.now(),
-                      cursorY: scrollState.cursorY,
-                    });
-                  }}
-                  initialScrollState={
-                    savedState
-                      ? {
-                          scrollTop: savedState.scrollTop,
-                          cursorY: savedState.cursorY,
-                          baseY: 0,
-                        }
-                      : undefined
-                  }
-                />
+                {hasSession ? (
+                  <Terminal
+                    ref={getTerminalRef(tab.id)}
+                    sessionId={tab.sessionId ?? undefined}
+                    onConnected={getTerminalConnectedHandler(tab)}
+                    onBeforeUnmount={(scrollState) => {
+                      sessionRegistry.saveTerminalState(paneId, tab.id, {
+                        scrollTop: scrollState.scrollTop,
+                        scrollHeight: 0,
+                        lastActivity: Date.now(),
+                        cursorY: scrollState.cursorY,
+                      });
+                    }}
+                    initialScrollState={
+                      savedState
+                        ? {
+                            scrollTop: savedState.scrollTop,
+                            cursorY: savedState.cursorY,
+                            baseY: 0,
+                          }
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <EmptySessionPlaceholder />
+                )}
               </div>
             );
           })}
@@ -367,9 +375,10 @@ export const Pane = memo(function Pane({
                 minSize={10}
               >
                 <div className="relative h-full">
-                  {/* Terminals - one per tab */}
+                  {/* Terminals - one per tab, or placeholder if no session */}
                   {paneData.tabs.map((tab) => {
                     const isActive = tab.id === activeTab?.id;
+                    const hasSession = tab.sessionId !== null;
                     const savedState = sessionRegistry.getTerminalState(
                       paneId,
                       tab.id
@@ -384,27 +393,36 @@ export const Pane = memo(function Pane({
                             : "hidden"
                         }
                       >
-                        <Terminal
-                          ref={getTerminalRef(tab.id)}
-                          onConnected={getTerminalConnectedHandler(tab)}
-                          onBeforeUnmount={(scrollState) => {
-                            sessionRegistry.saveTerminalState(paneId, tab.id, {
-                              scrollTop: scrollState.scrollTop,
-                              scrollHeight: 0,
-                              lastActivity: Date.now(),
-                              cursorY: scrollState.cursorY,
-                            });
-                          }}
-                          initialScrollState={
-                            savedState
-                              ? {
-                                  scrollTop: savedState.scrollTop,
-                                  cursorY: savedState.cursorY,
-                                  baseY: 0,
+                        {hasSession ? (
+                          <Terminal
+                            ref={getTerminalRef(tab.id)}
+                            sessionId={tab.sessionId ?? undefined}
+                            onConnected={getTerminalConnectedHandler(tab)}
+                            onBeforeUnmount={(scrollState) => {
+                              sessionRegistry.saveTerminalState(
+                                paneId,
+                                tab.id,
+                                {
+                                  scrollTop: scrollState.scrollTop,
+                                  scrollHeight: 0,
+                                  lastActivity: Date.now(),
+                                  cursorY: scrollState.cursorY,
                                 }
-                              : undefined
-                          }
-                        />
+                              );
+                            }}
+                            initialScrollState={
+                              savedState
+                                ? {
+                                    scrollTop: savedState.scrollTop,
+                                    cursorY: savedState.cursorY,
+                                    baseY: 0,
+                                  }
+                                : undefined
+                            }
+                          />
+                        ) : (
+                          <EmptySessionPlaceholder />
+                        )}
                       </div>
                     );
                   })}

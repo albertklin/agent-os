@@ -35,12 +35,14 @@ interface PaneContextValue {
   splitVertical: (paneId: string) => void;
   close: (paneId: string) => void;
   // Tab management
-  addTab: (paneId: string) => void;
+  addTab: (paneId: string, sessionId?: string, tmuxName?: string) => void;
   closeTab: (paneId: string, tabId: string) => void;
   switchTab: (paneId: string, tabId: string) => void;
+  reorderTabs: (paneId: string, fromIndex: number, toIndex: number) => void;
   // Session management (operates on active tab)
   attachSession: (paneId: string, sessionId: string, tmuxName: string) => void;
   detachSession: (paneId: string) => void;
+  clearSessionFromTabs: (sessionId: string) => void;
   getPaneData: (paneId: string) => PaneData;
   getActiveTab: (paneId: string) => TabData | null;
 }
@@ -118,24 +120,31 @@ export function PaneProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Tab management
-  const addTab = useCallback((paneId: string) => {
-    setState((prev) => {
-      const pane = prev.panes[paneId];
-      if (!pane) return prev;
-      const newTab = createTab();
-      return {
-        ...prev,
-        panes: {
-          ...prev.panes,
-          [paneId]: {
-            ...pane,
-            tabs: [...pane.tabs, newTab],
-            activeTabId: newTab.id,
+  const addTab = useCallback(
+    (paneId: string, sessionId?: string, tmuxName?: string) => {
+      setState((prev) => {
+        const pane = prev.panes[paneId];
+        if (!pane) return prev;
+        const newTab = createTab();
+        if (sessionId) {
+          newTab.sessionId = sessionId;
+          newTab.attachedTmux = tmuxName ?? null;
+        }
+        return {
+          ...prev,
+          panes: {
+            ...prev.panes,
+            [paneId]: {
+              ...pane,
+              tabs: [...pane.tabs, newTab],
+              activeTabId: newTab.id,
+            },
           },
-        },
-      };
-    });
-  }, []);
+        };
+      });
+    },
+    []
+  );
 
   const closeTab = useCallback((paneId: string, tabId: string) => {
     setState((prev) => {
@@ -176,6 +185,34 @@ export function PaneProvider({ children }: { children: ReactNode }) {
       };
     });
   }, []);
+
+  const reorderTabs = useCallback(
+    (paneId: string, fromIndex: number, toIndex: number) => {
+      setState((prev) => {
+        const pane = prev.panes[paneId];
+        if (!pane) return prev;
+        if (fromIndex === toIndex) return prev;
+        if (fromIndex < 0 || fromIndex >= pane.tabs.length) return prev;
+        if (toIndex < 0 || toIndex >= pane.tabs.length) return prev;
+
+        const newTabs = [...pane.tabs];
+        const [removed] = newTabs.splice(fromIndex, 1);
+        newTabs.splice(toIndex, 0, removed);
+
+        return {
+          ...prev,
+          panes: {
+            ...prev.panes,
+            [paneId]: {
+              ...pane,
+              tabs: newTabs,
+            },
+          },
+        };
+      });
+    },
+    []
+  );
 
   // Attach session to active tab
   const attachSession = useCallback(
@@ -224,6 +261,53 @@ export function PaneProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Clear a deleted session from all tabs across all panes
+  // Removes the tab if there are other tabs, otherwise clears the session reference
+  const clearSessionFromTabs = useCallback((sessionId: string) => {
+    setState((prev) => {
+      const newPanes: Record<string, PaneData> = {};
+      let changed = false;
+
+      for (const [paneId, pane] of Object.entries(prev.panes)) {
+        const affectedTabIds = pane.tabs
+          .filter((tab) => tab.sessionId === sessionId)
+          .map((tab) => tab.id);
+
+        if (affectedTabIds.length === 0) {
+          newPanes[paneId] = pane;
+          continue;
+        }
+
+        changed = true;
+
+        // If there are other tabs, remove the affected ones
+        if (pane.tabs.length > affectedTabIds.length) {
+          const newTabs = pane.tabs.filter(
+            (tab) => tab.sessionId !== sessionId
+          );
+          const newActiveTabId = affectedTabIds.includes(pane.activeTabId)
+            ? newTabs[0].id
+            : pane.activeTabId;
+          newPanes[paneId] = {
+            ...pane,
+            tabs: newTabs,
+            activeTabId: newActiveTabId,
+          };
+        } else {
+          // It's the only tab(s), just clear the session reference
+          const newTabs = pane.tabs.map((tab) =>
+            tab.sessionId === sessionId
+              ? { ...tab, sessionId: null, attachedTmux: null }
+              : tab
+          );
+          newPanes[paneId] = { ...pane, tabs: newTabs };
+        }
+      }
+
+      return changed ? { ...prev, panes: newPanes } : prev;
+    });
+  }, []);
+
   const getPaneData = useCallback(
     (paneId: string): PaneData => {
       return state.panes[paneId] || defaultPaneData;
@@ -259,8 +343,10 @@ export function PaneProvider({ children }: { children: ReactNode }) {
         addTab,
         closeTab,
         switchTab,
+        reorderTabs,
         attachSession,
         detachSession,
+        clearSessionFromTabs,
         getPaneData,
         getActiveTab,
       }}

@@ -11,10 +11,12 @@ import {
 
 /**
  * Claude Hook Events and their status mappings:
+ * - UserPromptSubmit → "running" (user sent message, Claude processing)
  * - PreToolUse, PostToolUse → "running" (Claude is actively working)
- * - Notification → "running" or "waiting" (depends on content)
- * - Stop → "idle" (Claude finished or was interrupted)
- * - SessionStart → "running" (session started)
+ * - PostToolUse (AskUserQuestion) → "waiting" (waiting for user response)
+ * - Notification → "waiting" (permission prompts, etc.)
+ * - Stop → "idle" (Claude finished responding)
+ * - SessionStart → "idle" (session ready, waiting for input)
  * - SessionEnd → "idle" (session ended)
  *
  * Hook payload from Claude (as JSON on stdin):
@@ -70,33 +72,49 @@ interface HookPayload {
   status?: SessionStatus;
 }
 
+// Tools that indicate Claude is waiting for user input
+const WAITING_TOOLS = new Set([
+  "askuserquestion",
+  "ask",
+  "ask_user",
+  "user_input",
+]);
+
 // Map Claude hook events to our status
-function mapEventToStatus(event: string, message?: string): SessionStatus {
+function mapEventToStatus(
+  event: string,
+  message?: string,
+  toolName?: string
+): SessionStatus {
   const normalizedEvent = event.toLowerCase();
+  const normalizedTool = toolName?.toLowerCase();
 
   switch (normalizedEvent) {
-    case "pretooluse":
-    case "posttooluse":
-    case "sessionstart":
+    case "userpromptsubmit":
+      // User just sent a message - Claude is now processing
       return "running";
+
+    case "pretooluse":
+      return "running";
+
+    case "posttooluse":
+      // After using a question/input tool, Claude is waiting for user response
+      if (normalizedTool && WAITING_TOOLS.has(normalizedTool)) {
+        return "waiting";
+      }
+      return "running";
+
+    case "sessionstart":
+      // Session started/resumed - waiting for user input
+      return "idle";
 
     case "stop":
     case "sessionend":
       return "idle";
 
     case "notification":
-      // Check notification content for waiting indicators
-      if (message) {
-        const lowerMsg = message.toLowerCase();
-        if (
-          lowerMsg.includes("waiting") ||
-          lowerMsg.includes("approval") ||
-          lowerMsg.includes("confirm")
-        ) {
-          return "waiting";
-        }
-      }
-      return "running";
+      // Notifications typically mean Claude is waiting for user input/response
+      return "waiting";
 
     default:
       // Unknown events default to running (activity is happening)
@@ -166,12 +184,12 @@ export async function POST(request: NextRequest) {
     const payload: HookPayload = await request.json();
 
     // Extract session ID from various possible fields
+    // IMPORTANT: Check tmux_session BEFORE session_id because Claude's hook payload
+    // includes its own internal session_id which is different from our AgentOS session ID
     let sessionId: string | null = null;
 
     if (payload.agentos_session_id) {
       sessionId = payload.agentos_session_id;
-    } else if (payload.session_id) {
-      sessionId = payload.session_id;
     } else if (payload.tmux_session) {
       // Extract UUID from tmux session name (e.g., "claude-abc123" -> "abc123")
       const pattern = getManagedSessionPattern();
@@ -183,6 +201,9 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+    } else if (payload.session_id) {
+      // Fallback to session_id (for non-Claude agents or direct API calls)
+      sessionId = payload.session_id;
     }
 
     if (!sessionId) {
@@ -211,8 +232,8 @@ export async function POST(request: NextRequest) {
       // Direct status override
       status = payload.status;
     } else if (event) {
-      // Map event to status
-      status = mapEventToStatus(event, payload.message);
+      // Map event to status (pass tool_name to detect waiting tools like AskUserQuestion)
+      status = mapEventToStatus(event, payload.message, payload.tool_name);
     } else {
       return NextResponse.json(
         {
@@ -252,7 +273,21 @@ export async function POST(request: NextRequest) {
 }
 
 // GET endpoint for testing/debugging
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const url = new URL(request.url);
+  const sync = url.searchParams.get("sync");
+
+  // Trigger sync if requested
+  if (sync === "true") {
+    const syncResult = statusBroadcaster.syncFromTmux();
+    return NextResponse.json({
+      description: "Sync completed",
+      syncResult,
+      subscriberCount: statusBroadcaster.getSubscriberCount(),
+      currentStatuses: statusBroadcaster.getAllStatuses(),
+    });
+  }
+
   return NextResponse.json({
     description: "POST hook payloads to this endpoint to update session status",
     subscriberCount: statusBroadcaster.getSubscriberCount(),

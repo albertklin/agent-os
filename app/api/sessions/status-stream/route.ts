@@ -26,8 +26,14 @@ export async function GET(): Promise<Response> {
         }
       };
 
+      // Sync from tmux if status store is empty (e.g., after hot reload)
+      let currentStatuses = statusBroadcaster.getAllStatuses();
+      if (Object.keys(currentStatuses).length === 0) {
+        statusBroadcaster.syncFromTmux();
+        currentStatuses = statusBroadcaster.getAllStatuses();
+      }
+
       // Send initial status dump
-      const currentStatuses = statusBroadcaster.getAllStatuses();
       sendEvent("init", { statuses: currentStatuses });
 
       // Subscribe to updates

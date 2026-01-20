@@ -7,5 +7,10 @@ export {
   useForkSession,
   useMoveSessionToGroup,
   useMoveSessionToProject,
+  useReorderSessions,
 } from "./queries";
-export type { CreateSessionInput, ForkSessionInput } from "./queries";
+export type {
+  CreateSessionInput,
+  ForkSessionInput,
+  SessionOrderUpdate,
+} from "./queries";

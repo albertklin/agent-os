@@ -77,8 +77,6 @@ interface SessionCardProps {
   onDelete?: () => void;
   onRename?: (newName: string) => void;
   onCreatePR?: () => void;
-  onHoverStart?: (rect: DOMRect) => void;
-  onHoverEnd?: () => void;
 }
 
 const statusConfig: Record<
@@ -128,7 +126,7 @@ const setupStatusConfig: Record<
 > = {
   pending: { label: "Setting up...", shortLabel: "Setup" },
   creating_worktree: { label: "Creating worktree...", shortLabel: "Worktree" },
-  init_sandbox: { label: "Initializing sandbox...", shortLabel: "Sandbox" },
+  init_container: { label: "Starting container...", shortLabel: "Container" },
   init_submodules: {
     label: "Initializing submodules...",
     shortLabel: "Submodules",
@@ -162,8 +160,6 @@ function SessionCardComponent({
   onDelete,
   onRename,
   onCreatePR,
-  onHoverStart,
-  onHoverEnd,
 }: SessionCardProps) {
   const timeAgo = getTimeAgo(session.updated_at);
   const status = tmuxStatus || "dead";
@@ -179,42 +175,10 @@ function SessionCardComponent({
       : null;
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(session.name);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [forkDialogOpen, setForkDialogOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const justStartedEditingRef = useRef(false);
-
-  const handleMouseEnter = () => {
-    if (!onHoverStart || !cardRef.current || menuOpen) return;
-    // Debounce hover to avoid flickering
-    hoverTimeoutRef.current = setTimeout(() => {
-      if (cardRef.current && !menuOpen) {
-        onHoverStart(cardRef.current.getBoundingClientRect());
-      }
-    }, 300);
-  };
-
-  const handleMouseLeave = () => {
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = null;
-    }
-    onHoverEnd?.();
-  };
-
-  const handleMenuOpenChange = (open: boolean) => {
-    setMenuOpen(open);
-    if (open) {
-      // Cancel hover preview when menu opens
-      if (hoverTimeoutRef.current) {
-        clearTimeout(hoverTimeoutRef.current);
-        hoverTimeoutRef.current = null;
-      }
-      onHoverEnd?.();
-    }
-  };
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -404,8 +368,6 @@ function SessionCardComponent({
     <div
       ref={cardRef}
       onClick={handleCardClick}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
       className={cn(
         "group flex w-full items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
         "min-h-[36px] md:min-h-0", // Compact touch target
@@ -509,6 +471,20 @@ function SessionCardComponent({
         <span className="min-w-0 flex-1 truncate text-sm">{session.name}</span>
       )}
 
+      {/* Branch indicator */}
+      {session.branch_name && !isEditing && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="text-muted-foreground flex-shrink-0">
+              <GitBranch className="h-3 w-3" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <span>{session.branch_name}</span>
+          </TooltipContent>
+        </Tooltip>
+      )}
+
       {/* Fork indicator */}
       {session.parent_session_id && (
         <GitFork className="text-muted-foreground h-3 w-3 flex-shrink-0" />
@@ -543,16 +519,28 @@ function SessionCardComponent({
             </div>
           </TooltipTrigger>
           <TooltipContent side="top">
-            <span>
-              Sandbox:{" "}
-              {session.sandbox_status === "ready"
-                ? "Protected"
-                : session.sandbox_status === "initializing"
-                  ? "Starting container..."
-                  : session.sandbox_status === "pending"
-                    ? "Pending"
-                    : "Failed"}
-            </span>
+            <div className="flex flex-col gap-1">
+              <span>
+                Sandbox:{" "}
+                {session.sandbox_status === "ready"
+                  ? "Protected"
+                  : session.sandbox_status === "initializing"
+                    ? "Starting container..."
+                    : session.sandbox_status === "pending"
+                      ? "Pending"
+                      : "Failed"}
+              </span>
+              {session.sandbox_status === "failed" && (
+                <span className="text-xs text-red-400">
+                  Container unavailable - recreate session
+                </span>
+              )}
+              {session.container_health_status === "unhealthy" && (
+                <span className="text-xs text-yellow-400">
+                  Container may have crashed
+                </span>
+              )}
+            </div>
           </TooltipContent>
         </Tooltip>
       )}
@@ -611,7 +599,7 @@ function SessionCardComponent({
 
       {/* Actions menu (button) */}
       {hasActions && (
-        <DropdownMenu onOpenChange={handleMenuOpenChange}>
+        <DropdownMenu>
           <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
             <Button
               variant="ghost"
@@ -696,6 +684,11 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
   if (prev.session.pr_status !== next.session.pr_status) return false;
   if (prev.session.branch_name !== next.session.branch_name) return false;
   if (prev.session.sandbox_status !== next.session.sandbox_status) return false;
+  if (
+    prev.session.container_health_status !==
+    next.session.container_health_status
+  )
+    return false;
   if (prev.tmuxStatus !== next.tmuxStatus) return false;
   if (prev.toolName !== next.toolName) return false;
   if (prev.toolDetail !== next.toolDetail) return false;

@@ -65,8 +65,6 @@ export async function POST(request: NextRequest) {
       useWorktree = false,
       featureName = null,
       baseBranch = "main",
-      // Tmux option
-      useTmux = true,
       // Initial prompt to send when session starts
       initialPrompt = null,
     } = body;
@@ -117,7 +115,7 @@ export async function POST(request: NextRequest) {
     // and run the setup (worktree creation, submodule init, dep install) in background
     const isWorktreeSession = useWorktree && featureName;
 
-    const tmuxName = useTmux ? `${agentType}-${id}` : null;
+    const tmuxName = `${agentType}-${id}`;
     queries.createSession(db).run(
       id,
       name,
@@ -141,7 +139,7 @@ export async function POST(request: NextRequest) {
         sessionId: id,
         projectPath: workingDirectory,
         featureName: featureName.trim(),
-        baseBranch,
+        baseBranch: baseBranch || "main", // Handle null from frontend
       }).catch((error) => {
         console.error(
           `[session-setup] Unhandled error for session ${id}:`,

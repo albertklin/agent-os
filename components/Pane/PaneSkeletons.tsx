@@ -1,7 +1,12 @@
 "use client";
 
 import { ShimmeringLoader } from "@/components/ui/skeleton";
-import { Terminal, FolderOpen, GitBranch } from "lucide-react";
+import {
+  Terminal,
+  FolderOpen,
+  GitBranch,
+  MousePointerClick,
+} from "lucide-react";
 
 export function TerminalSkeleton() {
   return (
@@ -51,6 +56,22 @@ export function GitPanelSkeleton() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function EmptySessionPlaceholder() {
+  return (
+    <div className="bg-background flex h-full w-full flex-col items-center justify-center gap-4 p-8">
+      <div className="bg-muted/50 rounded-full p-4">
+        <MousePointerClick className="text-muted-foreground/50 h-8 w-8" />
+      </div>
+      <div className="text-center">
+        <p className="text-muted-foreground text-sm">No session attached</p>
+        <p className="text-muted-foreground/70 mt-1 text-xs">
+          Select a session from the sidebar to get started
+        </p>
       </div>
     </div>
   );

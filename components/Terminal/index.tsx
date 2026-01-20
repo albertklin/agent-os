@@ -34,6 +34,8 @@ export interface TerminalHandle {
 }
 
 interface TerminalProps {
+  /** Session ID - used to connect terminal to container sandbox */
+  sessionId?: string;
   onConnected?: () => void;
   onDisconnected?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
@@ -45,6 +47,7 @@ interface TerminalProps {
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
     {
+      sessionId,
       onConnected,
       onDisconnected,
       onBeforeUnmount,
@@ -85,6 +88,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       reconnect,
     } = useTerminalConnection({
       terminalRef,
+      sessionId,
       onConnected,
       onDisconnected,
       onBeforeUnmount,

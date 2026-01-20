@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { sessionKeys } from "@/data/sessions/keys";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 export type SessionStatusType =
@@ -15,7 +13,7 @@ export type SessionStatusType =
 export type SetupStatusType =
   | "pending"
   | "creating_worktree"
-  | "init_sandbox"
+  | "init_container"
   | "init_submodules"
   | "installing_deps"
   | "ready"
@@ -69,7 +67,6 @@ const BACKOFF_MULTIPLIER = 2;
  * - Connection status for UI indicators
  */
 export function useStatusStream(): UseStatusStreamResult {
-  const queryClient = useQueryClient();
   const [statuses, setStatuses] = useState<Record<string, StatusData>>({});
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("connecting");
@@ -82,38 +79,33 @@ export function useStatusStream(): UseStatusStreamResult {
   const mountedRef = useRef(true);
 
   // Handle incoming status update
-  const handleStatusUpdate = useCallback(
-    (update: StatusUpdate) => {
-      if (!mountedRef.current) return;
+  const handleStatusUpdate = useCallback((update: StatusUpdate) => {
+    if (!mountedRef.current) return;
 
-      setStatuses((prev) => {
-        const existing = prev[update.sessionId];
-        return {
-          ...prev,
-          [update.sessionId]: {
-            status: update.status,
-            lastLine: update.lastLine,
-            updatedAt: Date.now(),
-            hookEvent: update.hookEvent,
-            toolName: update.toolName,
-            toolDetail: update.toolDetail,
-            // Preserve setup status from existing or use new value
-            setupStatus: update.setupStatus ?? existing?.setupStatus,
-            setupError: update.setupError ?? existing?.setupError,
-          },
-        };
-      });
+    setStatuses((prev) => {
+      const existing = prev[update.sessionId];
+      return {
+        ...prev,
+        [update.sessionId]: {
+          status: update.status,
+          lastLine: update.lastLine,
+          updatedAt: Date.now(),
+          hookEvent: update.hookEvent,
+          toolName: update.toolName,
+          toolDetail: update.toolDetail,
+          // Preserve setup status from existing or use new value
+          setupStatus: update.setupStatus ?? existing?.setupStatus,
+          setupError: update.setupError ?? existing?.setupError,
+        },
+      };
+    });
 
-      setLastUpdate(Date.now());
+    setLastUpdate(Date.now());
 
-      // Update React Query cache to trigger re-renders in components using session data
-      // This invalidates the sessions query to get updated timestamps
-      if (update.status === "running" || update.status === "waiting") {
-        queryClient.invalidateQueries({ queryKey: sessionKeys.all });
-      }
-    },
-    [queryClient]
-  );
+    // Note: We intentionally don't invalidate React Query here.
+    // Status updates come via SSE and are stored in local state.
+    // Session data (name, project, etc.) doesn't change during status updates.
+  }, []);
 
   // Handle initial status dump
   const handleInit = useCallback((data: InitEvent) => {

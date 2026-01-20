@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { AgentType } from "@/lib/providers";
+import { getProviderDefinition } from "@/lib/providers";
 import type { ProjectWithDevServers } from "@/lib/projects";
 import { setPendingPrompt } from "@/stores/initialPrompt";
 import { useCreateSession } from "@/data/sessions";
@@ -8,11 +9,39 @@ import {
   SKIP_PERMISSIONS_KEY,
   AGENT_TYPE_KEY,
   RECENT_DIRS_KEY,
-  USE_TMUX_KEY,
+  USE_WORKTREE_KEY,
+  MODEL_KEY_PREFIX,
   MAX_RECENT_DIRS,
   AGENT_OPTIONS,
   generateFeatureName,
 } from "../NewSessionDialog.types";
+
+// Get the localStorage key for a model setting per agent
+function getModelKey(agentType: AgentType): string {
+  return `${MODEL_KEY_PREFIX}${agentType}`;
+}
+
+// Get the default model for an agent from the provider definition
+function getDefaultModel(agentType: AgentType): string {
+  const provider = getProviderDefinition(agentType);
+  return provider.defaultModel || provider.models?.[0] || "";
+}
+
+// Get saved model for an agent, or fall back to default
+function getSavedModel(agentType: AgentType): string {
+  if (typeof window === "undefined") {
+    return getDefaultModel(agentType);
+  }
+  const saved = localStorage.getItem(getModelKey(agentType));
+  if (saved) {
+    // Validate that the saved model is still valid for this agent
+    const provider = getProviderDefinition(agentType);
+    if (provider.models?.includes(saved)) {
+      return saved;
+    }
+  }
+  return getDefaultModel(agentType);
+}
 
 interface UseNewSessionFormOptions {
   open: boolean;
@@ -20,11 +49,6 @@ interface UseNewSessionFormOptions {
   selectedProjectId?: string;
   onCreated: (sessionId: string) => void;
   onClose: () => void;
-  onCreateProject?: (
-    name: string,
-    workingDirectory: string,
-    agentType: AgentType
-  ) => Promise<string | null>;
 }
 
 export function useNewSessionForm({
@@ -33,18 +57,17 @@ export function useNewSessionForm({
   selectedProjectId,
   onCreated,
   onClose,
-  onCreateProject,
 }: UseNewSessionFormOptions) {
   // React Query mutation
   const createSession = useCreateSession();
 
-  // Form state
-  const [name, setName] = useState("");
+  // Form state - name is auto-generated on mount
+  const [name, setName] = useState(() => generateFeatureName());
   const [workingDirectory, setWorkingDirectory] = useState("~");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [agentType, setAgentType] = useState<AgentType>("claude");
+  const [model, setModel] = useState<string>(() => getSavedModel("claude"));
   const [skipPermissions, setSkipPermissions] = useState(false);
-  const [useTmux, setUseTmux] = useState(true);
   const [initialPrompt, setInitialPrompt] = useState("");
 
   // Worktree state
@@ -55,10 +78,6 @@ export function useNewSessionForm({
   const [checkingGit, setCheckingGit] = useState(false);
 
   // UI state
-  const [showNewProject, setShowNewProject] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [showDirectoryPicker, setShowDirectoryPicker] = useState(false);
 
   // Creation step for loading overlay
@@ -88,11 +107,18 @@ export function useNewSessionForm({
       });
       const data = await res.json();
       setGitInfo(data);
+      // Set base branch: prefer defaultBranch, fall back to first available branch
       if (data.defaultBranch) {
         setBaseBranch(data.defaultBranch);
+      } else if (data.branches?.length > 0) {
+        setBaseBranch(data.branches[0]);
       }
       if (data.isGitRepo) {
-        setUseWorktree(true);
+        // Use saved preference, defaulting to true for git repos
+        const savedUseWorktree = localStorage.getItem(USE_WORKTREE_KEY);
+        setUseWorktree(
+          savedUseWorktree !== null ? savedUseWorktree === "true" : true
+        );
         setFeatureName(generateFeatureName());
       } else {
         setUseWorktree(false);
@@ -128,10 +154,6 @@ export function useNewSessionForm({
     ) {
       setAgentType(savedAgentType as AgentType);
     }
-    const savedUseTmux = localStorage.getItem(USE_TMUX_KEY);
-    if (savedUseTmux !== null) {
-      setUseTmux(savedUseTmux === "true");
-    }
     try {
       const saved = localStorage.getItem(RECENT_DIRS_KEY);
       if (saved) {
@@ -149,10 +171,11 @@ export function useNewSessionForm({
       const project = projects.find((p) => p.id === selectedProjectId);
       if (project && !project.is_uncategorized) {
         setWorkingDirectory(project.working_directory);
-        setAgentType(project.agent_type);
+        // Trigger git check immediately when dialog opens with a project
+        checkGitRepo(project.working_directory);
       }
     }
-  }, [open, selectedProjectId, projects]);
+  }, [open, selectedProjectId, projects, checkGitRepo]);
 
   // Save directory to recent list
   const addRecentDirectory = useCallback((dir: string) => {
@@ -173,11 +196,12 @@ export function useNewSessionForm({
         const project = projects.find((p) => p.id === newProjectId);
         if (project && !project.is_uncategorized) {
           setWorkingDirectory(project.working_directory);
-          setAgentType(project.agent_type);
+          // Trigger git check immediately (no debounce) when project is selected
+          checkGitRepo(project.working_directory);
         }
       }
     },
-    [projects]
+    [projects, checkGitRepo]
   );
 
   const handleSkipPermissionsChange = (checked: boolean) => {
@@ -188,11 +212,18 @@ export function useNewSessionForm({
   const handleAgentTypeChange = (value: AgentType) => {
     setAgentType(value);
     localStorage.setItem(AGENT_TYPE_KEY, value);
+    // Update model to saved preference for this agent
+    setModel(getSavedModel(value));
   };
 
-  const handleUseTmuxChange = (checked: boolean) => {
-    setUseTmux(checked);
-    localStorage.setItem(USE_TMUX_KEY, String(checked));
+  const handleModelChange = (value: string) => {
+    setModel(value);
+    localStorage.setItem(getModelKey(agentType), value);
+  };
+
+  const handleUseWorktreeChange = (checked: boolean) => {
+    setUseWorktree(checked);
+    localStorage.setItem(USE_WORKTREE_KEY, String(checked));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -216,11 +247,11 @@ export function useNewSessionForm({
         workingDirectory,
         projectId,
         agentType,
+        model: model || undefined,
         useWorktree,
         featureName: useWorktree ? featureName.trim() : null,
         baseBranch: useWorktree ? baseBranch : null,
         autoApprove: skipPermissions,
-        useTmux,
         initialPrompt: initialPrompt.trim() || null,
       },
       {
@@ -241,40 +272,14 @@ export function useNewSessionForm({
     );
   };
 
-  const handleCreateProject = async () => {
-    if (
-      !newProjectName.trim() ||
-      !onCreateProject ||
-      !workingDirectory ||
-      workingDirectory === "~"
-    )
-      return;
-    setCreatingProject(true);
-    try {
-      const newId = await onCreateProject(
-        newProjectName.trim(),
-        workingDirectory,
-        agentType
-      );
-      if (newId) {
-        setProjectId(newId);
-        setShowNewProject(false);
-        setNewProjectName("");
-      }
-    } finally {
-      setCreatingProject(false);
-    }
-  };
-
   const resetForm = () => {
-    setName("");
+    setName(generateFeatureName()); // Regenerate random name
     setWorkingDirectory("~");
     setProjectId(null);
     setUseWorktree(false);
     setFeatureName("");
+    setBaseBranch("main");
     setInitialPrompt("");
-    setShowNewProject(false);
-    setNewProjectName("");
     setCreationStep("creating");
     createSession.reset();
   };
@@ -292,13 +297,13 @@ export function useNewSessionForm({
     setWorkingDirectory,
     projectId,
     agentType,
+    model,
     skipPermissions,
-    useTmux,
     initialPrompt,
     setInitialPrompt,
     // Worktree
     useWorktree,
-    setUseWorktree,
+    handleUseWorktreeChange,
     featureName,
     setFeatureName,
     baseBranch,
@@ -306,13 +311,6 @@ export function useNewSessionForm({
     gitInfo,
     checkingGit,
     // UI
-    showNewProject,
-    setShowNewProject,
-    newProjectName,
-    setNewProjectName,
-    creatingProject,
-    advancedOpen,
-    setAdvancedOpen,
     showDirectoryPicker,
     setShowDirectoryPicker,
     // Submission
@@ -325,9 +323,8 @@ export function useNewSessionForm({
     handleProjectChange,
     handleSkipPermissionsChange,
     handleAgentTypeChange,
-    handleUseTmuxChange,
+    handleModelChange,
     handleSubmit,
-    handleCreateProject,
     handleClose,
   };
 }

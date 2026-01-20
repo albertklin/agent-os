@@ -41,6 +41,9 @@ export function QuickSwitcher({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Check if ripgrep is available
   const { data: ripgrepAvailable } = useRipgrepAvailable();
@@ -56,13 +59,19 @@ export function QuickSwitcher({
     );
   });
 
-  // Reset state when dialog opens
+  // Reset state when dialog opens/closes
   useEffect(() => {
     if (open) {
+      // Store currently focused element to restore later
+      previouslyFocusedRef.current = document.activeElement as HTMLElement;
       setMode("sessions");
       setQuery("");
       setSelectedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 50);
+    } else {
+      // Restore focus when dialog closes
+      previouslyFocusedRef.current?.focus();
+      previouslyFocusedRef.current = null;
     }
   }, [open]);
 
@@ -77,6 +86,24 @@ export function QuickSwitcher({
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
+
+  // Scroll selected item into view
+  useEffect(() => {
+    const item = itemRefs.current[selectedIndex];
+    const list = listRef.current;
+    if (!item || !list) return;
+
+    const itemTop = item.offsetTop;
+    const itemBottom = itemTop + item.offsetHeight;
+    const listScrollTop = list.scrollTop;
+    const listHeight = list.clientHeight;
+
+    if (itemTop < listScrollTop) {
+      list.scrollTop = itemTop;
+    } else if (itemBottom > listScrollTop + listHeight) {
+      list.scrollTop = itemBottom - listHeight;
+    }
+  }, [selectedIndex]);
 
   // Handle keyboard navigation
   const handleKeyDown = useCallback(
@@ -95,6 +122,8 @@ export function QuickSwitcher({
         case "Enter":
           e.preventDefault();
           if (filteredSessions[selectedIndex]) {
+            // Clear ref so focus isn't restored - let session switch handle focus
+            previouslyFocusedRef.current = null;
             onSelectSession(filteredSessions[selectedIndex].id);
             onOpenChange(false);
           }
@@ -183,7 +212,7 @@ export function QuickSwitcher({
         </div>
 
         {/* Content */}
-        <div className="max-h-[300px] overflow-y-auto py-2">
+        <div ref={listRef} className="max-h-[300px] overflow-y-auto py-2">
           {mode === "sessions" ? (
             filteredSessions.length === 0 ? (
               <div className="text-muted-foreground px-4 py-8 text-center text-sm">
@@ -195,7 +224,12 @@ export function QuickSwitcher({
                 return (
                   <button
                     key={session.id}
+                    ref={(el) => {
+                      itemRefs.current[index] = el;
+                    }}
                     onClick={() => {
+                      // Clear ref so focus isn't restored - let session switch handle focus
+                      previouslyFocusedRef.current = null;
                       onSelectSession(session.id);
                       onOpenChange(false);
                     }}

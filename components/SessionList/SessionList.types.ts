@@ -1,4 +1,3 @@
-import type { Session, Group } from "@/lib/db";
 import type {
   ConnectionStatus,
   SetupStatusType,
@@ -33,9 +32,4 @@ export interface SessionListProps {
     workingDirectory: string;
     ports?: number[];
   }) => Promise<void>;
-}
-
-export interface SessionHoverHandlers {
-  onHoverStart: (session: Session, rect: DOMRect) => void;
-  onHoverEnd: () => void;
 }

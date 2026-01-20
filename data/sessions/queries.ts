@@ -192,11 +192,11 @@ export interface CreateSessionInput {
   workingDirectory: string;
   projectId: string | null;
   agentType: AgentType;
+  model?: string;
   useWorktree: boolean;
   featureName: string | null;
   baseBranch: string | null;
   autoApprove: boolean;
-  useTmux: boolean;
   initialPrompt: string | null;
 }
 
@@ -225,6 +225,79 @@ export function useCreateSession() {
       return data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    },
+  });
+}
+
+export interface SessionOrderUpdate {
+  sessionId: string;
+  projectId: string;
+  sortOrder: number;
+}
+
+export function useReorderSessions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessions: SessionOrderUpdate[]) => {
+      const res = await fetch("/api/sessions/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessions }),
+      });
+      if (!res.ok) throw new Error("Failed to reorder sessions");
+      return res.json();
+    },
+    onMutate: async (sessions) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: sessionKeys.list() });
+
+      // Snapshot the previous value
+      const previous = queryClient.getQueryData<SessionsResponse>(
+        sessionKeys.list()
+      );
+
+      // Optimistically update to the new value
+      queryClient.setQueryData<SessionsResponse>(sessionKeys.list(), (old) => {
+        if (!old) return old;
+
+        // Create a map for quick lookup
+        const orderMap = new Map(
+          sessions.map((s) => [
+            s.sessionId,
+            { projectId: s.projectId, sortOrder: s.sortOrder },
+          ])
+        );
+
+        // Update sessions with new order and project assignments
+        const updatedSessions = old.sessions.map((session) => {
+          const update = orderMap.get(session.id);
+          if (update) {
+            return {
+              ...session,
+              project_id: update.projectId,
+              sort_order: update.sortOrder,
+            };
+          }
+          return session;
+        });
+
+        // Sort by sort_order
+        updatedSessions.sort((a, b) => a.sort_order - b.sort_order);
+
+        return { ...old, sessions: updatedSessions };
+      });
+
+      return { previous };
+    },
+    onError: (_, __, context) => {
+      // Roll back on error
+      if (context?.previous) {
+        queryClient.setQueryData(sessionKeys.list(), context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
     },
   });

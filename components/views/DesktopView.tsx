@@ -24,6 +24,11 @@ import { QuickSwitcher } from "@/components/QuickSwitcher";
 import type { ViewProps } from "./types";
 import { fileOpenActions } from "@/stores/fileOpen";
 
+// Detect macOS for shortcut display
+const isMac =
+  typeof navigator !== "undefined" &&
+  /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+
 export function DesktopView({
   sessions,
   projects,
@@ -168,6 +173,17 @@ export function DesktopView({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Keyboard shortcut hints */}
+            <div className="text-muted-foreground/40 mr-2 flex items-center gap-4 text-[11px]">
+              <span>
+                {isMac ? "⌘⇧" : "Ctrl+Shift+"}
+                <span className="font-mono">↑↓</span> sessions
+              </span>
+              <span>
+                {isMac ? "⌘⇧" : "Ctrl+Shift+"}
+                <span className="font-mono">←→</span> tabs/panes
+              </span>
+            </div>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -218,7 +234,6 @@ export function DesktopView({
         selectedProjectId={newSessionProjectId ?? undefined}
         onClose={() => setShowNewSessionDialog(false)}
         onCreated={handleSessionCreated}
-        onCreateProject={handleCreateProject}
       />
       <QuickSwitcher
         sessions={sessions}

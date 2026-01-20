@@ -40,6 +40,7 @@ interface ProjectCardProps {
   project: Project;
   sessionCount: number;
   runningDevServers?: DevServer[];
+  isDropTarget?: boolean;
   onClick?: () => void;
   onToggleExpanded?: (expanded: boolean) => void;
   onEdit?: () => void;
@@ -55,6 +56,7 @@ export function ProjectCard({
   project,
   sessionCount,
   runningDevServers = [],
+  isDropTarget = false,
   onClick,
   onToggleExpanded,
   onEdit,
@@ -174,7 +176,8 @@ export function ProjectCard({
       className={cn(
         "group flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5",
         "min-h-[36px] md:min-h-[28px]",
-        "hover:bg-accent/50"
+        "hover:bg-accent/50",
+        isDropTarget && "bg-accent ring-primary/50 ring-2"
       )}
     >
       {/* Expand/collapse toggle */}

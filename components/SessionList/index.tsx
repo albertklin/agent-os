@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useCallback } from "react";
-import { SessionPreviewPopover } from "@/components/SessionPreviewPopover";
+import { useState, useMemo, useCallback } from "react";
 import { ServerLogsModal } from "@/components/DevServers";
 import {
   ProjectsSection,
@@ -19,12 +18,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ProjectSectionSkeleton } from "@/components/ui/skeleton";
 import { Plus, FolderPlus, AlertCircle } from "lucide-react";
-import type { Session } from "@/lib/db";
 import type { ProjectWithDevServers } from "@/lib/projects";
-import { useViewport } from "@/hooks/useViewport";
+import { usePanes } from "@/contexts/PaneContext";
 
 // Data hooks
-import { useSessionsQuery } from "@/data/sessions";
+import { useSessionsQuery, useReorderSessions } from "@/data/sessions";
 import { useProjectsQuery, useCreateProject } from "@/data/projects";
 import { useDevServersQuery } from "@/data/dev-servers";
 
@@ -44,7 +42,7 @@ export function SessionList({
   onStartDevServer,
   onCreateDevServer,
 }: SessionListProps) {
-  const { isMobile } = useViewport();
+  const { clearSessionFromTabs } = usePanes();
 
   // Fetch data directly with loading states
   const {
@@ -68,7 +66,10 @@ export function SessionList({
   const groups = sessionsData?.groups ?? [];
 
   // All mutations via custom hook
-  const mutations = useSessionListMutations({ onSelectSession: onSelect });
+  const mutations = useSessionListMutations({
+    onSelectSession: onSelect,
+    onSessionDeleted: clearSessionFromTabs,
+  });
 
   // Wrapper to transform fork handler signature for child components
   const handleForkSession = useCallback(
@@ -90,14 +91,15 @@ export function SessionList({
   // Project creation mutation for folder picker
   const createProject = useCreateProject();
 
+  // Session reorder mutation for drag and drop
+  const reorderSessions = useReorderSessions();
+
   // Local UI state
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [editingProject, setEditingProject] =
     useState<ProjectWithDevServers | null>(null);
   const [showKillAllConfirm, setShowKillAllConfirm] = useState(false);
-  const [hoveredSession, setHoveredSession] = useState<Session | null>(null);
-  const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
   const [logsServerId, setLogsServerId] = useState<string | null>(null);
 
   // Use projects if available
@@ -116,45 +118,6 @@ export function SessionList({
   const logsServer = logsServerId
     ? devServers.find((s) => s.id === logsServerId)
     : null;
-
-  // Handle hover on session card (desktop only) with delay
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const pendingHoverRef = useRef<{ session: Session; rect: DOMRect } | null>(
-    null
-  );
-
-  // Memoize hover handlers to prevent creating new object references
-  const hoverHandlers = useMemo(
-    () => ({
-      onHoverStart: (session: Session, rect: DOMRect) => {
-        if (isMobile) return;
-        // Clear any pending hover
-        if (hoverTimeoutRef.current) {
-          clearTimeout(hoverTimeoutRef.current);
-        }
-        // Store pending hover data and start delay
-        pendingHoverRef.current = { session, rect };
-        hoverTimeoutRef.current = setTimeout(() => {
-          if (pendingHoverRef.current) {
-            setHoveredSession(pendingHoverRef.current.session);
-            setHoverPosition({
-              x: pendingHoverRef.current.rect.right,
-              y: pendingHoverRef.current.rect.top,
-            });
-          }
-        }, 400);
-      },
-      onHoverEnd: () => {
-        if (hoverTimeoutRef.current) {
-          clearTimeout(hoverTimeoutRef.current);
-          hoverTimeoutRef.current = null;
-        }
-        pendingHoverRef.current = null;
-        setHoveredSession(null);
-      },
-    }),
-    [isMobile]
-  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -249,6 +212,7 @@ export function SessionList({
               onSelectSession={onSelect}
               onOpenSessionInTab={onOpenInTab}
               onMoveSession={mutations.handleMoveSessionToProject}
+              onReorderSessions={(updates) => reorderSessions.mutate(updates)}
               onForkSession={handleForkSession}
               onDeleteSession={mutations.handleDeleteSession}
               onRenameSession={mutations.handleRenameSession}
@@ -257,10 +221,6 @@ export function SessionList({
               onRestartDevServer={mutations.handleRestartDevServer}
               onRemoveDevServer={mutations.handleRemoveDevServer}
               onViewDevServerLogs={setLogsServerId}
-              onHoverStart={(session, rect) =>
-                hoverHandlers.onHoverStart(session, rect)
-              }
-              onHoverEnd={hoverHandlers.onHoverEnd}
             />
           )}
 
@@ -282,24 +242,10 @@ export function SessionList({
                 onForkSession={handleForkSession}
                 onDeleteSession={mutations.handleDeleteSession}
                 onRenameSession={mutations.handleRenameSession}
-                hoverHandlers={hoverHandlers}
               />
             )}
         </div>
       </ScrollArea>
-
-      {/* Session Preview Popover (desktop only) */}
-      {!isMobile && (
-        <SessionPreviewPopover
-          session={hoveredSession}
-          status={
-            hoveredSession
-              ? sessionStatuses?.[hoveredSession.id]?.status
-              : undefined
-          }
-          position={hoverPosition}
-        />
-      )}
 
       {/* Server Logs Modal */}
       {logsServer && (

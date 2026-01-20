@@ -29,6 +29,7 @@ npm run format       # Format with Prettier
 
 ## Gotchas
 
+- **Docker is required** - The server requires Docker for sandboxed sessions. Ensure Docker is running and your user is in the `docker` group.
 - **Worktrees need their own node_modules** - Run `npm install --legacy-peer-deps` when starting work in a new worktree
 - Use `npm run typecheck` not `npx tsc` - the latter fails with a misleading error
 - Claude Code reads hooks from `settings.json`, NOT `hooks.json` - see `lib/hooks/generate-config.ts`

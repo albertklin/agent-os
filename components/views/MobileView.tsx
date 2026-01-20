@@ -84,7 +84,6 @@ export function MobileView({
         selectedProjectId={newSessionProjectId ?? undefined}
         onClose={() => setShowNewSessionDialog(false)}
         onCreated={handleSessionCreated}
-        onCreateProject={handleCreateProject}
       />
       <QuickSwitcher
         sessions={sessions}

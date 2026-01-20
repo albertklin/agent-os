@@ -23,6 +23,7 @@ export type { TerminalScrollState } from "./useTerminalConnection.types";
 
 export function useTerminalConnection({
   terminalRef,
+  sessionId,
   onConnected,
   onDisconnected,
   onBeforeUnmount,
@@ -137,12 +138,13 @@ export function useTerminalConnection({
     let cleanupTouchScroll: (() => void) | null = null;
     let cleanupResizeHandlers: (() => void) | null = null;
     let cleanupWebSocket: (() => void) | null = null;
+    let cleanupTerminal: (() => void) | null = null;
 
     const connectTimeout = setTimeout(() => {
       if (cancelled || !terminalRef.current) return;
 
       // Initialize terminal
-      const { term, fitAddon, searchAddon } = createTerminal(
+      const { term, fitAddon, searchAddon, cleanup } = createTerminal(
         terminalRef.current,
         isMobile,
         theme
@@ -150,6 +152,7 @@ export function useTerminalConnection({
       xtermRef.current = term;
       fitAddonRef.current = fitAddon;
       searchAddonRef.current = searchAddon;
+      cleanupTerminal = cleanup;
 
       // Scroll tracking
       term.onScroll(() => {
@@ -184,7 +187,8 @@ export function useTerminalConnection({
         wsRef,
         reconnectTimeoutRef,
         reconnectDelayRef,
-        intentionalCloseRef
+        intentionalCloseRef,
+        sessionId
       );
       cleanupWebSocket = wsManager.cleanup;
       reconnectFnRef.current = wsManager.reconnect;
@@ -222,6 +226,7 @@ export function useTerminalConnection({
       cleanupResizeHandlers?.();
       cleanupWebSocket?.();
       cleanupTouchScroll?.();
+      cleanupTerminal?.();
 
       // Reset refs
       reconnectDelayRef.current = WS_RECONNECT_BASE_DELAY;
@@ -238,7 +243,7 @@ export function useTerminalConnection({
       fitAddonRef.current = null;
       searchAddonRef.current = null;
     };
-  }, [isMobile, terminalRef, theme]);
+  }, [isMobile, terminalRef, theme, sessionId]);
 
   // Handle isMobile changes dynamically
   useEffect(() => {

@@ -17,16 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Plus,
-  Trash2,
-  Loader2,
-  GitBranch,
-  RefreshCw,
-  Server,
-} from "lucide-react";
+import { Loader2, GitBranch } from "lucide-react";
 import type { AgentType } from "@/lib/providers";
-import type { DetectedDevServer } from "@/lib/projects";
 import { useCreateProject } from "@/data/projects";
 
 const RECENT_DIRS_KEY = "agentOS:recentDirectories";
@@ -40,15 +32,6 @@ const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
   { value: "aider", label: "Aider" },
   { value: "cursor", label: "Cursor CLI" },
 ];
-
-interface DevServerConfig {
-  id: string;
-  name: string;
-  type: "node" | "docker";
-  command: string;
-  port?: number;
-  portEnvVar?: string;
-}
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -64,8 +47,6 @@ export function NewProjectDialog({
   const [name, setName] = useState("");
   const [workingDirectory, setWorkingDirectory] = useState("~");
   const [agentType, setAgentType] = useState<AgentType>("claude");
-  const [devServers, setDevServers] = useState<DevServerConfig[]>([]);
-  const [isDetecting, setIsDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recentDirs, setRecentDirs] = useState<string[]>([]);
   const [isGitRepo, setIsGitRepo] = useState(false);
@@ -116,71 +97,6 @@ export function NewProjectDialog({
     return () => clearTimeout(timer);
   }, [workingDirectory, checkDirectory]);
 
-  // Detect dev servers
-  const detectDevServers = async () => {
-    if (!workingDirectory || workingDirectory === "~") return;
-
-    setIsDetecting(true);
-    try {
-      const res = await fetch(
-        `/api/projects/uncategorized/detect?workingDirectory=${encodeURIComponent(workingDirectory)}`
-      );
-
-      // Fall back to direct API call with working directory in body
-      const detectRes = await fetch("/api/projects/detect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workingDirectory }),
-      });
-
-      if (detectRes.ok) {
-        const data = await detectRes.json();
-        const detected = (data.detected || []) as DetectedDevServer[];
-
-        // Convert to config format
-        const configs = detected.map((d, i) => ({
-          id: `ds_${Date.now()}_${i}`,
-          name: d.name,
-          type: d.type,
-          command: d.command,
-          port: d.port,
-          portEnvVar: d.portEnvVar,
-        }));
-
-        setDevServers(configs);
-      }
-    } catch (err) {
-      console.error("Failed to detect dev servers:", err);
-    } finally {
-      setIsDetecting(false);
-    }
-  };
-
-  // Add new dev server config
-  const addDevServer = () => {
-    setDevServers((prev) => [
-      ...prev,
-      {
-        id: `ds_${Date.now()}`,
-        name: "",
-        type: "node",
-        command: "",
-      },
-    ]);
-  };
-
-  // Remove dev server config
-  const removeDevServer = (id: string) => {
-    setDevServers((prev) => prev.filter((ds) => ds.id !== id));
-  };
-
-  // Update dev server config
-  const updateDevServer = (id: string, updates: Partial<DevServerConfig>) => {
-    setDevServers((prev) =>
-      prev.map((ds) => (ds.id === id ? { ...ds, ...updates } : ds))
-    );
-  };
-
   // Save recent directory
   const addRecentDirectory = useCallback((dir: string) => {
     if (!dir || dir === "~") return;
@@ -206,23 +122,12 @@ export function NewProjectDialog({
       return;
     }
 
-    // Validate dev servers
-    const validDevServers = devServers.filter(
-      (ds) => ds.name.trim() && ds.command.trim()
-    );
-
     createProject.mutate(
       {
         name: name.trim(),
         workingDirectory,
         agentType,
-        devServers: validDevServers.map((ds) => ({
-          name: ds.name.trim(),
-          type: ds.type,
-          command: ds.command.trim(),
-          port: ds.port || undefined,
-          portEnvVar: ds.portEnvVar || undefined,
-        })),
+        devServers: [],
       },
       {
         onSuccess: (data) => {
@@ -241,7 +146,6 @@ export function NewProjectDialog({
     setName("");
     setWorkingDirectory("~");
     setAgentType("claude");
-    setDevServers([]);
     setError(null);
     onClose();
   };
@@ -321,128 +225,6 @@ export function NewProjectDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          {/* Dev Servers */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <Server className="h-4 w-4" />
-                Dev Servers
-              </label>
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={detectDevServers}
-                  disabled={
-                    isDetecting || !workingDirectory || workingDirectory === "~"
-                  }
-                >
-                  {isDetecting ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-1 h-3 w-3" />
-                  )}
-                  Detect
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={addDevServer}
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Add
-                </Button>
-              </div>
-            </div>
-
-            {devServers.length === 0 ? (
-              <p className="text-muted-foreground py-2 text-sm">
-                No dev servers configured. Click Detect to auto-find or Add to
-                configure manually.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {devServers.map((ds) => (
-                  <div
-                    key={ds.id}
-                    className="bg-accent/30 space-y-2 rounded-lg p-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={ds.name}
-                        onChange={(e) =>
-                          updateDevServer(ds.id, { name: e.target.value })
-                        }
-                        placeholder="Server name"
-                        className="h-8 flex-1"
-                      />
-                      <Select
-                        value={ds.type}
-                        onValueChange={(v) =>
-                          updateDevServer(ds.id, {
-                            type: v as "node" | "docker",
-                          })
-                        }
-                      >
-                        <SelectTrigger className="h-8 w-24">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="node">Node</SelectItem>
-                          <SelectItem value="docker">Docker</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => removeDevServer(ds.id)}
-                        className="text-red-500 hover:text-red-600"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                    <Input
-                      value={ds.command}
-                      onChange={(e) =>
-                        updateDevServer(ds.id, { command: e.target.value })
-                      }
-                      placeholder={
-                        ds.type === "docker" ? "Service name" : "npm run dev"
-                      }
-                      className="h-8"
-                    />
-                    <div className="flex gap-2">
-                      <Input
-                        type="number"
-                        value={ds.port || ""}
-                        onChange={(e) =>
-                          updateDevServer(ds.id, {
-                            port: e.target.value
-                              ? parseInt(e.target.value)
-                              : undefined,
-                          })
-                        }
-                        placeholder="Port (e.g., 3000)"
-                        className="h-8 w-32"
-                      />
-                      <Input
-                        value={ds.portEnvVar || ""}
-                        onChange={(e) =>
-                          updateDevServer(ds.id, { portEnvVar: e.target.value })
-                        }
-                        placeholder="Port env var (e.g., PORT)"
-                        className="h-8 flex-1"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {error && <p className="text-sm text-red-500">{error}</p>}

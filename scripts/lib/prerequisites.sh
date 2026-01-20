@@ -151,6 +151,25 @@ check_tmux() {
     return 1
 }
 
+# Check if Docker is available and running
+check_docker() {
+    if ! command -v docker &> /dev/null; then
+        return 1
+    fi
+
+    # Check if Docker daemon is running
+    if ! docker info &> /dev/null; then
+        log_warn "Docker is installed but not running or not accessible"
+        log_warn "Make sure Docker is running and your user is in the 'docker' group"
+        return 1
+    fi
+
+    local docker_path=$(command -v docker)
+    local docker_version=$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',' || echo "unknown")
+    log_success "Found Docker $docker_version at $docker_path"
+    return 0
+}
+
 install_homebrew() {
     if command -v brew &> /dev/null; then
         return 0
@@ -388,6 +407,111 @@ install_ripgrep() {
     esac
 }
 
+install_docker() {
+    if command -v docker &> /dev/null && docker info &> /dev/null; then
+        return 0
+    fi
+
+    log_info "Installing Docker..."
+
+    case "$OS" in
+        macos)
+            log_info "Docker Desktop is required on macOS"
+            log_info ""
+            log_info "Please install Docker Desktop from: https://www.docker.com/products/docker-desktop/"
+            log_info ""
+            log_info "After installation:"
+            log_info "  1. Open Docker Desktop"
+            log_info "  2. Complete the setup wizard"
+            log_info "  3. Wait for Docker to start (whale icon in menu bar)"
+            log_info "  4. Run 'agent-os install' again"
+            log_info ""
+
+            # Try to open the download page
+            if command -v open &> /dev/null; then
+                if is_interactive; then
+                    if prompt_yn "Open Docker Desktop download page in browser?"; then
+                        open "https://www.docker.com/products/docker-desktop/"
+                    fi
+                fi
+            fi
+            exit 1
+            ;;
+        debian)
+            log_info "Installing Docker via official repository..."
+
+            # Remove old versions
+            sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+
+            # Install prerequisites
+            sudo apt-get update
+            sudo apt-get install -y ca-certificates curl gnupg
+
+            # Add Docker's official GPG key
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+            # Detect distro (Ubuntu or Debian)
+            local distro
+            if [[ -f /etc/os-release ]]; then
+                distro=$(. /etc/os-release && echo "$ID")
+            else
+                distro="ubuntu"
+            fi
+
+            # Add the repository
+            echo \
+              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${distro} \
+              $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            # Install Docker
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+            # Add current user to docker group
+            sudo usermod -aG docker "$USER"
+
+            log_success "Docker installed successfully"
+            log_warn ""
+            log_warn "IMPORTANT: You need to log out and back in for docker group membership to take effect."
+            log_warn "Alternatively, run: newgrp docker"
+            log_warn ""
+            ;;
+        redhat)
+            log_info "Installing Docker via official repository..."
+
+            # Remove old versions
+            sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
+
+            # Install prerequisites and add repo
+            sudo yum install -y yum-utils
+            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+            # Install Docker
+            sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+            # Start Docker
+            sudo systemctl start docker
+            sudo systemctl enable docker
+
+            # Add current user to docker group
+            sudo usermod -aG docker "$USER"
+
+            log_success "Docker installed successfully"
+            log_warn ""
+            log_warn "IMPORTANT: You need to log out and back in for docker group membership to take effect."
+            log_warn "Alternatively, run: newgrp docker"
+            log_warn ""
+            ;;
+        *)
+            log_error "Please install Docker manually: https://docs.docker.com/get-docker/"
+            exit 1
+            ;;
+    esac
+}
+
 check_and_install_prerequisites() {
     log_info "Checking prerequisites..."
 
@@ -413,6 +537,11 @@ check_and_install_prerequisites() {
         missing+=("ripgrep")
     fi
 
+    # Check Docker (required for sandboxed sessions)
+    if ! check_docker; then
+        missing+=("docker")
+    fi
+
     if [[ ${#missing[@]} -eq 0 ]]; then
         log_success "All prerequisites met"
         return 0
@@ -433,6 +562,7 @@ check_and_install_prerequisites() {
             git) install_git ;;
             tmux) install_tmux ;;
             ripgrep) install_ripgrep ;;
+            docker) install_docker ;;
         esac
     done
 

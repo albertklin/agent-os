@@ -11,6 +11,7 @@ export interface TerminalInstance {
   term: XTerm;
   fitAddon: FitAddon;
   searchAddon: SearchAddon;
+  cleanup: () => void;
 }
 
 export function createTerminal(
@@ -50,12 +51,34 @@ export function createTerminal(
   term.loadAddon(new CanvasAddon());
   fitAddon.fit();
 
-  // Handle Cmd+A and Cmd+C via container event listener (more reliable than attachCustomKeyEventHandler)
+  // Handle Cmd+A, Cmd+C, and Cmd+K via container event listener (more reliable than attachCustomKeyEventHandler)
   const handleKeyDown = (event: KeyboardEvent) => {
     // Only handle when terminal is focused
     if (!container.contains(document.activeElement)) return;
 
     const key = event.key.toLowerCase();
+
+    // Cmd+K (macOS) / Ctrl+K for quick switcher - dispatch custom event
+    if ((event.metaKey || event.ctrlKey) && key === "k") {
+      event.preventDefault();
+      event.stopPropagation();
+      window.dispatchEvent(new CustomEvent("open-quick-switcher"));
+      return;
+    }
+
+    // Cmd/Ctrl + Shift + Arrow keys for keyboard navigation - dispatch custom events
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      event.shiftKey &&
+      event.key.startsWith("Arrow")
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.dispatchEvent(
+        new CustomEvent("keyboard-nav", { detail: { key: event.key } })
+      );
+      return;
+    }
 
     // Cmd+A (macOS) / Ctrl+A for select all
     if ((event.metaKey || event.ctrlKey) && key === "a") {
@@ -79,7 +102,11 @@ export function createTerminal(
   // Use capture phase to intercept before browser default
   document.addEventListener("keydown", handleKeyDown, true);
 
-  return { term, fitAddon, searchAddon };
+  const cleanup = () => {
+    document.removeEventListener("keydown", handleKeyDown, true);
+  };
+
+  return { term, fitAddon, searchAddon, cleanup };
 }
 
 export function updateTerminalForMobile(

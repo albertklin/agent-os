@@ -27,10 +27,14 @@ export function createWebSocketConnection(
   wsRef: React.MutableRefObject<WebSocket | null>,
   reconnectTimeoutRef: React.MutableRefObject<NodeJS.Timeout | null>,
   reconnectDelayRef: React.MutableRefObject<number>,
-  intentionalCloseRef: React.MutableRefObject<boolean>
+  intentionalCloseRef: React.MutableRefObject<boolean>,
+  sessionId?: string
 ): WebSocketManager {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${protocol}//${window.location.host}/ws/terminal`);
+  const wsUrl = sessionId
+    ? `${protocol}//${window.location.host}/ws/terminal?sessionId=${sessionId}`
+    : `${protocol}//${window.location.host}/ws/terminal`;
+  const ws = new WebSocket(wsUrl);
   wsRef.current = ws;
 
   const sendResize = (cols: number, rows: number) => {
@@ -89,9 +93,7 @@ export function createWebSocketConnection(
     reconnectDelayRef.current = WS_RECONNECT_BASE_DELAY;
 
     // Create fresh connection with saved handlers
-    const newWs = new WebSocket(
-      `${protocol}//${window.location.host}/ws/terminal`
-    );
+    const newWs = new WebSocket(wsUrl);
     wsRef.current = newWs;
     newWs.onopen = savedHandlers.onopen;
     newWs.onmessage = savedHandlers.onmessage;

@@ -3,7 +3,7 @@ import type { AgentType } from "../providers";
 export type SetupStatus =
   | "pending"
   | "creating_worktree"
-  | "init_sandbox"
+  | "init_container"
   | "init_submodules"
   | "installing_deps"
   | "ready"
@@ -25,6 +25,7 @@ export interface Session {
   project_id: string | null;
   agent_type: AgentType;
   auto_approve: boolean;
+  sort_order: number;
   // Worktree fields (optional)
   worktree_path: string | null;
   branch_name: string | null;
@@ -40,6 +41,9 @@ export interface Session {
   // Sandbox fields
   container_id: string | null;
   sandbox_status: "pending" | "initializing" | "ready" | "failed" | null;
+  // Container health tracking
+  container_health_last_check: string | null;
+  container_health_status: "healthy" | "unhealthy" | null;
 }
 
 export interface Group {

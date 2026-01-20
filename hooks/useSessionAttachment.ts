@@ -248,6 +248,10 @@ export function useSessionAttachment() {
                 console.error(
                   "[useSessionAttachment] Sandbox settings failed - cannot attach"
                 );
+                toast.error("Sandbox initialization failed", {
+                  description:
+                    "Please recreate the session to use auto-approve mode.",
+                });
                 return false;
               }
             }
@@ -259,26 +263,65 @@ export function useSessionAttachment() {
               "[useSessionAttachment] Cannot attach: sandbox settings not ready",
               { status: session.sandbox_status }
             );
+            toast.error("Sandbox not ready", {
+              description: "Container sandbox is not available.",
+            });
             return false;
           }
+
+          // Note: Full container health check happens server-side at terminal spawn
+          // No need to duplicate here - server enforces fail-closed security
         }
 
         // 3. Compute tmux session name (deterministic from agent_type + id)
         const tmuxName = getTmuxSessionName(session);
-        const cwd = getSessionCwd(session);
 
-        // 4. Detach from current tmux if needed
+        // For sandboxed sessions, the worktree is mounted at /workspace inside the container
+        const isSandboxed =
+          session.auto_approve &&
+          session.agent_type === "claude" &&
+          session.sandbox_status === "ready";
+        const cwd = isSandboxed ? "/workspace" : getSessionCwd(session);
+
+        // 3.5. For sandboxed sessions, update sessionId FIRST to trigger terminal reconnect
+        // The terminal will reconnect with the sessionId, causing it to spawn inside the container
+        if (isSandboxed) {
+          const activeTab = getActiveTab(paneId);
+          // Only trigger reconnect if not already attached to this session
+          if (activeTab?.sessionId !== sessionId) {
+            console.log(
+              "[useSessionAttachment] Sandboxed session - triggering terminal reconnect first"
+            );
+            attachSession(paneId, session.id, getTmuxSessionName(session));
+            // Wait for terminal to reconnect inside container
+            await sleep(1500);
+          }
+        }
+
+        // 4. Check if already attached to this session's tmux
         const activeTab = getActiveTab(paneId);
+        if (activeTab?.attachedTmux === tmuxName) {
+          // Already attached to this exact tmux session - just update UI state and return
+          console.log(
+            "[useSessionAttachment] Already attached to tmux:",
+            tmuxName
+          );
+          attachSession(paneId, session.id, tmuxName);
+          terminal.focus();
+          return true;
+        }
+
+        // 5. Detach from current tmux if attached to a different session
         if (activeTab?.sessionId && activeTab.sessionId !== sessionId) {
           terminal.sendInput("\x02d"); // Ctrl+B d (tmux detach)
           await sleep(100);
         }
 
-        // 5. Clear any running command
+        // 6. Clear any running command
         terminal.sendInput("\x03"); // Ctrl+C
         await sleep(50);
 
-        // 6. Generate claude_session_id if needed (for Claude-type agents only)
+        // 7. Generate claude_session_id if needed (for Claude-type agents only)
         let newSessionId: string | null = null;
         const provider = getProvider(session.agent_type || "claude");
         if (
@@ -297,7 +340,7 @@ export function useSessionAttachment() {
           }
         }
 
-        // 7. Build tmux command
+        // 8. Build tmux command
         const agentCommand = buildAgentCommand(session, sessions, newSessionId);
         const tmuxNew = agentCommand
           ? `tmux new -s ${tmuxName} -c "${cwd}" "${agentCommand}"`
@@ -305,15 +348,18 @@ export function useSessionAttachment() {
 
         const tmuxCmd = `tmux attach -t ${tmuxName} 2>/dev/null || ${tmuxNew}`;
 
-        // 8. Send the tmux command
+        // 9. Send the tmux command
+        console.log("[useSessionAttachment] Sending tmux command:", tmuxCmd);
         terminal.sendCommand(tmuxCmd);
 
-        // 9. Wait a moment for tmux to attach
-        // (In the future, could poll terminal output to confirm)
+        // 10. Wait a moment for tmux to attach, then update UI state
         await sleep(150);
 
-        // 9. Update UI state
-        attachSession(paneId, session.id, tmuxName);
+        // For non-sandboxed sessions, update the attachment now
+        // (Sandboxed sessions already called attachSession earlier)
+        if (!isSandboxed) {
+          attachSession(paneId, session.id, tmuxName);
+        }
         terminal.focus();
 
         return true;

@@ -39,6 +39,8 @@ export interface ProviderDefinition {
 
   // Model configuration
   modelFlag?: string; // Flag for specifying model
+  models?: string[]; // Available model options
+  defaultModel?: string; // Default model for this provider
 
   // Initial prompt configuration
   // undefined = no support, '' = positional arg, string = flag (e.g., '--prompt')
@@ -63,7 +65,9 @@ export const PROVIDERS: ProviderDefinition[] = [
     supportsResume: true,
     supportsFork: true,
     resumeFlag: "--resume",
-    modelFlag: undefined, // Claude doesn't expose model flag
+    modelFlag: "--model",
+    models: ["sonnet", "opus", "haiku"],
+    defaultModel: "sonnet",
     initialPromptFlag: "", // Positional argument
   },
   {
@@ -76,6 +80,8 @@ export const PROVIDERS: ProviderDefinition[] = [
     supportsResume: false,
     supportsFork: false,
     modelFlag: "--model",
+    models: ["o3", "o4-mini", "gpt-4.1"],
+    defaultModel: "o4-mini",
     initialPromptFlag: "", // Positional argument
   },
   {
@@ -99,6 +105,8 @@ export const PROVIDERS: ProviderDefinition[] = [
     supportsResume: false,
     supportsFork: false,
     modelFlag: "-m",
+    models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+    defaultModel: "gemini-2.5-flash",
     initialPromptFlag: "-p",
   },
   {
@@ -111,6 +119,8 @@ export const PROVIDERS: ProviderDefinition[] = [
     supportsResume: false,
     supportsFork: false,
     modelFlag: "--model",
+    models: ["sonnet", "opus", "gpt-4o", "deepseek"],
+    defaultModel: "sonnet",
   },
   {
     id: "cursor",
@@ -122,6 +132,8 @@ export const PROVIDERS: ProviderDefinition[] = [
     supportsResume: false,
     supportsFork: false,
     modelFlag: "--model",
+    models: ["claude-3.5-sonnet", "gpt-4", "gpt-4o"],
+    defaultModel: "claude-3.5-sonnet",
   },
   {
     id: "shell",

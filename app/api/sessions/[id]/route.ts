@@ -10,7 +10,7 @@ import {
 import { releasePort } from "@/lib/ports";
 import { generateBranchName, getCurrentBranch, renameBranch } from "@/lib/git";
 import { runInBackground } from "@/lib/async-operations";
-import { cleanupSandbox } from "@/lib/sandbox";
+import { destroyContainer, logSecurityEvent } from "@/lib/container";
 
 const execAsync = promisify(exec);
 
@@ -132,6 +132,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       updates.push("project_id = ?");
       values.push(body.projectId);
     }
+    if (body.sortOrder !== undefined) {
+      updates.push("sort_order = ?");
+      values.push(body.sortOrder);
+    }
     if (body.claude_session_id !== undefined) {
       updates.push("claude_session_id = ?");
       values.push(body.claude_session_id);
@@ -184,9 +188,31 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Clean up sandbox status in database
-    if (existing.sandbox_status) {
-      await cleanupSandbox(id);
+    // Clean up container if this session had one (synchronous with logging)
+    if (existing.container_id) {
+      try {
+        await destroyContainer(existing.container_id);
+        logSecurityEvent({
+          type: "container_destroyed",
+          sessionId: id,
+          containerId: existing.container_id,
+          success: true,
+        });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Unknown error";
+        logSecurityEvent({
+          type: "container_destroyed",
+          sessionId: id,
+          containerId: existing.container_id,
+          success: false,
+          error: errorMsg,
+        });
+        console.error(
+          `[session] WARNING: Orphaned container ${existing.container_id} - manual cleanup required:`,
+          err
+        );
+        // Don't fail the deletion, but log the orphaned container
+      }
     }
 
     // Check if branch has changes before deleting (for user feedback)

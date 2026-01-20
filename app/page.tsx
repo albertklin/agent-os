@@ -29,6 +29,7 @@ import { useViewport } from "@/hooks/useViewport";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useProjects } from "@/hooks/useProjects";
+import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useDevServersManager } from "@/hooks/useDevServersManager";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useSessionAttachment } from "@/hooks/useSessionAttachment";
@@ -165,7 +166,8 @@ function HomeContent() {
   const openSessionInNewTab = useCallback(
     (session: Session) => {
       const existingKeys = new Set(terminalRefs.current.keys());
-      addTab(focusedPaneId);
+      // Create tab with sessionId so Terminal renders (instead of placeholder)
+      addTab(focusedPaneId, session.id);
 
       let attempts = 0;
       const maxAttempts = 20;
@@ -241,8 +243,14 @@ function HomeContent() {
         setShowQuickSwitcher(true);
       }
     };
+    // Also listen for custom event from terminal (which captures Ctrl+K)
+    const handleCustomOpen = () => setShowQuickSwitcher(true);
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("open-quick-switcher", handleCustomOpen);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("open-quick-switcher", handleCustomOpen);
+    };
   }, []);
 
   // Session selection handler
@@ -261,6 +269,13 @@ function HomeContent() {
     },
     [sessions, attachToSession]
   );
+
+  // Keyboard navigation for sessions and tabs/panes
+  useKeyboardNavigation({
+    sessions,
+    projects,
+    onSelectSession: handleSelectSession,
+  });
 
   // Pane renderer
   const renderPane = useCallback(
