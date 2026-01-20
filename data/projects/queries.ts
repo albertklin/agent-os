@@ -147,3 +147,55 @@ export function useCreateProject() {
     },
   });
 }
+
+export interface ProjectOrderUpdate {
+  projectId: string;
+  sortOrder: number;
+}
+
+export function useReorderProjects() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (updates: ProjectOrderUpdate[]) => {
+      const res = await fetch("/api/projects/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projects: updates }),
+      });
+      if (!res.ok) throw new Error("Failed to reorder projects");
+      return res.json();
+    },
+    onMutate: async (updates) => {
+      await queryClient.cancelQueries({ queryKey: projectKeys.list() });
+      const previous = queryClient.getQueryData<Project[]>(projectKeys.list());
+
+      // Optimistically update the order
+      queryClient.setQueryData<Project[]>(projectKeys.list(), (old) => {
+        if (!old) return old;
+        const orderMap = new Map(
+          updates.map((u) => [u.projectId, u.sortOrder])
+        );
+        return [...old]
+          .map((p) => ({
+            ...p,
+            sort_order: orderMap.get(p.id) ?? p.sort_order,
+          }))
+          .sort((a, b) => {
+            // Uncategorized always last
+            if (a.is_uncategorized !== b.is_uncategorized) {
+              return a.is_uncategorized ? 1 : -1;
+            }
+            return a.sort_order - b.sort_order;
+          });
+      });
+
+      return { previous };
+    },
+    onError: (_, __, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(projectKeys.list(), context.previous);
+      }
+    },
+  });
+}

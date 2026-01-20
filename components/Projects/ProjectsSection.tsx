@@ -29,6 +29,7 @@ import { type ForkOptions } from "@/components/ForkSessionDialog";
 import { selectionStore, selectionActions } from "@/stores/sessionSelection";
 import type { Session, Group, Project } from "@/lib/db";
 import type { SessionOrderUpdate } from "@/data/sessions";
+import type { ProjectOrderUpdate } from "@/data/projects/queries";
 import type { SessionStatus } from "@/components/SessionList/SessionList.types";
 
 interface ProjectsSectionProps {
@@ -47,6 +48,7 @@ interface ProjectsSectionProps {
   onSelectSession: (sessionId: string) => void;
   onOpenSessionInTab?: (sessionId: string) => void;
   onReorderSessions?: (updates: SessionOrderUpdate[]) => void;
+  onReorderProjects?: (updates: ProjectOrderUpdate[]) => void;
   onForkSession?: (
     sessionId: string,
     options: ForkOptions | null
@@ -103,6 +105,50 @@ function SortableSessionCard({
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <SessionCard session={session} {...props} />
+    </div>
+  );
+}
+
+// Sortable wrapper for ProjectCard
+interface SortableProjectCardProps {
+  project: Project;
+  sessionCount: number;
+  isDropTarget: boolean;
+  onToggleExpanded?: (expanded: boolean) => void;
+  onEdit?: () => void;
+  onNewSession?: () => void;
+  onOpenTerminal?: () => void;
+  onDelete?: () => void;
+  onRename?: (newName: string) => void;
+}
+
+function SortableProjectCard({ project, ...props }: SortableProjectCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: `project-${project.id}`,
+    disabled: project.is_uncategorized,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 1 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <ProjectCard
+        project={project}
+        isDragging={isDragging}
+        dragHandleProps={listeners}
+        {...props}
+      />
     </div>
   );
 }
@@ -189,6 +235,7 @@ function ProjectsSectionComponent({
   onSelectSession,
   onOpenSessionInTab,
   onReorderSessions,
+  onReorderProjects,
   onForkSession,
   onDeleteSession,
   onRenameSession,
@@ -199,6 +246,7 @@ function ProjectsSectionComponent({
 
   // Drag and drop state
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [isDraggingProject, setIsDraggingProject] = useState(false);
   const [overId, setOverId] = useState<string | null>(null);
   const [overProjectId, setOverProjectId] = useState<string | null>(null);
   const [recentlyDroppedId, setRecentlyDroppedId] = useState<string | null>(
@@ -269,9 +317,20 @@ function ProjectsSectionComponent({
     [activeId, sessions]
   );
 
+  // Find the active dragged project (for drag overlay)
+  const activeProject = useMemo(
+    () =>
+      activeId && isDraggingProject
+        ? projects.find((p) => `project-${p.id}` === activeId)
+        : null,
+    [activeId, isDraggingProject, projects]
+  );
+
   // Handle drag start
   const handleDragStart = useCallback((event: DragStartEvent) => {
-    setActiveId(event.active.id as string);
+    const id = event.active.id as string;
+    setActiveId(id);
+    setIsDraggingProject(id.startsWith("project-"));
   }, []);
 
   // Handle drag over to track which project and item we're over
@@ -303,29 +362,67 @@ function ProjectsSectionComponent({
     [sessions]
   );
 
-  // Handle drag end - reorder sessions
+  // Handle drag end - reorder sessions or projects
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
-      const activeSessionId = active.id as string;
+      const activeItemId = active.id as string;
+      const wasDraggingProject = activeItemId.startsWith("project-");
 
       // Set recentlyDroppedId before clearing activeId to prevent flash
-      setRecentlyDroppedId(activeSessionId);
+      setRecentlyDroppedId(activeItemId);
       setActiveId(null);
+      setIsDraggingProject(false);
       setOverId(null);
       setOverProjectId(null);
 
-      if (!over || !onReorderSessions) return;
+      if (!over) return;
       const overId = over.id as string;
 
+      // Handle project reordering
+      if (wasDraggingProject) {
+        if (!onReorderProjects) return;
+        if (!overId.startsWith("project-")) return;
+
+        const activeProjectId = activeItemId.replace("project-", "");
+        const overProjectId = overId.replace("project-", "");
+
+        if (activeProjectId === overProjectId) return;
+
+        // Filter out uncategorized for reordering (it stays at the end)
+        const reorderableProjects = projects.filter((p) => !p.is_uncategorized);
+        const oldIndex = reorderableProjects.findIndex(
+          (p) => p.id === activeProjectId
+        );
+        const newIndex = reorderableProjects.findIndex(
+          (p) => p.id === overProjectId
+        );
+
+        if (oldIndex === -1 || newIndex === -1) return;
+
+        const newOrder = arrayMove(reorderableProjects, oldIndex, newIndex);
+        const updates: ProjectOrderUpdate[] = newOrder.map(
+          (project, index) => ({
+            projectId: project.id,
+            sortOrder: index,
+          })
+        );
+
+        onReorderProjects(updates);
+        return;
+      }
+
+      // Handle session reordering
+      if (!onReorderSessions) return;
+
       // Find the active session and its current project
-      const draggedSession = sessions.find((s) => s.id === activeSessionId);
+      const draggedSession = sessions.find((s) => s.id === activeItemId);
       if (!draggedSession) return;
 
       const sourceProjectId = draggedSession.project_id || "uncategorized";
       const sourceSessions = sessionsByProject[sourceProjectId] || [];
       const sourceIndex = sourceSessions.findIndex(
-        (s) => s.id === activeSessionId
+        (s) => s.id === activeItemId
       );
 
       // Determine the target project and position
@@ -372,7 +469,7 @@ function ProjectsSectionComponent({
         // Moving to a different project
         // Update source project order (removing the session)
         const newSourceOrder = sourceSessions.filter(
-          (s) => s.id !== activeSessionId
+          (s) => s.id !== activeItemId
         );
         newSourceOrder.forEach((session, index) => {
           updates.push({
@@ -397,7 +494,20 @@ function ProjectsSectionComponent({
 
       onReorderSessions(updates);
     },
-    [sessions, sessionsByProject, onReorderSessions]
+    [
+      sessions,
+      sessionsByProject,
+      projects,
+      onReorderSessions,
+      onReorderProjects,
+    ]
+  );
+
+  // Project sortable IDs (exclude uncategorized as it always stays at the end)
+  const projectSortableIds = useMemo(
+    () =>
+      projects.filter((p) => !p.is_uncategorized).map((p) => `project-${p.id}`),
+    [projects]
   );
 
   return (
@@ -408,201 +518,210 @@ function ProjectsSectionComponent({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <div className="space-y-1">
-        {projects.map((project) => {
-          const projectSessions = sessionsByProject[project.id] || [];
-          // Only show as drop target for inter-project drags (not when reordering within same project)
-          const activeSessionProjectId =
-            activeSession?.project_id || "uncategorized";
-          const isDropTarget = !!(
-            overProjectId === project.id &&
-            activeId &&
-            activeSessionProjectId !== project.id
-          );
+      <SortableContext
+        items={projectSortableIds}
+        strategy={verticalListSortingStrategy}
+      >
+        <div className="space-y-1">
+          {projects.map((project) => {
+            const projectSessions = sessionsByProject[project.id] || [];
+            // Only show as drop target for inter-project session drags (not project reordering)
+            const activeSessionProjectId =
+              activeSession?.project_id || "uncategorized";
+            const isDropTarget = !!(
+              overProjectId === project.id &&
+              activeId &&
+              !isDraggingProject &&
+              activeSessionProjectId !== project.id
+            );
 
-          const projectCardElement = (
-            <ProjectCard
-              project={project}
-              sessionCount={projectSessions.length}
-              isDropTarget={isDropTarget}
-              onToggleExpanded={(expanded) =>
-                onToggleProject?.(project.id, expanded)
-              }
-              onEdit={
+            const projectCardProps = {
+              project,
+              sessionCount: projectSessions.length,
+              isDropTarget,
+              onToggleExpanded: (expanded: boolean) =>
+                onToggleProject?.(project.id, expanded),
+              onEdit:
                 !project.is_uncategorized && onEditProject
                   ? () => onEditProject(project.id)
-                  : undefined
-              }
-              onNewSession={
-                onNewSession ? () => onNewSession(project.id) : undefined
-              }
-              onOpenTerminal={
-                onOpenTerminal ? () => onOpenTerminal(project.id) : undefined
-              }
-              onDelete={
+                  : undefined,
+              onNewSession: onNewSession
+                ? () => onNewSession(project.id)
+                : undefined,
+              onOpenTerminal: onOpenTerminal
+                ? () => onOpenTerminal(project.id)
+                : undefined,
+              onDelete:
                 !project.is_uncategorized && onDeleteProject
                   ? () => onDeleteProject(project.id)
-                  : undefined
-              }
-              onRename={
-                onRenameProject
-                  ? (newName) => onRenameProject(project.id, newName)
-                  : undefined
-              }
-            />
-          );
+                  : undefined,
+              onRename: onRenameProject
+                ? (newName: string) => onRenameProject(project.id, newName)
+                : undefined,
+            };
 
-          return (
-            <div key={project.id} className="space-y-0.5">
-              {/* Project header - wrap with droppable when collapsed */}
-              {!project.expanded ? (
-                <DroppableProjectHeader projectId={project.id}>
-                  {projectCardElement}
-                </DroppableProjectHeader>
-              ) : (
-                projectCardElement
-              )}
+            return (
+              <div key={project.id} className="space-y-0.5">
+                {/* Project header - use sortable for non-uncategorized, wrap with droppable when collapsed */}
+                {project.is_uncategorized ? (
+                  <ProjectCard {...projectCardProps} />
+                ) : !project.expanded ? (
+                  <DroppableProjectHeader projectId={project.id}>
+                    <SortableProjectCard {...projectCardProps} />
+                  </DroppableProjectHeader>
+                ) : (
+                  <SortableProjectCard {...projectCardProps} />
+                )}
 
-              {/* Project contents when expanded */}
-              {project.expanded && (
-                <div
-                  className={`border-border/30 ml-3 space-y-px border-l pl-1.5 ${
-                    isDropTarget ? "bg-accent/30 rounded" : ""
-                  }`}
-                >
-                  {/* Project sessions with sortable context */}
-                  {(() => {
-                    // Calculate if this is an inter-project drag targeting this project
-                    const activeSessionProjectId =
-                      activeSession?.project_id || "uncategorized";
-                    const isInterProjectDrag =
-                      activeId && activeSessionProjectId !== project.id;
-                    const isInterProjectDragToThisProject =
-                      isInterProjectDrag && overProjectId === project.id;
+                {/* Project contents when expanded */}
+                {project.expanded && (
+                  <div
+                    className={`border-border/30 ml-3 space-y-px border-l pl-1.5 ${
+                      isDropTarget ? "bg-accent/30 rounded" : ""
+                    }`}
+                  >
+                    {/* Project sessions with sortable context */}
+                    {(() => {
+                      // Calculate if this is an inter-project drag targeting this project
+                      const activeSessionProjectId =
+                        activeSession?.project_id || "uncategorized";
+                      const isInterProjectDrag =
+                        activeId && activeSessionProjectId !== project.id;
+                      const isInterProjectDragToThisProject =
+                        isInterProjectDrag && overProjectId === project.id;
 
-                    // Only include end drop zone in sortable items during inter-project drags
-                    // For intra-project reordering, the sortable strategy handles end positioning
-                    const sortableItems = isInterProjectDrag
-                      ? [
-                          ...projectSessions.map((s) => s.id),
-                          `project-drop-${project.id}`,
-                        ]
-                      : projectSessions.map((s) => s.id);
+                      // Only include end drop zone in sortable items during inter-project drags
+                      // For intra-project reordering, the sortable strategy handles end positioning
+                      const sortableItems = isInterProjectDrag
+                        ? [
+                            ...projectSessions.map((s) => s.id),
+                            `project-drop-${project.id}`,
+                          ]
+                        : projectSessions.map((s) => s.id);
 
-                    if (projectSessions.length === 0) {
+                      if (projectSessions.length === 0) {
+                        return (
+                          <SortableContext
+                            items={[`project-drop-${project.id}`]}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            <ProjectDropZone projectId={project.id} />
+                          </SortableContext>
+                        );
+                      }
+
                       return (
                         <SortableContext
-                          items={[`project-drop-${project.id}`]}
+                          items={sortableItems}
                           strategy={verticalListSortingStrategy}
                         >
-                          <ProjectDropZone projectId={project.id} />
+                          {projectSessions.map((session) => {
+                            // Show drop indicator before this session when:
+                            // 1. This is an inter-project drag
+                            // 2. This session is being hovered over
+                            const showDropIndicator =
+                              isInterProjectDragToThisProject &&
+                              overId === session.id;
+
+                            return (
+                              <React.Fragment key={session.id}>
+                                {showDropIndicator && <DropIndicator />}
+                                <SortableSessionCard
+                                  session={session}
+                                  isRecentlyDropped={
+                                    session.id === recentlyDroppedId
+                                  }
+                                  isActive={session.id === activeSessionId}
+                                  isForking={isForkingSession}
+                                  tmuxStatus={
+                                    sessionStatuses?.[session.id]?.status
+                                  }
+                                  setupStatus={
+                                    sessionStatuses?.[session.id]?.setupStatus
+                                  }
+                                  setupError={
+                                    sessionStatuses?.[session.id]?.setupError
+                                  }
+                                  lifecycleStatus={
+                                    sessionStatuses?.[session.id]
+                                      ?.lifecycleStatus
+                                  }
+                                  stale={sessionStatuses?.[session.id]?.stale}
+                                  groups={groups}
+                                  isSelected={selectedIds.has(session.id)}
+                                  isInSelectMode={isInSelectMode}
+                                  onToggleSelect={(shiftKey) =>
+                                    handleToggleSelect(session.id, shiftKey)
+                                  }
+                                  onClick={() => onSelectSession(session.id)}
+                                  onOpenInTab={
+                                    onOpenSessionInTab
+                                      ? () => onOpenSessionInTab(session.id)
+                                      : undefined
+                                  }
+                                  onFork={
+                                    onForkSession
+                                      ? async (options) =>
+                                          onForkSession(session.id, options)
+                                      : undefined
+                                  }
+                                  onDelete={
+                                    onDeleteSession
+                                      ? () =>
+                                          onDeleteSession(
+                                            session.id,
+                                            session.name
+                                          )
+                                      : undefined
+                                  }
+                                  onRename={
+                                    onRenameSession
+                                      ? (newName) =>
+                                          onRenameSession(session.id, newName)
+                                      : undefined
+                                  }
+                                  onCreatePR={
+                                    onCreatePR
+                                      ? () => onCreatePR(session.id)
+                                      : undefined
+                                  }
+                                />
+                              </React.Fragment>
+                            );
+                          })}
+                          {/* Drop zone at end of list - only during inter-project drags */}
+                          {isInterProjectDrag && (
+                            <ProjectDropZone
+                              projectId={project.id}
+                              variant="end"
+                            />
+                          )}
+                          {/* Show indicator at the end when dropping on project drop zone */}
+                          {isInterProjectDragToThisProject &&
+                            overId === `project-drop-${project.id}` && (
+                              <DropIndicator />
+                            )}
                         </SortableContext>
                       );
-                    }
-
-                    return (
-                      <SortableContext
-                        items={sortableItems}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        {projectSessions.map((session) => {
-                          // Show drop indicator before this session when:
-                          // 1. This is an inter-project drag
-                          // 2. This session is being hovered over
-                          const showDropIndicator =
-                            isInterProjectDragToThisProject &&
-                            overId === session.id;
-
-                          return (
-                            <React.Fragment key={session.id}>
-                              {showDropIndicator && <DropIndicator />}
-                              <SortableSessionCard
-                                session={session}
-                                isRecentlyDropped={
-                                  session.id === recentlyDroppedId
-                                }
-                                isActive={session.id === activeSessionId}
-                                isForking={isForkingSession}
-                                tmuxStatus={
-                                  sessionStatuses?.[session.id]?.status
-                                }
-                                setupStatus={
-                                  sessionStatuses?.[session.id]?.setupStatus
-                                }
-                                setupError={
-                                  sessionStatuses?.[session.id]?.setupError
-                                }
-                                lifecycleStatus={
-                                  sessionStatuses?.[session.id]?.lifecycleStatus
-                                }
-                                stale={sessionStatuses?.[session.id]?.stale}
-                                groups={groups}
-                                isSelected={selectedIds.has(session.id)}
-                                isInSelectMode={isInSelectMode}
-                                onToggleSelect={(shiftKey) =>
-                                  handleToggleSelect(session.id, shiftKey)
-                                }
-                                onClick={() => onSelectSession(session.id)}
-                                onOpenInTab={
-                                  onOpenSessionInTab
-                                    ? () => onOpenSessionInTab(session.id)
-                                    : undefined
-                                }
-                                onFork={
-                                  onForkSession
-                                    ? async (options) =>
-                                        onForkSession(session.id, options)
-                                    : undefined
-                                }
-                                onDelete={
-                                  onDeleteSession
-                                    ? () =>
-                                        onDeleteSession(
-                                          session.id,
-                                          session.name
-                                        )
-                                    : undefined
-                                }
-                                onRename={
-                                  onRenameSession
-                                    ? (newName) =>
-                                        onRenameSession(session.id, newName)
-                                    : undefined
-                                }
-                                onCreatePR={
-                                  onCreatePR
-                                    ? () => onCreatePR(session.id)
-                                    : undefined
-                                }
-                              />
-                            </React.Fragment>
-                          );
-                        })}
-                        {/* Drop zone at end of list - only during inter-project drags */}
-                        {isInterProjectDrag && (
-                          <ProjectDropZone
-                            projectId={project.id}
-                            variant="end"
-                          />
-                        )}
-                        {/* Show indicator at the end when dropping on project drop zone */}
-                        {isInterProjectDragToThisProject &&
-                          overId === `project-drop-${project.id}` && (
-                            <DropIndicator />
-                          )}
-                      </SortableContext>
-                    );
-                  })()}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                    })()}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </SortableContext>
 
       {/* Drag overlay for visual feedback - disable drop animation to prevent snap-back */}
       <DragOverlay dropAnimation={null}>
-        {activeSession ? (
+        {activeProject ? (
+          <div className="bg-background rounded border opacity-90 shadow-lg">
+            <ProjectCard
+              project={activeProject}
+              sessionCount={sessionsByProject[activeProject.id]?.length || 0}
+            />
+          </div>
+        ) : activeSession ? (
           <div className="bg-background rounded border opacity-90 shadow-lg">
             <SessionCard
               session={activeSession}
