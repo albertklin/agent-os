@@ -44,6 +44,8 @@ export interface ViewProps {
     workingDirectory: string,
     agentType?: string
   ) => Promise<string | null>;
+  handleOpenQuickRespond?: () => void;
+  handleDeferSession?: (sessionId: string) => Promise<void>;
 
   // Pane
   renderPane: (paneId: string) => React.ReactNode;

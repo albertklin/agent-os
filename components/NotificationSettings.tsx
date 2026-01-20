@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Volume2, VolumeX, AlertCircle } from "lucide-react";
+import { Bell, Volume2, VolumeX, AlertCircle, Zap } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -27,6 +27,7 @@ interface NotificationSettingsProps {
   onUpdateSettings: (settings: Partial<NotificationSettingsType>) => void;
   onRequestPermission: () => Promise<boolean>;
   onSelectSession?: (id: string) => void;
+  onOpenQuickRespond?: () => void;
 }
 
 export function NotificationSettings({
@@ -38,6 +39,7 @@ export function NotificationSettings({
   onUpdateSettings,
   onRequestPermission,
   onSelectSession,
+  onOpenQuickRespond,
 }: NotificationSettingsProps) {
   const waitingCount = waitingSessions.length;
 
@@ -66,6 +68,19 @@ export function NotificationSettings({
               <AlertCircle className="h-3 w-3" />
               Waiting for input
             </DropdownMenuLabel>
+            {onOpenQuickRespond && (
+              <DropdownMenuItem
+                onClick={() => {
+                  onOpenQuickRespond();
+                  onOpenChange(false);
+                }}
+                className="text-sm font-medium"
+              >
+                <Zap className="mr-2 h-3 w-3 text-yellow-500" />
+                Quick Respond ({waitingCount})
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
             {waitingSessions.map((session) => (
               <DropdownMenuItem
                 key={session.id}

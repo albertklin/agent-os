@@ -17,6 +17,7 @@ export interface PaneLayoutSplit {
 export interface TabData {
   id: string;
   sessionId: string | null;
+  isQuickRespond?: boolean;
 }
 
 export interface PaneData {
@@ -36,10 +37,11 @@ export function generateTabId(): string {
 }
 
 // Create a new tab
-export function createTab(): TabData {
+export function createTab(options?: { isQuickRespond?: boolean }): TabData {
   return {
     id: generateTabId(),
     sessionId: null,
+    isQuickRespond: options?.isQuickRespond,
   };
 }
 

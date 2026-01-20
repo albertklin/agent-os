@@ -98,3 +98,36 @@ export function buildAgentCommand(
 
   return `${provider.command} ${flags.join(" ")}`;
 }
+
+/**
+ * Status type for session status tracking
+ */
+export type SessionStatusType =
+  | "idle"
+  | "running"
+  | "waiting"
+  | "error"
+  | "dead"
+  | "unknown";
+
+/**
+ * Get the oldest waiting session from a list of sessions.
+ * Oldest = has been waiting the longest (based on updated_at).
+ *
+ * @param sessions - Array of sessions to search
+ * @param statuses - Map of session ID to status data
+ * @param excludeId - Optional session ID to exclude from results
+ * @returns The oldest waiting session, or undefined if none found
+ */
+export function getOldestWaitingSession(
+  sessions: Session[],
+  statuses: Record<string, { status: SessionStatusType }>,
+  excludeId?: string
+): Session | undefined {
+  return sessions
+    .filter((s) => s.id !== excludeId && statuses[s.id]?.status === "waiting")
+    .sort(
+      (a, b) =>
+        new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
+    )[0];
+}

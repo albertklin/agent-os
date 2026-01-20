@@ -6,6 +6,10 @@ import { usePanes } from "@/contexts/PaneContext";
 import { useViewport } from "@/hooks/useViewport";
 import type { Session, Project } from "@/lib/db";
 import { sessionRegistry } from "@/lib/client/session-registry";
+import {
+  getOldestWaitingSession,
+  type SessionStatusType,
+} from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 import { useFileEditor } from "@/hooks/useFileEditor";
 import { MobileTabBar } from "./MobileTabBar";
@@ -46,8 +50,10 @@ interface PaneProps {
   paneId: string;
   sessions: Session[];
   projects: Project[];
+  sessionStatuses?: Record<string, { status: SessionStatusType }>;
   onMenuClick?: () => void;
   onSelectSession?: (sessionId: string) => void;
+  onDeferSession?: (sessionId: string) => Promise<void>;
 }
 
 type ViewMode = "terminal" | "files" | "git";
@@ -56,8 +62,10 @@ export const Pane = memo(function Pane({
   paneId,
   sessions,
   projects,
+  sessionStatuses = {},
   onMenuClick,
   onSelectSession,
+  onDeferSession,
 }: PaneProps) {
   const { isMobile } = useViewport();
   const {
@@ -73,6 +81,7 @@ export const Pane = memo(function Pane({
     addTab,
     closeTab,
     switchTab,
+    setSession,
   } = usePanes();
 
   const [viewMode, setViewMode] = useState<ViewMode>("terminal");
@@ -126,6 +135,28 @@ export const Pane = memo(function Pane({
       // TODO: Scroll to line (requires FileEditor enhancement)
     }
   }, [fileOpenRequest, isFocused, session, fileEditor]);
+
+  // Auto-switch logic for quick respond tabs
+  // When a quick respond tab's session changes from "waiting" to idle/running,
+  // automatically switch to the next waiting session
+  useEffect(() => {
+    if (!activeTab?.isQuickRespond || !activeTab.sessionId) return;
+
+    const currentStatus = sessionStatuses[activeTab.sessionId]?.status;
+
+    // If current session is no longer waiting, find next waiting session
+    if (currentStatus && currentStatus !== "waiting") {
+      const nextWaiting = getOldestWaitingSession(
+        sessions,
+        sessionStatuses,
+        activeTab.sessionId
+      );
+      if (nextWaiting) {
+        setSession(paneId, nextWaiting.id);
+      }
+      // If no more waiting sessions, tab stays on current session (user can close manually)
+    }
+  }, [sessionStatuses, activeTab, sessions, paneId, setSession]);
 
   const handleFocus = useCallback(() => {
     focusPane(paneId);
@@ -189,6 +220,7 @@ export const Pane = memo(function Pane({
           activeTabId={paneData.activeTabId}
           session={session}
           sessions={sessions}
+          sessionStatuses={sessionStatuses}
           viewMode={viewMode}
           isFocused={isFocused}
           canSplit={canSplit}
@@ -204,6 +236,7 @@ export const Pane = memo(function Pane({
           onSplitHorizontal={() => splitHorizontal(paneId)}
           onSplitVertical={() => splitVertical(paneId)}
           onClose={() => close(paneId)}
+          onDeferSession={onDeferSession}
         />
       )}
 

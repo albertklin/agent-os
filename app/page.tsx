@@ -12,6 +12,7 @@ import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useSessionAttachment } from "@/hooks/useSessionAttachment";
 import type { Session } from "@/lib/db";
+import { getOldestWaitingSession } from "@/lib/sessions";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
 
@@ -28,7 +29,8 @@ function HomeContent() {
   const [copiedSessionId, setCopiedSessionId] = useState(false);
 
   // Pane context
-  const { focusedPaneId, getActiveTab, addTab } = usePanes();
+  const { focusedPaneId, getActiveTab, addTab, openQuickRespondTab } =
+    usePanes();
   const focusedActiveTab = getActiveTab(focusedPaneId);
   const { isMobile, isHydrated } = useViewport();
 
@@ -130,6 +132,41 @@ function HomeContent() {
     onSelectSession: handleSelectSession,
   });
 
+  // Open quick respond tab handler
+  const handleOpenQuickRespond = useCallback(() => {
+    // Find the oldest waiting session
+    const oldestWaiting = getOldestWaitingSession(sessions, sessionStatuses);
+    if (!oldestWaiting) return;
+
+    // Open a quick respond tab with the oldest waiting session
+    openQuickRespondTab(focusedPaneIdRef.current, oldestWaiting.id);
+  }, [sessions, sessionStatuses, openQuickRespondTab]);
+
+  // Defer session handler - refreshes staleness and moves to next waiting session
+  const handleDeferSession = useCallback(
+    async (sessionId: string) => {
+      // Call API to update the session's timestamp
+      await fetch(`/api/sessions/${sessionId}/defer`, { method: "POST" });
+
+      // Refresh sessions to get updated timestamps
+      await fetchSessions();
+
+      // Find next waiting session (excluding the deferred one since it's now "newest")
+      const nextWaiting = getOldestWaitingSession(
+        sessions,
+        sessionStatuses,
+        sessionId
+      );
+
+      if (nextWaiting) {
+        // Switch to next waiting session in focused pane
+        openQuickRespondTab(focusedPaneIdRef.current, nextWaiting.id);
+      }
+      // If no more waiting sessions, stay on current (now deferred) session
+    },
+    [sessions, sessionStatuses, fetchSessions, openQuickRespondTab]
+  );
+
   // Pane renderer
   const renderPane = useCallback(
     (paneId: string) => (
@@ -138,11 +175,20 @@ function HomeContent() {
         paneId={paneId}
         sessions={sessions}
         projects={projects}
+        sessionStatuses={sessionStatuses}
         onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
         onSelectSession={handleSelectSession}
+        onDeferSession={handleDeferSession}
       />
     ),
-    [sessions, projects, isMobile, handleSelectSession]
+    [
+      sessions,
+      projects,
+      sessionStatuses,
+      isMobile,
+      handleSelectSession,
+      handleDeferSession,
+    ]
   );
 
   // New session in project handler
@@ -254,6 +300,8 @@ function HomeContent() {
     handleOpenTerminal,
     handleSessionCreated,
     handleCreateProject,
+    handleOpenQuickRespond,
+    handleDeferSession,
     renderPane,
   };
 
