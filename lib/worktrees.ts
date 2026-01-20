@@ -308,6 +308,26 @@ export async function hasUncommittedChanges(
 }
 
 /**
+ * Discard all uncommitted changes in a worktree (both staged and unstaged)
+ * This performs a hard reset and cleans untracked files
+ */
+export async function discardUncommittedChanges(
+  worktreePath: string
+): Promise<void> {
+  const resolvedWorktreePath = resolvePath(worktreePath);
+
+  // Reset staged and modified files to HEAD
+  await execAsync(`git -C "${resolvedWorktreePath}" reset --hard HEAD`, {
+    timeout: 10000,
+  });
+
+  // Remove untracked files and directories
+  await execAsync(`git -C "${resolvedWorktreePath}" clean -fd`, {
+    timeout: 10000,
+  });
+}
+
+/**
  * List all worktrees for a project
  */
 export async function listWorktrees(projectPath: string): Promise<

@@ -18,6 +18,7 @@ import {
 import {
   getMainRepoFromWorktree,
   hasUncommittedChanges,
+  discardUncommittedChanges,
 } from "@/lib/worktrees";
 import { runInBackground } from "@/lib/async-operations";
 import { destroyContainer, logSecurityEvent } from "@/lib/container";
@@ -186,6 +187,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 interface DeleteRequestBody {
   mergeInto?: string; // target branch name, or null to skip merge
+  discardUncommittedChanges?: boolean; // discard uncommitted changes before merge
 }
 
 // DELETE /api/sessions/[id] - Delete session
@@ -299,24 +301,29 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
         // Handle merge request if provided
         if (body.mergeInto && branchName && hasChanges && mainRepoPath) {
-          // Verify no uncommitted changes before merge
+          // Check for uncommitted changes
           const hasUncommitted = await hasUncommittedChanges(worktreePath);
           if (hasUncommitted) {
-            // Restore lifecycle status since we're not deleting
-            queries.updateSessionLifecycleStatus(db).run("ready", id);
-            statusBroadcaster.updateStatus({
-              sessionId: id,
-              status: "idle",
-              lifecycleStatus: "ready",
-            });
-            return NextResponse.json(
-              {
-                success: false,
-                error: "uncommitted_changes",
-                message: "Cannot merge: session has uncommitted changes",
-              },
-              { status: 400 }
-            );
+            if (body.discardUncommittedChanges) {
+              // User chose to discard uncommitted changes
+              await discardUncommittedChanges(worktreePath);
+            } else {
+              // Restore lifecycle status since we're not deleting
+              queries.updateSessionLifecycleStatus(db).run("ready", id);
+              statusBroadcaster.updateStatus({
+                sessionId: id,
+                status: "idle",
+                lifecycleStatus: "ready",
+              });
+              return NextResponse.json(
+                {
+                  success: false,
+                  error: "uncommitted_changes",
+                  message: "Cannot merge: session has uncommitted changes",
+                },
+                { status: 400 }
+              );
+            }
           }
 
           // Attempt the merge
