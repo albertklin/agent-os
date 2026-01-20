@@ -204,6 +204,32 @@ export async function captureTmuxPane(
 }
 
 /**
+ * Force a tmux client to refresh with specific dimensions.
+ * This is needed when the PTY resize alone doesn't cause tmux to redraw.
+ */
+export async function refreshTmuxClient(
+  name: string,
+  cols: number,
+  rows: number,
+  insideContainer?: string
+): Promise<void> {
+  try {
+    const escapedName = escapeShellArg(name);
+    if (insideContainer) {
+      await exec(
+        `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} refresh-client -C ${cols}x${rows} -t ${escapedName} 2>/dev/null || true`
+      );
+    } else {
+      await exec(
+        `tmux -L ${TMUX_SOCKET} refresh-client -C ${cols}x${rows} -t ${escapedName} 2>/dev/null || true`
+      );
+    }
+  } catch {
+    // Ignore errors - client may have disconnected
+  }
+}
+
+/**
  * Get the current working directory of a tmux session
  */
 export async function getTmuxSessionCwd(

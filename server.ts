@@ -6,6 +6,8 @@ import * as pty from "node-pty";
 import { writeGlobalHooksConfig } from "./lib/hooks/generate-config";
 import { ensureSandboxImage, isContainerRunning } from "./lib/container";
 import { getDb } from "./lib/db";
+import { getTmuxSessionName } from "./lib/sessions";
+import { refreshTmuxClient } from "./lib/tmux";
 import {
   validateDatabaseConstraints,
   fixOrphanedAutoApproveSessions,
@@ -120,6 +122,9 @@ app.prepare().then(async () => {
     "connection",
     async (ws: WebSocket, request: import("http").IncomingMessage) => {
       let ptyProcess: pty.IPty | null = null;
+      // Tmux session info for resize handling (populated after session validation)
+      let tmuxName: string | null = null;
+      let containerId: string | undefined = undefined;
 
       // Parse sessionId early so it's available for cleanup in event handlers
       const requestUrl = new URL(
@@ -238,6 +243,12 @@ app.prepare().then(async () => {
         // 9. Use sessionManager.getViewCommand(session) to get the attach command
         const { command, args } = sessionManager.getViewCommand(freshSession);
 
+        // Store tmux session name for resize handling
+        tmuxName = getTmuxSessionName(freshSession);
+        containerId = isSandboxed
+          ? (freshSession.container_id ?? undefined)
+          : undefined;
+
         console.log(
           `[terminal] Attaching to session ${sessionId} with command: ${command} ${args.join(" ")} (connection ${activeConnections.get(sessionId)!.size}/${MAX_CONNECTIONS_PER_SESSION})`
         );
@@ -301,6 +312,10 @@ app.prepare().then(async () => {
               break;
             case "resize":
               ptyProcess?.resize(msg.cols, msg.rows);
+              // Also refresh tmux client to ensure it adopts the new dimensions
+              if (tmuxName) {
+                refreshTmuxClient(tmuxName, msg.cols, msg.rows, containerId);
+              }
               break;
             // Note: "command" message type removed - client no longer sends commands
           }
