@@ -40,7 +40,7 @@ export function ShellDrawer({
       setTimeout(() => {
         terminalRef.current?.sendInput("\x15"); // Ctrl+U to clear line
         setTimeout(() => {
-          terminalRef.current?.sendCommand(`cd ${workingDirectory} && clear`);
+          terminalRef.current?.sendInput(`cd ${workingDirectory} && clear\n`);
         }, 50);
       }, 100);
     }

@@ -10,7 +10,7 @@
 
 import { execSync } from "child_process";
 import { getDb } from "@/lib/db";
-import type { SetupStatus } from "@/lib/db/types";
+import type { SetupStatus, LifecycleStatus } from "@/lib/db/types";
 
 export type SessionStatus = "running" | "waiting" | "idle" | "dead" | "unknown";
 
@@ -24,6 +24,7 @@ export interface StatusData {
   toolDetail?: string;
   setupStatus?: SetupStatus;
   setupError?: string;
+  lifecycleStatus?: LifecycleStatus;
 }
 
 export interface StatusUpdate {
@@ -36,6 +37,7 @@ export interface StatusUpdate {
   toolDetail?: string;
   setupStatus?: SetupStatus;
   setupError?: string;
+  lifecycleStatus?: LifecycleStatus;
 }
 
 type SSECallback = (data: StatusUpdate) => void;
@@ -48,7 +50,9 @@ class StatusBroadcaster {
   private syncInProgress = false;
 
   constructor() {
-    // Intervals are started lazily when first subscriber joins
+    // Start cleanup interval unconditionally to prevent memory growth
+    // even when no subscribers are connected
+    this.startCleanup();
   }
 
   /**
@@ -64,6 +68,7 @@ class StatusBroadcaster {
       toolDetail,
       setupStatus,
       setupError,
+      lifecycleStatus,
     } = update;
 
     // Get existing data to preserve fields not in this update
@@ -79,6 +84,7 @@ class StatusBroadcaster {
       toolDetail,
       setupStatus: setupStatus ?? existing?.setupStatus,
       setupError: setupError ?? existing?.setupError,
+      lifecycleStatus: lifecycleStatus ?? existing?.lifecycleStatus,
     });
 
     // Update DB timestamp for running/waiting states
@@ -288,13 +294,14 @@ class StatusBroadcaster {
       const db = getDb();
       const sessions = db
         .prepare(
-          "SELECT id, tmux_name, setup_status, setup_error FROM sessions"
+          "SELECT id, tmux_name, setup_status, setup_error, lifecycle_status FROM sessions"
         )
         .all() as Array<{
         id: string;
         tmux_name: string;
         setup_status: SetupStatus | null;
         setup_error: string | null;
+        lifecycle_status: LifecycleStatus | null;
       }>;
 
       const now = Date.now();
@@ -315,6 +322,7 @@ class StatusBroadcaster {
           updatedAt: now,
           setupStatus: session.setup_status ?? undefined,
           setupError: session.setup_error ?? undefined,
+          lifecycleStatus: session.lifecycle_status ?? undefined,
         });
 
         synced++;
@@ -327,11 +335,14 @@ class StatusBroadcaster {
       try {
         const db = getDb();
         const sessions = db
-          .prepare("SELECT id, setup_status, setup_error FROM sessions")
+          .prepare(
+            "SELECT id, setup_status, setup_error, lifecycle_status FROM sessions"
+          )
           .all() as Array<{
           id: string;
           setup_status: SetupStatus | null;
           setup_error: string | null;
+          lifecycle_status: LifecycleStatus | null;
         }>;
 
         const now = Date.now();
@@ -344,6 +355,7 @@ class StatusBroadcaster {
             updatedAt: now,
             setupStatus: session.setup_status ?? undefined,
             setupError: session.setup_error ?? undefined,
+            lifecycleStatus: session.lifecycle_status ?? undefined,
           });
           synced++;
           dead++;

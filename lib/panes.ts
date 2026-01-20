@@ -17,7 +17,6 @@ export interface PaneLayoutSplit {
 export interface TabData {
   id: string;
   sessionId: string | null;
-  attachedTmux: string | null;
 }
 
 export interface PaneData {
@@ -41,7 +40,6 @@ export function createTab(): TabData {
   return {
     id: generateTabId(),
     sessionId: null,
-    attachedTmux: null,
   };
 }
 

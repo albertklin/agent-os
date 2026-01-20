@@ -3,7 +3,6 @@
 import { SessionList } from "@/components/SessionList";
 import { NewSessionDialog } from "@/components/NewSessionDialog";
 import { NotificationSettings } from "@/components/NotificationSettings";
-import { StartServerDialog } from "@/components/DevServers/StartServerDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,11 +55,6 @@ export function DesktopView({
   handleNewSessionInProject,
   handleOpenTerminal,
   handleSessionCreated,
-  handleCreateProject,
-  handleStartDevServer,
-  handleCreateDevServer,
-  startDevServerProject,
-  setStartDevServerProjectId,
   renderPane,
 }: ViewProps) {
   return (
@@ -86,8 +80,6 @@ export function DesktopView({
               }}
               onNewSessionInProject={handleNewSessionInProject}
               onOpenTerminal={handleOpenTerminal}
-              onStartDevServer={handleStartDevServer}
-              onCreateDevServer={handleCreateDevServer}
             />
           </div>
 
@@ -253,14 +245,6 @@ export function DesktopView({
           fileOpenActions.requestOpen(absolutePath, line);
         }}
       />
-      {startDevServerProject && (
-        <StartServerDialog
-          project={startDevServerProject}
-          projectDevServers={startDevServerProject.devServers}
-          onStart={handleCreateDevServer}
-          onClose={() => setStartDevServerProjectId(null)}
-        />
-      )}
     </div>
   );
 }

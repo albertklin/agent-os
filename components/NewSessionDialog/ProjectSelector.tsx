@@ -5,10 +5,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ProjectWithDevServers } from "@/lib/projects";
+import type { Project } from "@/lib/db";
 
 interface ProjectSelectorProps {
-  projects: ProjectWithDevServers[];
+  projects: Project[];
   projectId: string | null;
   onProjectChange: (projectId: string | null) => void;
 }

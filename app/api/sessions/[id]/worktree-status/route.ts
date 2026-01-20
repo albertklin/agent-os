@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, queries, type Session } from "@/lib/db";
-import { isAgentOSWorktree, hasUncommittedChanges, branchHasChanges } from "@/lib/worktrees";
+import {
+  isAgentOSWorktree,
+  hasUncommittedChanges,
+  branchHasChanges,
+} from "@/lib/worktrees";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -36,9 +40,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       branchHasChanges(session.worktree_path, baseBranch),
     ]);
 
-    // Check for sibling sessions sharing this worktree
+    // Check for active sibling sessions sharing this worktree
+    // (excludes failed/deleting sessions that shouldn't prevent cleanup)
     const siblings = queries
-      .getSiblingSessionsByWorktree(db)
+      .getActiveSiblingSessionsByWorktree(db)
       .all(session.worktree_path, id) as Session[];
     const siblingSessionNames = siblings.map((s) => s.name);
 

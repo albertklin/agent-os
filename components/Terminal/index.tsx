@@ -26,7 +26,6 @@ import { ImagePicker } from "@/components/ImagePicker";
 export type { TerminalScrollState };
 
 export interface TerminalHandle {
-  sendCommand: (command: string) => void;
   sendInput: (data: string) => void;
   focus: () => void;
   getScrollState: () => TerminalScrollState | null;
@@ -36,6 +35,10 @@ export interface TerminalHandle {
 interface TerminalProps {
   /** Session ID - used to connect terminal to container sandbox */
   sessionId?: string;
+  /** Session lifecycle status - Terminal won't connect unless 'ready' */
+  lifecycleStatus?: "creating" | "ready" | "failed" | "deleting";
+  /** Session setup status - shown while session is being created */
+  setupStatus?: string;
   onConnected?: () => void;
   onDisconnected?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
@@ -48,6 +51,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   function Terminal(
     {
       sessionId,
+      lifecycleStatus,
+      setupStatus,
       onConnected,
       onDisconnected,
       onBeforeUnmount,
@@ -73,6 +78,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       return currentTheme || "dark";
     }, [currentTheme, resolvedTheme]);
 
+    // Only enable terminal connection when session is explicitly ready
+    // If lifecycleStatus is undefined, we're still waiting for status from SSE
+    const isSessionReady = lifecycleStatus === "ready";
+    const isLoadingStatus = sessionId && !lifecycleStatus;
+
     const {
       connectionState,
       isAtBottom,
@@ -81,7 +91,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       scrollToBottom,
       copySelection,
       sendInput,
-      sendCommand,
       focus,
       getScrollState,
       restoreScrollState,
@@ -89,6 +98,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     } = useTerminalConnection({
       terminalRef,
       sessionId,
+      enabled: isSessionReady,
       onConnected,
       onDisconnected,
       onBeforeUnmount,
@@ -146,7 +156,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
 
     // Expose imperative methods
     useImperativeHandle(ref, () => ({
-      sendCommand,
       sendInput,
       focus,
       getScrollState,
@@ -327,8 +336,61 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           />
         )}
 
+        {/* Loading overlay - waiting for lifecycle status from SSE */}
+        {isLoadingStatus && (
+          <div className="bg-background absolute inset-0 z-20 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
+            <span className="text-muted-foreground text-sm">
+              Loading session...
+            </span>
+          </div>
+        )}
+
+        {/* Session lifecycle status overlays - shown when session isn't ready */}
+        {lifecycleStatus === "creating" && (
+          <div className="bg-background absolute inset-0 z-20 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="text-primary h-6 w-6 animate-spin" />
+            <span className="text-foreground text-sm font-medium">
+              Setting up session...
+            </span>
+            {setupStatus && (
+              <span className="text-muted-foreground text-xs">
+                {setupStatus === "pending" && "Starting..."}
+                {setupStatus === "creating_worktree" && "Creating worktree..."}
+                {setupStatus === "init_container" &&
+                  "Initializing container..."}
+                {setupStatus === "init_submodules" &&
+                  "Initializing submodules..."}
+                {setupStatus === "installing_deps" &&
+                  "Installing dependencies..."}
+              </span>
+            )}
+          </div>
+        )}
+
+        {lifecycleStatus === "failed" && (
+          <div className="bg-background absolute inset-0 z-20 flex flex-col items-center justify-center gap-3">
+            <WifiOff className="text-destructive h-8 w-8" />
+            <span className="text-foreground text-sm font-medium">
+              Session setup failed
+            </span>
+            <span className="text-muted-foreground max-w-xs text-center text-xs">
+              Please delete this session and create a new one.
+            </span>
+          </div>
+        )}
+
+        {lifecycleStatus === "deleting" && (
+          <div className="bg-background absolute inset-0 z-20 flex flex-col items-center justify-center gap-3">
+            <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+            <span className="text-muted-foreground text-sm">
+              Deleting session...
+            </span>
+          </div>
+        )}
+
         {/* Connection status overlays */}
-        {connectionState === "connecting" && (
+        {connectionState === "connecting" && isSessionReady && (
           <div className="bg-background absolute inset-0 z-20 flex flex-col items-center justify-center gap-3">
             <div className="bg-primary h-2 w-2 animate-pulse rounded-full" />
             <span className="text-muted-foreground text-sm">Connecting...</span>
@@ -342,8 +404,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           </div>
         )}
 
-        {/* Disconnected overlay - shows tap to reconnect button */}
-        {connectionState === "disconnected" && (
+        {/* Disconnected overlay - shows tap to reconnect button (only when session is ready) */}
+        {connectionState === "disconnected" && isSessionReady && (
           <button
             onClick={reconnect}
             className="bg-background/80 active:bg-background/90 absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 backdrop-blur-sm transition-all"

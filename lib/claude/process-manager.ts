@@ -13,6 +13,77 @@ interface ManagedSession {
 
 export class ClaudeProcessManager {
   private sessions: Map<string, ManagedSession> = new Map();
+  private cleanupInterval: NodeJS.Timeout | null = null;
+
+  constructor() {
+    // Start periodic cleanup to prevent memory leaks from orphaned sessions
+    this.startCleanup();
+  }
+
+  // Clean up orphaned sessions (no clients, no process, idle for > 5 minutes)
+  private startCleanup(): void {
+    if (this.cleanupInterval) return;
+
+    this.cleanupInterval = setInterval(
+      () => {
+        const now = Date.now();
+        const staleThreshold = 5 * 60 * 1000; // 5 minutes
+
+        for (const [sessionId, session] of this.sessions) {
+          // Skip if process is running or has clients
+          if (session.process || session.clients.size > 0) continue;
+
+          // Remove sessions that have been idle without clients for too long
+          // We can't track lastActivity easily, so just remove if no process and no clients
+          this.sessions.delete(sessionId);
+          console.log(
+            `[process-manager] Cleaned up orphaned session ${sessionId}`
+          );
+        }
+      },
+      5 * 60 * 1000
+    ); // Run every 5 minutes
+  }
+
+  // Stop cleanup interval (for graceful shutdown)
+  stopCleanup(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+  }
+
+  // Clean up a specific session (for session deletion)
+  cleanupSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    // Kill process if running
+    if (session.process) {
+      try {
+        session.process.kill("SIGTERM");
+      } catch {
+        // Ignore kill errors
+      }
+    }
+
+    // Remove all event listeners from parser
+    session.parser.removeAllListeners();
+
+    // Close all WebSocket clients
+    for (const client of session.clients) {
+      try {
+        if (client.readyState === WebSocket.OPEN) {
+          client.close(1000, "Session deleted");
+        }
+      } catch {
+        // Ignore close errors
+      }
+    }
+
+    // Remove from map
+    this.sessions.delete(sessionId);
+  }
 
   // Register a WebSocket client for a session
   registerClient(sessionId: string, ws: WebSocket): void {
@@ -132,7 +203,8 @@ export class ClaudeProcessManager {
     console.log(`Spawning Claude for session ${sessionId}:`, args.join(" "));
     console.log(`CWD: ${cwd}`);
 
-    // Reset parser for new conversation turn
+    // Reset parser for new conversation turn - remove old listeners to prevent memory leaks
+    session.parser.removeAllListeners();
     session.parser = new StreamParser(sessionId);
     session.parser.on("event", (event: ClientEvent) => {
       console.log(

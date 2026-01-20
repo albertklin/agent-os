@@ -1,28 +1,14 @@
-import type { Session } from "@/lib/db";
-import type { ProjectWithDevServers } from "@/lib/projects";
+import type { Session, Project } from "@/lib/db";
 import type { NotificationSettings } from "@/lib/notifications";
 import type { TabData } from "@/lib/panes";
-import type {
-  ConnectionStatus,
-  SetupStatusType,
-} from "@/hooks/useStatusStream";
-
-export interface SessionStatus {
-  sessionName: string;
-  status: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
-  lastLine?: string;
-  claudeSessionId?: string | null;
-  /** Current tool name (e.g., "Bash", "Edit") */
-  toolName?: string;
-  /** Current tool detail (e.g., the command or file path) */
-  toolDetail?: string;
-  setupStatus?: SetupStatusType;
-  setupError?: string;
-}
+import type { ConnectionStatus } from "@/hooks/useStatusStream";
+import type { SessionStatus } from "@/components/SessionList/SessionList.types";
+// Re-export SessionStatus from canonical location
+export type { SessionStatus };
 
 export interface ViewProps {
   sessions: Session[];
-  projects: ProjectWithDevServers[];
+  projects: Project[];
   sessionStatuses: Record<string, SessionStatus>;
   connectionStatus?: ConnectionStatus;
   sidebarOpen: boolean;
@@ -58,19 +44,6 @@ export interface ViewProps {
     workingDirectory: string,
     agentType?: string
   ) => Promise<string | null>;
-
-  // Dev server (for StartServerDialog)
-  handleStartDevServer: (projectId: string) => void;
-  handleCreateDevServer: (opts: {
-    projectId: string;
-    type: "node" | "docker";
-    name: string;
-    command: string;
-    workingDirectory: string;
-    ports?: number[];
-  }) => Promise<void>;
-  startDevServerProject: ProjectWithDevServers | null;
-  setStartDevServerProjectId: (id: string | null) => void;
 
   // Pane
   renderPane: (paneId: string) => React.ReactNode;

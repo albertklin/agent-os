@@ -5,7 +5,6 @@ import {
   useDeleteSession,
   useRenameSession,
   useForkSession,
-  useMoveSessionToProject,
   type ForkSessionInput,
 } from "@/data/sessions";
 import {
@@ -14,11 +13,6 @@ import {
   useRenameProject,
 } from "@/data/projects";
 import { useToggleGroup, useCreateGroup, useDeleteGroup } from "@/data/groups";
-import {
-  useStopDevServer,
-  useRestartDevServer,
-  useRemoveDevServer,
-} from "@/data/dev-servers";
 import { sessionKeys } from "@/data/sessions/keys";
 
 interface UseSessionListMutationsOptions {
@@ -42,7 +36,6 @@ export function useSessionListMutations({
   const deleteSessionMutation = useDeleteSession();
   const renameSessionMutation = useRenameSession();
   const forkSessionMutation = useForkSession();
-  const moveSessionToProjectMutation = useMoveSessionToProject();
 
   // Project mutations
   const toggleProjectMutation = useToggleProject();
@@ -53,11 +46,6 @@ export function useSessionListMutations({
   const toggleGroupMutation = useToggleGroup();
   const createGroupMutation = useCreateGroup();
   const deleteGroupMutation = useDeleteGroup();
-
-  // Dev server mutations
-  const stopDevServerMutation = useStopDevServer();
-  const restartDevServerMutation = useRestartDevServer();
-  const removeDevServerMutation = useRemoveDevServer();
 
   // Delete dialog state
   const [deleteDialogState, setDeleteDialogState] = useState<DeleteDialogState>(
@@ -120,13 +108,6 @@ export function useSessionListMutations({
     [forkSessionMutation, onSelectSession]
   );
 
-  const handleMoveSessionToProject = useCallback(
-    async (sessionId: string, projectId: string) => {
-      await moveSessionToProjectMutation.mutateAsync({ sessionId, projectId });
-    },
-    [moveSessionToProjectMutation]
-  );
-
   // Project handlers
   const handleToggleProject = useCallback(
     async (projectId: string, expanded: boolean) => {
@@ -177,28 +158,6 @@ export function useSessionListMutations({
       await deleteGroupMutation.mutateAsync(path);
     },
     [deleteGroupMutation]
-  );
-
-  // Dev server handlers
-  const handleStopDevServer = useCallback(
-    async (serverId: string) => {
-      await stopDevServerMutation.mutateAsync(serverId);
-    },
-    [stopDevServerMutation]
-  );
-
-  const handleRestartDevServer = useCallback(
-    async (serverId: string) => {
-      await restartDevServerMutation.mutateAsync(serverId);
-    },
-    [restartDevServerMutation]
-  );
-
-  const handleRemoveDevServer = useCallback(
-    async (serverId: string) => {
-      await removeDevServerMutation.mutateAsync(serverId);
-    },
-    [removeDevServerMutation]
   );
 
   // Bulk delete handler
@@ -287,7 +246,6 @@ export function useSessionListMutations({
     handleDeleteSession,
     handleRenameSession,
     handleForkSession,
-    handleMoveSessionToProject,
 
     // Project handlers
     handleToggleProject,
@@ -298,11 +256,6 @@ export function useSessionListMutations({
     handleToggleGroup,
     handleCreateGroup,
     handleDeleteGroup,
-
-    // Dev server handlers
-    handleStopDevServer,
-    handleRestartDevServer,
-    handleRemoveDevServer,
 
     // Bulk operations
     handleBulkDelete,

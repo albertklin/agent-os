@@ -22,7 +22,10 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
-import type { SetupStatusType } from "@/hooks/useStatusStream";
+import type {
+  SetupStatusType,
+  LifecycleStatusType,
+} from "@/hooks/useStatusStream";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -47,7 +50,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { ForkSessionDialog, type ForkOptions } from "./ForkSessionDialog";
 import type { Session, Group } from "@/lib/db";
-import type { ProjectWithDevServers } from "@/lib/projects";
 
 type TmuxStatus = "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
 
@@ -62,8 +64,8 @@ interface SessionCardProps {
   toolDetail?: string;
   setupStatus?: SetupStatusType;
   setupError?: string;
+  lifecycleStatus?: LifecycleStatusType;
   groups?: Group[];
-  projects?: ProjectWithDevServers[];
   // Selection props
   isSelected?: boolean;
   isInSelectMode?: boolean;
@@ -72,7 +74,6 @@ interface SessionCardProps {
   onClick?: () => void;
   onOpenInTab?: () => void;
   onMove?: (groupPath: string) => void;
-  onMoveToProject?: (projectId: string) => void;
   onFork?: (options: ForkOptions | null) => Promise<void>;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
@@ -135,6 +136,10 @@ const setupStatusConfig: Record<
     label: "Installing dependencies...",
     shortLabel: "Installing",
   },
+  starting_session: {
+    label: "Starting session...",
+    shortLabel: "Starting",
+  },
   failed: { label: "Setup failed", shortLabel: "Failed" },
 };
 
@@ -147,15 +152,14 @@ function SessionCardComponent({
   toolDetail,
   setupStatus,
   setupError,
+  lifecycleStatus,
   groups = [],
-  projects = [],
   isSelected,
   isInSelectMode,
   onToggleSelect,
   onClick,
   onOpenInTab,
   onMove,
-  onMoveToProject,
   onFork,
   onDelete,
   onRename,
@@ -165,9 +169,12 @@ function SessionCardComponent({
   const status = tmuxStatus || "dead";
   const config = statusConfig[status];
 
-  // Check if session is still setting up
+  // Check lifecycle status - use it if available, otherwise fall back to setupStatus for compatibility
   const isSettingUp =
-    setupStatus && setupStatus !== "ready" && setupStatus !== "failed";
+    lifecycleStatus === "creating" ||
+    (setupStatus && setupStatus !== "ready" && setupStatus !== "failed");
+  const isFailed = lifecycleStatus === "failed" || setupStatus === "failed";
+  const isDeleting = lifecycleStatus === "deleting";
   const setupFailed = setupStatus === "failed";
   const setupConfig =
     setupStatus && setupStatus !== "ready"
@@ -208,13 +215,7 @@ function SessionCardComponent({
   };
 
   const hasActions =
-    onMove ||
-    onMoveToProject ||
-    onFork ||
-    onDelete ||
-    onRename ||
-    onCreatePR ||
-    onOpenInTab;
+    onMove || onFork || onDelete || onRename || onCreatePR || onOpenInTab;
 
   // Handle card click - coordinates selection with navigation
   const handleCardClick = (e: React.MouseEvent) => {
@@ -310,26 +311,6 @@ function SessionCardComponent({
             <GitPullRequest className="mr-2 h-3 w-3" />
             {session.pr_url ? "Open PR" : "Create PR"}
           </MenuItem>
-        )}
-        {onMoveToProject && projects.length > 0 && (
-          <MenuSub>
-            <MenuSubTrigger>
-              <FolderInput className="mr-2 h-3 w-3" />
-              Move to project...
-            </MenuSubTrigger>
-            <MenuSubContent>
-              {projects
-                .filter((p) => p.id !== session.project_id)
-                .map((project) => (
-                  <MenuItem
-                    key={project.id}
-                    onClick={() => onMoveToProject(project.id)}
-                  >
-                    {project.name}
-                  </MenuItem>
-                ))}
-            </MenuSubContent>
-          </MenuSub>
         )}
         {onMove && groups.length > 0 && (
           <MenuSub>
@@ -490,28 +471,26 @@ function SessionCardComponent({
         <GitFork className="text-muted-foreground h-3 w-3 flex-shrink-0" />
       )}
 
-      {/* Sandbox status indicator - only for auto-approve sessions */}
-      {!!session.auto_approve && session.sandbox_status && (
+      {/* Container status indicator - only for auto-approve sessions */}
+      {!!session.auto_approve && session.container_status && (
         <Tooltip>
           <TooltipTrigger asChild>
             <div
               className={cn(
                 "flex flex-shrink-0 items-center gap-0.5 rounded px-1 text-[10px]",
-                session.sandbox_status === "ready" &&
+                session.container_status === "ready" &&
                   "bg-green-500/20 text-green-400",
-                session.sandbox_status === "initializing" &&
+                session.container_status === "creating" &&
                   "bg-blue-500/20 text-blue-400",
-                session.sandbox_status === "pending" &&
-                  "bg-yellow-500/20 text-yellow-400",
-                session.sandbox_status === "failed" &&
+                session.container_status === "failed" &&
                   "bg-red-500/20 text-red-400"
               )}
             >
-              {session.sandbox_status === "ready" ? (
+              {session.container_status === "ready" ? (
                 <ShieldCheck className="h-2.5 w-2.5" />
-              ) : session.sandbox_status === "failed" ? (
+              ) : session.container_status === "failed" ? (
                 <ShieldAlert className="h-2.5 w-2.5" />
-              ) : session.sandbox_status === "initializing" ? (
+              ) : session.container_status === "creating" ? (
                 <Loader2 className="h-2.5 w-2.5 animate-spin" />
               ) : (
                 <Shield className="h-2.5 w-2.5" />
@@ -521,16 +500,14 @@ function SessionCardComponent({
           <TooltipContent side="top">
             <div className="flex flex-col gap-1">
               <span>
-                Sandbox:{" "}
-                {session.sandbox_status === "ready"
+                Container:{" "}
+                {session.container_status === "ready"
                   ? "Protected"
-                  : session.sandbox_status === "initializing"
+                  : session.container_status === "creating"
                     ? "Starting container..."
-                    : session.sandbox_status === "pending"
-                      ? "Pending"
-                      : "Failed"}
+                    : "Failed"}
               </span>
-              {session.sandbox_status === "failed" && (
+              {session.container_status === "failed" && (
                 <span className="text-xs text-red-400">
                   Container unavailable - recreate session
                 </span>
@@ -683,7 +660,8 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
   if (prev.session.updated_at !== next.session.updated_at) return false;
   if (prev.session.pr_status !== next.session.pr_status) return false;
   if (prev.session.branch_name !== next.session.branch_name) return false;
-  if (prev.session.sandbox_status !== next.session.sandbox_status) return false;
+  if (prev.session.container_status !== next.session.container_status)
+    return false;
   if (
     prev.session.container_health_status !==
     next.session.container_health_status
@@ -694,16 +672,15 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
   if (prev.toolDetail !== next.toolDetail) return false;
   if (prev.setupStatus !== next.setupStatus) return false;
   if (prev.setupError !== next.setupError) return false;
+  if (prev.lifecycleStatus !== next.lifecycleStatus) return false;
   if (prev.isActive !== next.isActive) return false;
   if (prev.isSelected !== next.isSelected) return false;
   if (prev.isInSelectMode !== next.isInSelectMode) return false;
   if (prev.isForking !== next.isForking) return false;
 
-  // Groups and projects are used for menu rendering
+  // Groups are used for menu rendering
   // We do a shallow length check as a proxy for changes
   if ((prev.groups?.length || 0) !== (next.groups?.length || 0)) return false;
-  if ((prev.projects?.length || 0) !== (next.projects?.length || 0))
-    return false;
 
   return true;
 });

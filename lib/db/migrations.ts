@@ -198,6 +198,76 @@ const migrations: Migration[] = [
       );
     },
   },
+  {
+    id: 16,
+    name: "add_lifecycle_status_and_rename_sandbox_status",
+    up: (db) => {
+      // Add lifecycle_status column with default 'ready' for existing sessions
+      db.exec(
+        `ALTER TABLE sessions ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'ready'`
+      );
+
+      // Add container_status column (new name for sandbox_status)
+      db.exec(`ALTER TABLE sessions ADD COLUMN container_status TEXT`);
+
+      // Migrate data from sandbox_status to container_status
+      db.exec(`
+        UPDATE sessions
+        SET container_status = sandbox_status
+        WHERE sandbox_status IS NOT NULL
+      `);
+
+      // For sessions that are still setting up, mark lifecycle as 'creating'
+      db.exec(`
+        UPDATE sessions
+        SET lifecycle_status = 'creating'
+        WHERE setup_status IN ('pending', 'creating_worktree', 'init_container', 'init_submodules', 'installing_deps')
+      `);
+
+      // For failed setup, mark lifecycle as 'failed'
+      db.exec(`
+        UPDATE sessions
+        SET lifecycle_status = 'failed'
+        WHERE setup_status = 'failed'
+      `);
+    },
+  },
+  {
+    id: 17,
+    name: "add_lifecycle_status_indexes",
+    up: (db) => {
+      // Add index on lifecycle_status for filtering active/ready/failed sessions
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_lifecycle_status ON sessions(lifecycle_status)`
+      );
+
+      // Add composite index for common query patterns
+      // (project_id, lifecycle_status) for getActiveSessionsByProject
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_project_lifecycle ON sessions(project_id, lifecycle_status)`
+      );
+
+      // (worktree_path, lifecycle_status) for getActiveSiblingSessionsByWorktree
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_worktree_lifecycle ON sessions(worktree_path, lifecycle_status)`
+      );
+    },
+  },
+  {
+    id: 18,
+    name: "add_sort_order_indexes",
+    up: (db) => {
+      // Index for sorting all sessions by sort_order
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_sort_order ON sessions(sort_order, created_at)`
+      );
+
+      // Composite index for project-based sorting (most common query pattern)
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_project_sort ON sessions(project_id, sort_order, created_at)`
+      );
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

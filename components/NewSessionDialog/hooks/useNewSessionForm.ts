@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { AgentType } from "@/lib/providers";
 import { getProviderDefinition } from "@/lib/providers";
-import type { ProjectWithDevServers } from "@/lib/projects";
+import type { Project } from "@/lib/db";
 import { setPendingPrompt } from "@/stores/initialPrompt";
 import { useCreateSession } from "@/data/sessions";
 import {
@@ -45,7 +45,7 @@ function getSavedModel(agentType: AgentType): string {
 
 interface UseNewSessionFormOptions {
   open: boolean;
-  projects: ProjectWithDevServers[];
+  projects: Project[];
   selectedProjectId?: string;
   onCreated: (sessionId: string) => void;
   onClose: () => void;

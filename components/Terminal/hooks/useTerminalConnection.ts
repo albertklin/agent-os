@@ -24,6 +24,7 @@ export type { TerminalScrollState } from "./useTerminalConnection.types";
 export function useTerminalConnection({
   terminalRef,
   sessionId,
+  enabled = true,
   onConnected,
   onDisconnected,
   onBeforeUnmount,
@@ -77,12 +78,6 @@ export function useTerminalConnection({
     }
   }, []);
 
-  const sendCommand = useCallback((command: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "command", data: command }));
-    }
-  }, []);
-
   const focus = useCallback(() => xtermRef.current?.focus(), []);
 
   const getScrollState = useCallback((): TerminalScrollState | null => {
@@ -131,6 +126,11 @@ export function useTerminalConnection({
   // Main setup effect
   useEffect(() => {
     if (!terminalRef.current) return;
+    // Don't connect if not enabled (session not ready)
+    if (!enabled) {
+      setConnectionState("disconnected");
+      return;
+    }
 
     let cancelled = false;
     // Reset intentional close flag (may be true from previous cleanup)
@@ -139,6 +139,7 @@ export function useTerminalConnection({
     let cleanupResizeHandlers: (() => void) | null = null;
     let cleanupWebSocket: (() => void) | null = null;
     let cleanupTerminal: (() => void) | null = null;
+    let cleanupScrollHandler: (() => void) | null = null;
 
     const connectTimeout = setTimeout(() => {
       if (cancelled || !terminalRef.current) return;
@@ -154,11 +155,12 @@ export function useTerminalConnection({
       searchAddonRef.current = searchAddon;
       cleanupTerminal = cleanup;
 
-      // Scroll tracking
-      term.onScroll(() => {
+      // Scroll tracking - store disposable for cleanup
+      const scrollDisposable = term.onScroll(() => {
         const buffer = term.buffer.active;
         setIsAtBottom(buffer.viewportY >= buffer.baseY);
       });
+      cleanupScrollHandler = () => scrollDisposable.dispose();
 
       // Setup touch scroll (mobile)
       cleanupTouchScroll = setupTouchScroll({ term, selectModeRef, wsRef });
@@ -226,6 +228,7 @@ export function useTerminalConnection({
       cleanupResizeHandlers?.();
       cleanupWebSocket?.();
       cleanupTouchScroll?.();
+      cleanupScrollHandler?.();
       cleanupTerminal?.();
 
       // Reset refs
@@ -243,7 +246,7 @@ export function useTerminalConnection({
       fitAddonRef.current = null;
       searchAddonRef.current = null;
     };
-  }, [isMobile, terminalRef, theme, sessionId]);
+  }, [isMobile, terminalRef, theme, sessionId, enabled]);
 
   // Handle isMobile changes dynamically
   useEffect(() => {
@@ -274,7 +277,6 @@ export function useTerminalConnection({
     scrollToBottom,
     copySelection,
     sendInput,
-    sendCommand,
     focus,
     getScrollState,
     restoreScrollState,

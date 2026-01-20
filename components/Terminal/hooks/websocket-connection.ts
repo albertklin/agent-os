@@ -15,7 +15,6 @@ export interface WebSocketCallbacks {
 export interface WebSocketManager {
   ws: WebSocket;
   sendInput: (data: string) => void;
-  sendCommand: (command: string) => void;
   sendResize: (cols: number, rows: number) => void;
   reconnect: () => void;
   cleanup: () => void;
@@ -31,8 +30,9 @@ export function createWebSocketConnection(
   sessionId?: string
 ): WebSocketManager {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  // URL encode sessionId to prevent injection attacks
   const wsUrl = sessionId
-    ? `${protocol}//${window.location.host}/ws/terminal?sessionId=${sessionId}`
+    ? `${protocol}//${window.location.host}/ws/terminal?sessionId=${encodeURIComponent(sessionId)}`
     : `${protocol}//${window.location.host}/ws/terminal`;
   const ws = new WebSocket(wsUrl);
   wsRef.current = ws;
@@ -46,12 +46,6 @@ export function createWebSocketConnection(
   const sendInput = (data: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "input", data }));
-    }
-  };
-
-  const sendCommand = (command: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "command", data: command }));
     }
   };
 
@@ -144,6 +138,9 @@ export function createWebSocketConnection(
         });
       } else if (msg.type === "exit") {
         term.write("\r\n\x1b[33m[Session ended]\x1b[0m\r\n");
+      } else if (msg.type === "error") {
+        // Display server error messages to the user
+        term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       }
     } catch {
       term.write(event.data);
@@ -181,12 +178,13 @@ export function createWebSocketConnection(
     onerror: ws.onerror,
   };
 
-  // Handle terminal input
-  term.onData((data) => {
+  // Handle terminal input - store disposable for cleanup
+  const dataDisposable = term.onData((data) => {
     sendInput(data);
   });
 
   // Handle Shift+Enter for multi-line input
+  // Note: attachCustomKeyEventHandler doesn't return a disposable - it's cleaned up when terminal is disposed
   term.attachCustomKeyEventHandler((event) => {
     if (event.type === "keydown" && event.key === "Enter" && event.shiftKey) {
       sendInput("\n");
@@ -235,6 +233,9 @@ export function createWebSocketConnection(
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
   const cleanup = () => {
+    // Dispose xterm.js event handlers to prevent memory leaks
+    dataDisposable.dispose();
+
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
@@ -253,7 +254,6 @@ export function createWebSocketConnection(
   return {
     ws,
     sendInput,
-    sendCommand,
     sendResize,
     reconnect: forceReconnect,
     cleanup,

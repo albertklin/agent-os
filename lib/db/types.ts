@@ -6,8 +6,26 @@ export type SetupStatus =
   | "init_container"
   | "init_submodules"
   | "installing_deps"
+  | "starting_session"
   | "ready"
   | "failed";
+
+/**
+ * Lifecycle status for a session.
+ * - creating: Session resources are being set up (worktree, container, tmux)
+ * - ready: Session is ready (tmux running, container if needed)
+ * - failed: Session setup failed
+ * - deleting: Session is being deleted
+ */
+export type LifecycleStatus = "creating" | "ready" | "failed" | "deleting";
+
+/**
+ * Container status for sandboxed sessions.
+ * - creating: Container is being created
+ * - ready: Container is running and healthy
+ * - failed: Container creation or health check failed
+ */
+export type ContainerStatus = "creating" | "ready" | "failed";
 
 export interface Session {
   id: string;
@@ -30,17 +48,18 @@ export interface Session {
   worktree_path: string | null;
   branch_name: string | null;
   base_branch: string | null;
-  dev_server_port: number | null;
   // PR tracking
   pr_url: string | null;
   pr_number: number | null;
   pr_status: "open" | "merged" | "closed" | null;
-  // Setup tracking for worktree sessions
+  // Setup tracking for worktree sessions (legacy - kept for backward compat)
   setup_status: SetupStatus;
   setup_error: string | null;
-  // Sandbox fields
+  // New lifecycle status (server-owned)
+  lifecycle_status: LifecycleStatus;
+  // Container fields (sandboxed sessions)
   container_id: string | null;
-  sandbox_status: "pending" | "initializing" | "ready" | "failed" | null;
+  container_status: ContainerStatus | null;
   // Container health tracking
   container_health_last_check: string | null;
   container_health_status: "healthy" | "unhealthy" | null;
@@ -58,23 +77,11 @@ export interface Project {
   id: string;
   name: string;
   working_directory: string;
-  agent_type: AgentType;
   expanded: boolean;
   sort_order: number;
   is_uncategorized: boolean;
   created_at: string;
   updated_at: string;
-}
-
-export interface ProjectDevServer {
-  id: string;
-  project_id: string;
-  name: string;
-  type: DevServerType;
-  command: string;
-  port: number | null;
-  port_env_var: string | null;
-  sort_order: number;
 }
 
 export interface Message {
@@ -95,22 +102,4 @@ export interface ToolCall {
   tool_result: string | null; // JSON
   status: "pending" | "running" | "completed" | "error";
   timestamp: string;
-}
-
-export type DevServerType = "node" | "docker";
-export type DevServerStatus = "stopped" | "starting" | "running" | "failed";
-
-export interface DevServer {
-  id: string;
-  project_id: string;
-  type: DevServerType;
-  name: string;
-  command: string;
-  status: DevServerStatus;
-  pid: number | null;
-  container_id: string | null;
-  ports: string; // JSON array of port numbers
-  working_directory: string;
-  created_at: string;
-  updated_at: string;
 }

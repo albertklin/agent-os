@@ -162,31 +162,6 @@ export function useMoveSessionToGroup() {
   });
 }
 
-export function useMoveSessionToProject() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      sessionId,
-      projectId,
-    }: {
-      sessionId: string;
-      projectId: string;
-    }) => {
-      const res = await fetch(`/api/sessions/${sessionId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId }),
-      });
-      if (!res.ok) throw new Error("Failed to move session");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
-    },
-  });
-}
-
 export interface CreateSessionInput {
   name?: string;
   workingDirectory: string;

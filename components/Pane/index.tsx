@@ -1,13 +1,9 @@
 "use client";
 
-import { useRef, useCallback, useEffect, memo, useState, useMemo } from "react";
+import { useRef, useCallback, useEffect, memo, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePanes } from "@/contexts/PaneContext";
 import { useViewport } from "@/hooks/useViewport";
-import type {
-  TerminalHandle,
-  TerminalScrollState,
-} from "@/components/Terminal";
 import type { Session, Project } from "@/lib/db";
 import { sessionRegistry } from "@/lib/client/session-registry";
 import { cn } from "@/lib/utils";
@@ -50,11 +46,6 @@ interface PaneProps {
   paneId: string;
   sessions: Session[];
   projects: Project[];
-  onRegisterTerminal: (
-    paneId: string,
-    tabId: string,
-    ref: TerminalHandle | null
-  ) => void;
   onMenuClick?: () => void;
   onSelectSession?: (sessionId: string) => void;
 }
@@ -65,7 +56,6 @@ export const Pane = memo(function Pane({
   paneId,
   sessions,
   projects,
-  onRegisterTerminal,
   onMenuClick,
   onSelectSession,
 }: PaneProps) {
@@ -83,8 +73,6 @@ export const Pane = memo(function Pane({
     addTab,
     closeTab,
     switchTab,
-    reorderTabs,
-    detachSession,
   } = usePanes();
 
   const [viewMode, setViewMode] = useState<ViewMode>("terminal");
@@ -98,14 +86,8 @@ export const Pane = memo(function Pane({
     const stored = localStorage.getItem("shellDrawerOpen");
     return stored === "true";
   });
-  const terminalRefs = useRef<Map<string, TerminalHandle | null>>(new Map());
   const paneData = getPaneData(paneId);
   const activeTab = getActiveTab(paneId);
-
-  // Get ref for active terminal
-  const terminalRef = activeTab
-    ? (terminalRefs.current.get(activeTab.id) ?? null)
-    : null;
   const isFocused = focusedPaneId === paneId;
   const session = activeTab
     ? sessions.find((s) => s.id === activeTab.sessionId)
@@ -148,69 +130,6 @@ export const Pane = memo(function Pane({
   const handleFocus = useCallback(() => {
     focusPane(paneId);
   }, [focusPane, paneId]);
-
-  const handleDetach = useCallback(() => {
-    if (terminalRef) {
-      terminalRef.sendInput("\x02d"); // Ctrl+B d to detach
-    }
-    detachSession(paneId);
-  }, [detachSession, paneId, terminalRef]);
-
-  // Create ref callback for a specific tab
-  const getTerminalRef = useCallback(
-    (tabId: string) => (handle: TerminalHandle | null) => {
-      if (handle) {
-        terminalRefs.current.set(tabId, handle);
-      } else {
-        terminalRefs.current.delete(tabId);
-      }
-    },
-    []
-  );
-
-  // Create onConnected callback for a specific tab
-  const getTerminalConnectedHandler = useCallback(
-    (tab: (typeof paneData.tabs)[0]) => () => {
-      console.log(
-        `[AgentOS] Terminal connected for pane: ${paneId}, tab: ${tab.id}`
-      );
-      const handle = terminalRefs.current.get(tab.id);
-      if (!handle) return;
-
-      onRegisterTerminal(paneId, tab.id, handle);
-
-      // Only auto-reattach if we have a stored tmux name from a previous attachment.
-      // For new attachments (tab.attachedTmux is null), let useSessionAttachment handle it
-      // to properly create the tmux session if needed.
-      if (tab.attachedTmux) {
-        setTimeout(
-          () => handle.sendCommand(`tmux attach -t ${tab.attachedTmux}`),
-          100
-        );
-      }
-    },
-    [paneId, onRegisterTerminal]
-  );
-
-  // Track current tab ID for cleanup
-  const activeTabIdRef = useRef<string | null>(null);
-  activeTabIdRef.current = activeTab?.id || null;
-
-  // Cleanup on unmount only
-  useEffect(() => {
-    console.log(
-      `[AgentOS] Pane ${paneId} mounted, activeTab: ${activeTab?.id || "null"}`
-    );
-    return () => {
-      console.log(
-        `[AgentOS] Pane ${paneId} unmounting, clearing terminal ref for tab: ${activeTabIdRef.current}`
-      );
-      if (activeTabIdRef.current) {
-        onRegisterTerminal(paneId, activeTabIdRef.current, null);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId, onRegisterTerminal]);
 
   // Swipe gesture handling for mobile session switching (terminal view only)
   const touchStartX = useRef<number | null>(null);
@@ -265,6 +184,7 @@ export const Pane = memo(function Pane({
         />
       ) : (
         <DesktopTabBar
+          paneId={paneId}
           tabs={paneData.tabs}
           activeTabId={paneData.activeTabId}
           session={session}
@@ -273,22 +193,17 @@ export const Pane = memo(function Pane({
           isFocused={isFocused}
           canSplit={canSplit}
           canClose={canClose}
-          hasAttachedTmux={!!activeTab?.attachedTmux}
           gitDrawerOpen={gitDrawerOpen}
           shellDrawerOpen={shellDrawerOpen}
           onTabSwitch={(tabId) => switchTab(paneId, tabId)}
           onTabClose={(tabId) => closeTab(paneId, tabId)}
           onTabAdd={() => addTab(paneId)}
-          onReorderTabs={(fromIndex, toIndex) =>
-            reorderTabs(paneId, fromIndex, toIndex)
-          }
           onViewModeChange={setViewMode}
           onGitDrawerToggle={() => setGitDrawerOpen((prev) => !prev)}
           onShellDrawerToggle={() => setShellDrawerOpen((prev) => !prev)}
           onSplitHorizontal={() => splitHorizontal(paneId)}
           onSplitVertical={() => splitVertical(paneId)}
           onClose={() => close(paneId)}
-          onDetach={handleDetach}
         />
       )}
 
@@ -303,6 +218,9 @@ export const Pane = memo(function Pane({
           {paneData.tabs.map((tab) => {
             const isActive = tab.id === activeTab?.id;
             const hasSession = tab.sessionId !== null;
+            const tabSession = hasSession
+              ? sessions.find((s) => s.id === tab.sessionId)
+              : null;
             const savedState = sessionRegistry.getTerminalState(paneId, tab.id);
 
             return (
@@ -316,9 +234,9 @@ export const Pane = memo(function Pane({
               >
                 {hasSession ? (
                   <Terminal
-                    ref={getTerminalRef(tab.id)}
                     sessionId={tab.sessionId ?? undefined}
-                    onConnected={getTerminalConnectedHandler(tab)}
+                    lifecycleStatus={tabSession?.lifecycle_status}
+                    setupStatus={tabSession?.setup_status ?? undefined}
                     onBeforeUnmount={(scrollState) => {
                       sessionRegistry.saveTerminalState(paneId, tab.id, {
                         scrollTop: scrollState.scrollTop,
@@ -379,6 +297,9 @@ export const Pane = memo(function Pane({
                   {paneData.tabs.map((tab) => {
                     const isActive = tab.id === activeTab?.id;
                     const hasSession = tab.sessionId !== null;
+                    const tabSession = hasSession
+                      ? sessions.find((s) => s.id === tab.sessionId)
+                      : null;
                     const savedState = sessionRegistry.getTerminalState(
                       paneId,
                       tab.id
@@ -395,9 +316,9 @@ export const Pane = memo(function Pane({
                       >
                         {hasSession ? (
                           <Terminal
-                            ref={getTerminalRef(tab.id)}
                             sessionId={tab.sessionId ?? undefined}
-                            onConnected={getTerminalConnectedHandler(tab)}
+                            lifecycleStatus={tabSession?.lifecycle_status}
+                            setupStatus={tabSession?.setup_status ?? undefined}
                             onBeforeUnmount={(scrollState) => {
                               sessionRegistry.saveTerminalState(
                                 paneId,

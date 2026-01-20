@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import {
-  getDb,
-  queries,
-  type Session,
-  type Message,
-  type Project,
-} from "@/lib/db";
-import { createWorktree } from "@/lib/worktrees";
-import { setupWorktree } from "@/lib/env-setup";
-import { findAvailablePort } from "@/lib/ports";
-import { runInBackground } from "@/lib/async-operations";
+import { getDb, queries, type Session, type Project } from "@/lib/db";
+import { runSessionSetup } from "@/lib/session-setup";
+import { statusBroadcaster } from "@/lib/status-broadcaster";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -56,6 +48,32 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Lifecycle guard: can only fork from a ready session
+    if (parent.lifecycle_status !== "ready") {
+      return NextResponse.json(
+        {
+          error: "Cannot fork session that is not ready",
+          lifecycle_status: parent.lifecycle_status,
+        },
+        { status: 409 }
+      );
+    }
+
+    // Sandboxed (auto-approve) sessions require an isolated worktree for container mounting
+    // This ensures the forked session gets its own container with proper isolation
+    if (parent.auto_approve && parent.agent_type === "claude") {
+      if (!useWorktree || !featureName) {
+        return NextResponse.json(
+          {
+            error:
+              "Forking a sandboxed (auto-approve) session requires an isolated worktree. " +
+              "Please provide useWorktree: true and a featureName.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Determine source project path for worktree creation
     let sourceProjectPath = parent.working_directory;
     if (useWorktree && parent.project_id) {
@@ -67,36 +85,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Handle worktree creation if requested
-    let worktreePath: string | null = null;
-    let branchName: string | null = null;
-    let actualBaseBranch = baseBranch || parent.base_branch || "main";
-    let actualWorkingDirectory = parent.working_directory;
-    let port: number | null = null;
-
-    if (useWorktree && featureName) {
-      try {
-        const worktreeInfo = await createWorktree({
-          projectPath: sourceProjectPath,
-          featureName,
-          baseBranch: actualBaseBranch,
-        });
-        worktreePath = worktreeInfo.worktreePath;
-        branchName = worktreeInfo.branchName;
-        actualBaseBranch = worktreeInfo.baseBranch;
-        actualWorkingDirectory = worktreeInfo.worktreePath;
-
-        // Find an available port for the dev server
-        port = await findAvailablePort();
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
-        return NextResponse.json(
-          { error: `Failed to create worktree: ${message}` },
-          { status: 500 }
-        );
-      }
-    }
+    const actualBaseBranch = baseBranch || parent.base_branch || "main";
+    // For worktree sessions, use source project path initially - runSessionSetup will update it
+    const actualWorkingDirectory = useWorktree
+      ? sourceProjectPath
+      : parent.working_directory;
 
     // Create new session
     const newId = randomUUID();
@@ -120,30 +113,32 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         parent.project_id || "uncategorized"
       );
 
-    // Set worktree info - either from newly created worktree or inherited from parent
-    if (worktreePath) {
-      // New isolated worktree was created
-      queries
-        .updateSessionWorktree(db)
-        .run(worktreePath, branchName, actualBaseBranch, port, newId);
+    // Set worktree info - either trigger setup for new worktree or inherit from parent
+    if (useWorktree && featureName) {
+      // New isolated worktree requested - use runSessionSetup for full setup
+      // This handles: worktree creation, container init (for auto-approve), deps install
+      queries.updateSessionLifecycleStatus(db).run("creating", newId);
+      queries.updateSessionSetupStatus(db).run("pending", null, newId);
 
-      // Run environment setup in background (non-blocking)
-      const capturedWorktreePath = worktreePath;
-      const capturedSourcePath = sourceProjectPath;
-      const capturedPort = port;
-      runInBackground(async () => {
-        const result = await setupWorktree({
-          worktreePath: capturedWorktreePath,
-          sourcePath: capturedSourcePath,
-          port: capturedPort ?? undefined,
-        });
-        console.log("Forked worktree setup completed:", {
-          port: capturedPort,
-          envFilesCopied: result.envFilesCopied,
-          stepsRun: result.steps.length,
-          success: result.success,
-        });
-      }, `setup-worktree-fork-${newId}`);
+      // Broadcast initial status via SSE so UI shows creating state immediately
+      statusBroadcaster.updateStatus({
+        sessionId: newId,
+        status: "idle",
+        lifecycleStatus: "creating",
+        setupStatus: "pending",
+      });
+
+      runSessionSetup({
+        sessionId: newId,
+        projectPath: sourceProjectPath,
+        featureName: featureName,
+        baseBranch: actualBaseBranch,
+      }).catch((error) => {
+        console.error(
+          `[fork] Unhandled error during setup for session ${newId}:`,
+          error
+        );
+      });
     } else if (parent.worktree_path) {
       // No new worktree requested, but parent has one - make fork a tracked sibling.
       // This ensures the worktree won't be deleted while the fork is still using it.
@@ -153,9 +148,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           parent.worktree_path,
           parent.branch_name,
           parent.base_branch,
-          null, // No dedicated dev server port for forks
           newId
         );
+      // Non-worktree fork that shares parent's worktree is immediately ready
+      queries.updateSessionLifecycleStatus(db).run("ready", newId);
+      // Broadcast lifecycle change via SSE
+      statusBroadcaster.updateStatus({
+        sessionId: newId,
+        status: "idle",
+        lifecycleStatus: "ready",
+      });
+    } else {
+      // No worktree at all - session is immediately ready
+      queries.updateSessionLifecycleStatus(db).run("ready", newId);
+      // Broadcast lifecycle change via SSE
+      statusBroadcaster.updateStatus({
+        sessionId: newId,
+        status: "idle",
+        lifecycleStatus: "ready",
+      });
     }
 
     // NOTE: We do NOT copy claude_session_id here.
@@ -164,22 +175,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // The new session ID will be captured automatically.
 
     // Copy any local messages from parent (for logging purposes)
-    const parentMessages = queries
-      .getSessionMessages(db)
-      .all(parentId) as Message[];
-    for (const msg of parentMessages) {
-      queries
-        .createMessage(db)
-        .run(newId, msg.role, msg.content, msg.duration_ms);
-    }
+    // Use batch copy query instead of N individual inserts
+    const copyResult = queries.copySessionMessages(db).run(newId, parentId);
+    const messagesCopied = copyResult.changes;
 
     const session = queries.getSession(db).get(newId) as Session;
 
     return NextResponse.json(
       {
         session,
-        messagesCopied: parentMessages.length,
-        worktreeCreated: !!worktreePath,
+        messagesCopied,
+        worktreeCreated: !!(useWorktree && featureName),
       },
       { status: 201 }
     );

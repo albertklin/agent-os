@@ -1,12 +1,11 @@
 import { useEffect, useCallback, useMemo } from "react";
 import { usePanes } from "@/contexts/PaneContext";
 import { getPanesInReadingOrder } from "@/lib/panes";
-import type { Session } from "@/lib/db";
-import type { ProjectWithDevServers } from "@/lib/projects";
+import type { Session, Project } from "@/lib/db";
 
 interface UseKeyboardNavigationProps {
   sessions: Session[];
-  projects: ProjectWithDevServers[];
+  projects: Project[];
   onSelectSession: (sessionId: string) => void;
 }
 

@@ -1,5 +1,5 @@
 import type { AgentType } from "@/lib/providers";
-import type { ProjectWithDevServers } from "@/lib/projects";
+import type { Project } from "@/lib/db";
 
 // LocalStorage keys
 export const SKIP_PERMISSIONS_KEY = "agentOS:skipPermissions";
@@ -104,7 +104,7 @@ export const AGENT_OPTIONS: {
 // Props for main dialog
 export interface NewSessionDialogProps {
   open: boolean;
-  projects: ProjectWithDevServers[];
+  projects: Project[];
   selectedProjectId?: string;
   onClose: () => void;
   onCreated: (sessionId: string) => void;

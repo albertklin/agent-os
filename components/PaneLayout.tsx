@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import { Panel, Group, Separator } from "react-resizable-panels";
 import type { PaneLayout as PaneLayoutType } from "@/lib/panes";
 import { usePanes } from "@/contexts/PaneContext";
+import { TabDndProvider } from "@/contexts/TabDndContext";
 
 interface PaneLayoutProps {
   layout: PaneLayoutType;
@@ -51,10 +52,12 @@ export function PaneLayout({
     return <div className="h-full w-full">{renderPane(focusedPaneId)}</div>;
   }
 
-  // On desktop: render full layout tree with splits
+  // On desktop: render full layout tree with splits, wrapped in TabDndProvider for cross-pane tab dragging
   return (
-    <div className="h-full w-full">
-      <LayoutRenderer layout={state.layout} renderPane={renderPane} />
-    </div>
+    <TabDndProvider>
+      <div className="h-full w-full">
+        <LayoutRenderer layout={state.layout} renderPane={renderPane} />
+      </div>
+    </TabDndProvider>
   );
 }

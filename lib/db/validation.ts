@@ -2,7 +2,7 @@
  * Database Constraint Validation
  *
  * Validates security-critical database constraints on startup:
- * - Auto-approve sessions with ready sandbox_status MUST have a container_id
+ * - Auto-approve sessions with ready container_status MUST have a container_id
  * - Detects any inconsistent states that could lead to security issues
  */
 
@@ -18,8 +18,8 @@ export interface ValidationResult {
  * Validate database constraints that ensure security invariants.
  *
  * Checks:
- * 1. Auto-approve sessions with sandbox_status='ready' must have container_id
- * 2. Sessions with container_id should have sandbox_status='ready' or 'failed'
+ * 1. Auto-approve sessions with container_status='ready' must have container_id
+ * 2. Sessions with container_id should have container_status='ready' or 'failed'
  */
 export function validateDatabaseConstraints(
   db: Database.Database
@@ -32,29 +32,29 @@ export function validateDatabaseConstraints(
       `SELECT id, name FROM sessions
        WHERE auto_approve = 1
        AND agent_type = 'claude'
-       AND sandbox_status = 'ready'
+       AND container_status = 'ready'
        AND container_id IS NULL`
     )
     .all() as { id: string; name: string }[];
 
   for (const session of orphanedReady) {
     violations.push(
-      `Session "${session.name}" (${session.id}): sandbox_status='ready' but no container_id`
+      `Session "${session.name}" (${session.id}): container_status='ready' but no container_id`
     );
   }
 
-  // Check 2: Sessions with container_id should have valid sandbox_status
+  // Check 2: Sessions with container_id should have valid container_status
   const invalidStatus = db
     .prepare(
-      `SELECT id, name, sandbox_status FROM sessions
+      `SELECT id, name, container_status FROM sessions
        WHERE container_id IS NOT NULL
-       AND (sandbox_status IS NULL OR sandbox_status NOT IN ('ready', 'failed'))`
+       AND (container_status IS NULL OR container_status NOT IN ('ready', 'failed'))`
     )
-    .all() as { id: string; name: string; sandbox_status: string | null }[];
+    .all() as { id: string; name: string; container_status: string | null }[];
 
   for (const session of invalidStatus) {
     violations.push(
-      `Session "${session.name}" (${session.id}): has container_id but invalid sandbox_status='${session.sandbox_status}'`
+      `Session "${session.name}" (${session.id}): has container_id but invalid container_status='${session.container_status}'`
     );
   }
 
@@ -74,12 +74,12 @@ export function fixOrphanedAutoApproveSessions(db: Database.Database): number {
   const result = db
     .prepare(
       `UPDATE sessions
-       SET sandbox_status = 'failed',
+       SET container_status = 'failed',
            updated_at = datetime('now')
        WHERE auto_approve = 1
        AND agent_type = 'claude'
-       AND (container_id IS NULL OR sandbox_status IS NULL)
-       AND sandbox_status != 'failed'`
+       AND (container_id IS NULL OR container_status IS NULL)
+       AND container_status != 'failed'`
     )
     .run();
 
@@ -101,7 +101,7 @@ export function markSessionsWithMissingContainersAsFailed(
   const result = db
     .prepare(
       `UPDATE sessions
-       SET sandbox_status = 'failed',
+       SET container_status = 'failed',
            container_health_status = 'unhealthy',
            container_health_last_check = datetime('now'),
            updated_at = datetime('now')

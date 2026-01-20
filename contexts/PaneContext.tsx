@@ -6,6 +6,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   type ReactNode,
 } from "react";
 import {
@@ -35,13 +36,19 @@ interface PaneContextValue {
   splitVertical: (paneId: string) => void;
   close: (paneId: string) => void;
   // Tab management
-  addTab: (paneId: string, sessionId?: string, tmuxName?: string) => void;
+  addTab: (paneId: string, sessionId?: string) => void;
   closeTab: (paneId: string, tabId: string) => void;
   switchTab: (paneId: string, tabId: string) => void;
   reorderTabs: (paneId: string, fromIndex: number, toIndex: number) => void;
+  moveTabToPane: (
+    fromPaneId: string,
+    toPaneId: string,
+    tabId: string,
+    toIndex?: number
+  ) => void;
   // Session management (operates on active tab)
-  attachSession: (paneId: string, sessionId: string, tmuxName: string) => void;
-  detachSession: (paneId: string) => void;
+  setSession: (paneId: string, sessionId: string) => void;
+  clearSession: (paneId: string) => void;
   clearSessionFromTabs: (sessionId: string) => void;
   getPaneData: (paneId: string) => PaneData;
   getActiveTab: (paneId: string) => TabData | null;
@@ -71,11 +78,9 @@ export function PaneProvider({ children }: { children: ReactNode }) {
           // Old format - migrate to new
           const oldData = paneData as {
             sessionId?: string | null;
-            attachedTmux?: string | null;
           };
           const tab = createTab();
           tab.sessionId = oldData.sessionId || null;
-          tab.attachedTmux = oldData.attachedTmux || null;
           migratedPanes[paneId] = {
             tabs: [tab],
             activeTabId: tab.id,
@@ -120,31 +125,27 @@ export function PaneProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Tab management
-  const addTab = useCallback(
-    (paneId: string, sessionId?: string, tmuxName?: string) => {
-      setState((prev) => {
-        const pane = prev.panes[paneId];
-        if (!pane) return prev;
-        const newTab = createTab();
-        if (sessionId) {
-          newTab.sessionId = sessionId;
-          newTab.attachedTmux = tmuxName ?? null;
-        }
-        return {
-          ...prev,
-          panes: {
-            ...prev.panes,
-            [paneId]: {
-              ...pane,
-              tabs: [...pane.tabs, newTab],
-              activeTabId: newTab.id,
-            },
+  const addTab = useCallback((paneId: string, sessionId?: string) => {
+    setState((prev) => {
+      const pane = prev.panes[paneId];
+      if (!pane) return prev;
+      const newTab = createTab();
+      if (sessionId) {
+        newTab.sessionId = sessionId;
+      }
+      return {
+        ...prev,
+        panes: {
+          ...prev.panes,
+          [paneId]: {
+            ...pane,
+            tabs: [...pane.tabs, newTab],
+            activeTabId: newTab.id,
           },
-        };
-      });
-    },
-    []
-  );
+        },
+      };
+    });
+  }, []);
 
   const closeTab = useCallback((paneId: string, tabId: string) => {
     setState((prev) => {
@@ -214,24 +215,59 @@ export function PaneProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  // Attach session to active tab
-  const attachSession = useCallback(
-    (paneId: string, sessionId: string, tmuxName: string) => {
-      setState((prev) => {
-        const pane = prev.panes[paneId];
-        if (!pane) return prev;
+  // Move a tab from one pane to another
+  const moveTabToPane = useCallback(
+    (fromPaneId: string, toPaneId: string, tabId: string, toIndex?: number) => {
+      if (fromPaneId === toPaneId) return;
 
-        const newTabs = pane.tabs.map((tab) =>
-          tab.id === pane.activeTabId
-            ? { ...tab, sessionId, attachedTmux: tmuxName }
-            : tab
-        );
+      setState((prev) => {
+        const fromPane = prev.panes[fromPaneId];
+        const toPane = prev.panes[toPaneId];
+        if (!fromPane || !toPane) return prev;
+
+        // Find the tab to move
+        const tabIndex = fromPane.tabs.findIndex((t) => t.id === tabId);
+        if (tabIndex === -1) return prev;
+
+        const tabToMove = fromPane.tabs[tabIndex];
+
+        // Remove from source pane
+        const newFromTabs = fromPane.tabs.filter((t) => t.id !== tabId);
+
+        // If source pane would be empty, add a new empty tab
+        let newFromActiveTabId = fromPane.activeTabId;
+        if (newFromTabs.length === 0) {
+          const newTab = createTab();
+          newFromTabs.push(newTab);
+          newFromActiveTabId = newTab.id;
+        } else if (fromPane.activeTabId === tabId) {
+          // If active tab was moved, select first remaining tab
+          newFromActiveTabId = newFromTabs[0].id;
+        }
+
+        // Add to destination pane
+        const newToTabs = [...toPane.tabs];
+        const insertIndex =
+          toIndex !== undefined
+            ? Math.min(toIndex, newToTabs.length)
+            : newToTabs.length;
+        newToTabs.splice(insertIndex, 0, tabToMove);
 
         return {
           ...prev,
+          focusedPaneId: toPaneId,
           panes: {
             ...prev.panes,
-            [paneId]: { ...pane, tabs: newTabs },
+            [fromPaneId]: {
+              ...fromPane,
+              tabs: newFromTabs,
+              activeTabId: newFromActiveTabId,
+            },
+            [toPaneId]: {
+              ...toPane,
+              tabs: newToTabs,
+              activeTabId: tabId, // Activate the moved tab
+            },
           },
         };
       });
@@ -239,16 +275,34 @@ export function PaneProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  // Detach session from active tab
-  const detachSession = useCallback((paneId: string) => {
+  // Set session on active tab
+  const setSession = useCallback((paneId: string, sessionId: string) => {
     setState((prev) => {
       const pane = prev.panes[paneId];
       if (!pane) return prev;
 
       const newTabs = pane.tabs.map((tab) =>
-        tab.id === pane.activeTabId
-          ? { ...tab, sessionId: null, attachedTmux: null }
-          : tab
+        tab.id === pane.activeTabId ? { ...tab, sessionId } : tab
+      );
+
+      return {
+        ...prev,
+        panes: {
+          ...prev.panes,
+          [paneId]: { ...pane, tabs: newTabs },
+        },
+      };
+    });
+  }, []);
+
+  // Clear session from active tab
+  const clearSession = useCallback((paneId: string) => {
+    setState((prev) => {
+      const pane = prev.panes[paneId];
+      if (!pane) return prev;
+
+      const newTabs = pane.tabs.map((tab) =>
+        tab.id === pane.activeTabId ? { ...tab, sessionId: null } : tab
       );
 
       return {
@@ -296,9 +350,7 @@ export function PaneProvider({ children }: { children: ReactNode }) {
         } else {
           // It's the only tab(s), just clear the session reference
           const newTabs = pane.tabs.map((tab) =>
-            tab.sessionId === sessionId
-              ? { ...tab, sessionId: null, attachedTmux: null }
-              : tab
+            tab.sessionId === sessionId ? { ...tab, sessionId: null } : tab
           );
           newPanes[paneId] = { ...pane, tabs: newTabs };
         }
@@ -328,31 +380,53 @@ export function PaneProvider({ children }: { children: ReactNode }) {
   const canSplit = !isMobile && countPanes(state.layout) < MAX_PANES;
   const canClose = !isMobile && countPanes(state.layout) > 1;
 
+  // Memoize context value to prevent unnecessary re-renders of all consumers
+  const contextValue = useMemo(
+    () => ({
+      state,
+      focusedPaneId: state.focusedPaneId,
+      canSplit,
+      canClose,
+      isMobile,
+      focusPane,
+      splitHorizontal,
+      splitVertical,
+      close,
+      addTab,
+      closeTab,
+      switchTab,
+      reorderTabs,
+      moveTabToPane,
+      setSession,
+      clearSession,
+      clearSessionFromTabs,
+      getPaneData,
+      getActiveTab,
+    }),
+    [
+      state,
+      canSplit,
+      canClose,
+      isMobile,
+      focusPane,
+      splitHorizontal,
+      splitVertical,
+      close,
+      addTab,
+      closeTab,
+      switchTab,
+      reorderTabs,
+      moveTabToPane,
+      setSession,
+      clearSession,
+      clearSessionFromTabs,
+      getPaneData,
+      getActiveTab,
+    ]
+  );
+
   return (
-    <PaneContext.Provider
-      value={{
-        state,
-        focusedPaneId: state.focusedPaneId,
-        canSplit,
-        canClose,
-        isMobile,
-        focusPane,
-        splitHorizontal,
-        splitVertical,
-        close,
-        addTab,
-        closeTab,
-        switchTab,
-        reorderTabs,
-        attachSession,
-        detachSession,
-        clearSessionFromTabs,
-        getPaneData,
-        getActiveTab,
-      }}
-    >
-      {children}
-    </PaneContext.Provider>
+    <PaneContext.Provider value={contextValue}>{children}</PaneContext.Provider>
   );
 }
 

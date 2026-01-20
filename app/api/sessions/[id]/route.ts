@@ -7,10 +7,11 @@ import {
   isAgentOSWorktree,
   branchHasChanges,
 } from "@/lib/worktrees";
-import { releasePort } from "@/lib/ports";
 import { generateBranchName, getCurrentBranch, renameBranch } from "@/lib/git";
 import { runInBackground } from "@/lib/async-operations";
 import { destroyContainer, logSecurityEvent } from "@/lib/container";
+import { statusBroadcaster } from "@/lib/status-broadcaster";
+import { clearPendingPrompt } from "@/stores/initialPrompt";
 
 const execAsync = promisify(exec);
 
@@ -59,6 +60,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const existing = queries.getSession(db).get(id) as Session | undefined;
     if (!existing) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    // Lifecycle guard: only allow updates when session is ready
+    if (existing.lifecycle_status !== "ready") {
+      return NextResponse.json(
+        {
+          error: "Session is not ready for updates",
+          lifecycle_status: existing.lifecycle_status,
+        },
+        { status: 409 }
+      );
     }
 
     // Build update query dynamically based on provided fields
@@ -172,10 +184,29 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Release port if this session had one assigned
-    if (existing.dev_server_port) {
-      releasePort(id);
+    // Lifecycle guard: only allow deletion when session is ready or failed
+    // (can't delete while creating or already deleting)
+    if (
+      existing.lifecycle_status !== "ready" &&
+      existing.lifecycle_status !== "failed"
+    ) {
+      return NextResponse.json(
+        {
+          error: "Session cannot be deleted in current state",
+          lifecycle_status: existing.lifecycle_status,
+        },
+        { status: 409 }
+      );
     }
+
+    // Mark session as deleting immediately for UI feedback and to prevent new connections
+    queries.updateSessionLifecycleStatus(db).run("deleting", id);
+    // Broadcast lifecycle change via SSE
+    statusBroadcaster.updateStatus({
+      sessionId: id,
+      status: "idle",
+      lifecycleStatus: "deleting",
+    });
 
     // Kill the tmux session if it exists
     if (existing.tmux_name) {
@@ -226,9 +257,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       const baseBranch = existing.base_branch || "main";
       branchName = existing.branch_name || undefined;
 
-      // Check if other sessions share this worktree
+      // Check if other ACTIVE sessions share this worktree
+      // (excludes failed/deleting sessions that shouldn't prevent cleanup)
       const siblings = queries
-        .getSiblingSessionsByWorktree(db)
+        .getActiveSiblingSessionsByWorktree(db)
         .all(worktreePath, id) as Session[];
       if (siblings.length > 0) {
         // Other sessions use this worktree - don't delete it
@@ -243,6 +275,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     // Delete from database immediately for instant UI feedback
     queries.deleteSession(db).run(id);
+
+    // Clean up in-memory state to prevent memory leaks
+    statusBroadcaster.clearStatus(id);
+    clearPendingPrompt(id);
 
     // Clean up worktree in background (non-blocking) - only if no siblings
     if (

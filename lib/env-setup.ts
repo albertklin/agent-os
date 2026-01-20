@@ -14,10 +14,6 @@ const execAsync = promisify(exec);
 
 export interface WorktreeConfig {
   setup?: string[];
-  devServer?: {
-    command: string;
-    portEnvVar?: string;
-  };
 }
 
 export interface SetupResult {
@@ -31,7 +27,6 @@ export interface SetupResult {
   }>;
   envFilesCopied: string[];
   packageManager?: string;
-  port?: number;
 }
 
 /**
@@ -166,16 +161,14 @@ async function runCommand(
 export async function setupWorktree(options: {
   worktreePath: string;
   sourcePath: string;
-  port?: number;
   skipInstall?: boolean;
 }): Promise<SetupResult> {
-  const { worktreePath, sourcePath, port, skipInstall } = options;
+  const { worktreePath, sourcePath, skipInstall } = options;
 
   const result: SetupResult = {
     success: true,
     steps: [],
     envFilesCopied: [],
-    port,
   };
 
   // 1. Read config if exists
@@ -197,9 +190,6 @@ export async function setupWorktree(options: {
     ROOT_WORKTREE_PATH: sourcePath,
     WORKTREE_PATH: worktreePath,
   };
-  if (port) {
-    envVars.PORT = String(port);
-  }
 
   // 3. Run config setup commands if present
   if (config?.setup && config.setup.length > 0) {
@@ -248,42 +238,4 @@ export async function setupWorktree(options: {
   }
 
   return result;
-}
-
-/**
- * Get dev server command from config or package.json
- */
-export async function getDevServerCommand(
-  projectPath: string,
-  port?: number
-): Promise<{ command: string; port: number } | null> {
-  // Check config first
-  const config = await readWorktreeConfig(projectPath);
-  if (config?.devServer) {
-    const portEnvVar = config.devServer.portEnvVar || "PORT";
-    const finalPort = port || 3000;
-    return {
-      command: `${portEnvVar}=${finalPort} ${config.devServer.command}`,
-      port: finalPort,
-    };
-  }
-
-  // Check package.json for dev script
-  const pkgPath = path.join(projectPath, "package.json");
-  if (fs.existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(await fs.promises.readFile(pkgPath, "utf-8"));
-      if (pkg.scripts?.dev) {
-        const finalPort = port || 3000;
-        return {
-          command: `PORT=${finalPort} npm run dev`,
-          port: finalPort,
-        };
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
-  return null;
 }

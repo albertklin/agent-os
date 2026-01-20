@@ -2,7 +2,6 @@
 
 import { SessionList } from "@/components/SessionList";
 import { NewSessionDialog } from "@/components/NewSessionDialog";
-import { StartServerDialog } from "@/components/DevServers/StartServerDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PaneLayout } from "@/components/PaneLayout";
 import { SwipeSidebar } from "@/components/mobile/SwipeSidebar";
@@ -29,11 +28,6 @@ export function MobileView({
   handleNewSessionInProject,
   handleOpenTerminal,
   handleSessionCreated,
-  handleCreateProject,
-  handleStartDevServer,
-  handleCreateDevServer,
-  startDevServerProject,
-  setStartDevServerProjectId,
   renderPane,
 }: ViewProps) {
   return (
@@ -59,8 +53,6 @@ export function MobileView({
               }}
               onNewSessionInProject={handleNewSessionInProject}
               onOpenTerminal={handleOpenTerminal}
-              onStartDevServer={handleStartDevServer}
-              onCreateDevServer={handleCreateDevServer}
             />
           </div>
 
@@ -103,14 +95,6 @@ export function MobileView({
           fileOpenActions.requestOpen(absolutePath, line);
         }}
       />
-      {startDevServerProject && (
-        <StartServerDialog
-          project={startDevServerProject}
-          projectDevServers={startDevServerProject.devServers}
-          onStart={handleCreateDevServer}
-          onClose={() => setStartDevServerProjectId(null)}
-        />
-      )}
     </main>
   );
 }

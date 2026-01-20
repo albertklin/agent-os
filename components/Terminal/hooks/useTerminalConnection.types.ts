@@ -13,6 +13,8 @@ export interface TerminalScrollState {
 export interface UseTerminalConnectionProps {
   terminalRef: RefObject<HTMLDivElement | null>;
   sessionId?: string;
+  /** If false, terminal won't connect to WebSocket (default: true) */
+  enabled?: boolean;
   onConnected?: () => void;
   onDisconnected?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
@@ -31,7 +33,6 @@ export interface UseTerminalConnectionReturn {
   scrollToBottom: () => void;
   copySelection: () => boolean;
   sendInput: (data: string) => void;
-  sendCommand: (command: string) => void;
   focus: () => void;
   getScrollState: () => TerminalScrollState | null;
   restoreScrollState: (state: TerminalScrollState) => void;

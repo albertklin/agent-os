@@ -1,76 +1,27 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useCallback } from "react";
 import { usePanes } from "@/contexts/PaneContext";
-import { getProvider } from "@/lib/providers";
-import { getTmuxSessionName, getSessionCwd } from "@/lib/sessions";
-import { getPendingPrompt, clearPendingPrompt } from "@/stores/initialPrompt";
 import { toast } from "sonner";
-import type { TerminalHandle } from "@/components/Terminal";
 import type { Session } from "@/lib/db";
 
-interface AttachmentLock {
-  paneId: string;
-  sessionId: string;
-  resolve: () => void;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function generateUUID(): string {
-  // crypto.randomUUID() is only available in secure contexts (HTTPS/localhost)
-  // Fall back to a manual implementation for HTTP contexts
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
-  }
-  // Fallback: generate UUID v4 manually
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
 /**
- * Update a session's claude_session_id in the database.
- */
-async function updateClaudeSessionId(
-  sessionId: string,
-  claudeSessionId: string
-): Promise<boolean> {
-  try {
-    const res = await fetch(`/api/sessions/${sessionId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ claude_session_id: claudeSessionId }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Hook for managing session attachment with proper locking and fresh data.
+ * Hook for selecting sessions in panes.
  *
- * Key improvements over the old approach:
- * 1. Uses a lock to prevent concurrent attachments to the same pane
- * 2. Fetches fresh session data from API (not stale React state)
- * 3. Computes tmux session name deterministically
- * 4. Updates UI state only after tmux command is sent
+ * The server now handles tmux attachment automatically - when the Terminal
+ * component connects via /ws/terminal?sessionId=xxx, the server spawns a PTY
+ * that directly attaches to the tmux session.
+ *
+ * This hook just needs to:
+ * 1. Fetch fresh session data from the API
+ * 2. Check if the session is ready (lifecycle_status === 'ready')
+ * 3. Update the pane's sessionId via PaneContext
  */
 export function useSessionAttachment() {
-  const lockRef = useRef<AttachmentLock | null>(null);
-  const { attachSession, getActiveTab } = usePanes();
+  const { setSession, getActiveTab } = usePanes();
 
   /**
    * Fetch fresh session data from the API.
-   * This ensures we always have the latest working_directory, etc.
    */
   const fetchSession = useCallback(
     async (sessionId: string): Promise<Session | null> => {
@@ -87,309 +38,53 @@ export function useSessionAttachment() {
   );
 
   /**
-   * Build the CLI command for the agent (e.g., "claude --resume abc123").
-   * For auto-approve sessions, Claude's native sandbox is enabled via
-   * .claude/settings.json, so no command wrapping is needed.
-   * @param newSessionId - Pre-generated UUID for new sessions or forks
-   */
-  const buildAgentCommand = useCallback(
-    (
-      session: Session,
-      sessions: Session[],
-      newSessionId?: string | null
-    ): string => {
-      const provider = getProvider(session.agent_type || "claude");
-
-      // Shell sessions don't have a command
-      if (provider.id === "shell") {
-        return "";
-      }
-
-      // Get parent session ID for forking
-      let parentSessionId: string | null = null;
-      if (!session.claude_session_id && session.parent_session_id) {
-        const parentSession = sessions.find(
-          (s) => s.id === session.parent_session_id
-        );
-        parentSessionId = parentSession?.claude_session_id || null;
-      }
-
-      // Check for pending initial prompt
-      const initialPrompt = getPendingPrompt(session.id);
-      if (initialPrompt) {
-        clearPendingPrompt(session.id);
-      }
-
-      const flags = provider.buildFlags({
-        sessionId: session.claude_session_id,
-        parentSessionId,
-        newSessionId: newSessionId || undefined,
-        autoApprove: session.auto_approve,
-        model: session.model,
-        initialPrompt: initialPrompt || undefined,
-      });
-
-      const flagsStr = flags.join(" ");
-      const command = flagsStr
-        ? `${provider.command} ${flagsStr}`
-        : provider.command;
-
-      // Note: For auto-approve sessions, sandbox is enabled via .claude/settings.json
-      // Claude will automatically apply sandbox restrictions when it starts
-
-      return command;
-    },
-    []
-  );
-
-  /**
-   * Attach to a session in a terminal.
+   * Select a session in a pane.
    *
-   * This is the main function - it handles:
-   * - Locking to prevent races
-   * - Fetching fresh session data
-   * - Detaching from current tmux if needed
-   * - Attaching to new tmux session (or creating it)
-   * - Updating UI state
+   * This updates the pane's sessionId, which causes the Terminal component
+   * to reconnect with the new sessionId. The server then handles tmux attachment.
+   *
+   * @returns true if selection succeeded, false if blocked (e.g., not ready)
    */
-  const attachToSession = useCallback(
-    async (
-      sessionId: string,
-      terminal: TerminalHandle,
-      paneId: string,
-      sessions: Session[] = []
-    ): Promise<boolean> => {
-      // Wait for any pending attachment on this pane to complete
-      if (lockRef.current?.paneId === paneId) {
-        // Create a promise to wait for the current lock
-        await new Promise<void>((resolve) => {
-          const checkLock = () => {
-            if (!lockRef.current || lockRef.current.paneId !== paneId) {
-              resolve();
-            } else {
-              setTimeout(checkLock, 50);
-            }
-          };
-          checkLock();
-        });
-      }
-
-      // Acquire lock for this pane
-      let resolveLock: () => void = () => {};
-      lockRef.current = {
-        paneId,
-        sessionId,
-        resolve: () => resolveLock(),
-      };
-      const lockPromise = new Promise<void>((r) => {
-        resolveLock = r;
-      });
-
-      try {
-        // 1. Fetch fresh session data from API
-        let session = await fetchSession(sessionId);
-        if (!session) {
-          console.error("[useSessionAttachment] Session not found:", sessionId);
-          return false;
-        }
-
-        // 1.5. Check if session setup is complete (for worktree sessions)
-        if (
-          session.setup_status &&
-          session.setup_status !== "ready" &&
-          session.setup_status !== "failed"
-        ) {
-          const statusMessages: Record<string, string> = {
-            pending: "Setting up session...",
-            creating_worktree: "Creating worktree...",
-            init_submodules: "Initializing submodules...",
-            installing_deps: "Installing dependencies...",
-          };
-          const message =
-            statusMessages[session.setup_status] ||
-            "Session is still setting up...";
-          toast.info(message, {
-            description: "Please wait for setup to complete",
-          });
-          return false;
-        }
-
-        // 2. For auto-approve sessions, verify sandbox settings are ready
-        // (Sandbox initialization writes .claude/settings.json, which is fast)
-        if (session.auto_approve && session.agent_type === "claude") {
-          // Brief wait if still initializing (should be very fast since it's just writing a file)
-          if (
-            session.sandbox_status === "pending" ||
-            session.sandbox_status === "initializing"
-          ) {
-            console.log(
-              "[useSessionAttachment] Waiting for sandbox settings..."
-            );
-            const maxWaitMs = 5000; // 5 second timeout (file write should be instant)
-            const pollIntervalMs = 500;
-            const startTime = Date.now();
-
-            while (Date.now() - startTime < maxWaitMs) {
-              await sleep(pollIntervalMs);
-              session = await fetchSession(sessionId);
-
-              if (!session) {
-                console.error(
-                  "[useSessionAttachment] Session disappeared while waiting"
-                );
-                return false;
-              }
-
-              if (session.sandbox_status === "ready") {
-                break;
-              }
-
-              if (session.sandbox_status === "failed") {
-                console.error(
-                  "[useSessionAttachment] Sandbox settings failed - cannot attach"
-                );
-                toast.error("Sandbox initialization failed", {
-                  description:
-                    "Please recreate the session to use auto-approve mode.",
-                });
-                return false;
-              }
-            }
-          }
-
-          // Refuse attachment if sandbox settings aren't ready
-          if (session.sandbox_status !== "ready") {
-            console.error(
-              "[useSessionAttachment] Cannot attach: sandbox settings not ready",
-              { status: session.sandbox_status }
-            );
-            toast.error("Sandbox not ready", {
-              description: "Container sandbox is not available.",
-            });
-            return false;
-          }
-
-          // Note: Full container health check happens server-side at terminal spawn
-          // No need to duplicate here - server enforces fail-closed security
-        }
-
-        // 3. Compute tmux session name (deterministic from agent_type + id)
-        const tmuxName = getTmuxSessionName(session);
-
-        // For sandboxed sessions, the worktree is mounted at /workspace inside the container
-        const isSandboxed =
-          session.auto_approve &&
-          session.agent_type === "claude" &&
-          session.sandbox_status === "ready";
-        const cwd = isSandboxed ? "/workspace" : getSessionCwd(session);
-
-        // 3.5. For sandboxed sessions, update sessionId FIRST to trigger terminal reconnect
-        // The terminal will reconnect with the sessionId, causing it to spawn inside the container
-        if (isSandboxed) {
-          const activeTab = getActiveTab(paneId);
-          // Only trigger reconnect if not already attached to this session
-          if (activeTab?.sessionId !== sessionId) {
-            console.log(
-              "[useSessionAttachment] Sandboxed session - triggering terminal reconnect first"
-            );
-            attachSession(paneId, session.id, getTmuxSessionName(session));
-            // Wait for terminal to reconnect inside container
-            await sleep(1500);
-          }
-        }
-
-        // 4. Check if already attached to this session's tmux
-        const activeTab = getActiveTab(paneId);
-        if (activeTab?.attachedTmux === tmuxName) {
-          // Already attached to this exact tmux session - just update UI state and return
-          console.log(
-            "[useSessionAttachment] Already attached to tmux:",
-            tmuxName
-          );
-          attachSession(paneId, session.id, tmuxName);
-          terminal.focus();
-          return true;
-        }
-
-        // 5. Detach from current tmux if attached to a different session
-        if (activeTab?.sessionId && activeTab.sessionId !== sessionId) {
-          terminal.sendInput("\x02d"); // Ctrl+B d (tmux detach)
-          await sleep(100);
-        }
-
-        // 6. Clear any running command
-        terminal.sendInput("\x03"); // Ctrl+C
-        await sleep(50);
-
-        // 7. Generate claude_session_id if needed (for Claude-type agents only)
-        let newSessionId: string | null = null;
-        const provider = getProvider(session.agent_type || "claude");
-        if (
-          provider.id === "claude" &&
-          !session.claude_session_id &&
-          provider.supportsResume
-        ) {
-          // Generate a new UUID for this session
-          newSessionId = generateUUID();
-          // Store it in the database before starting Claude
-          const updated = await updateClaudeSessionId(session.id, newSessionId);
-          if (!updated) {
-            console.warn(
-              "[useSessionAttachment] Failed to store claude_session_id, continuing anyway"
-            );
-          }
-        }
-
-        // 8. Build tmux command
-        const agentCommand = buildAgentCommand(session, sessions, newSessionId);
-        const tmuxNew = agentCommand
-          ? `tmux new -s ${tmuxName} -c "${cwd}" "${agentCommand}"`
-          : `tmux new -s ${tmuxName} -c "${cwd}"`;
-
-        const tmuxCmd = `tmux attach -t ${tmuxName} 2>/dev/null || ${tmuxNew}`;
-
-        // 9. Send the tmux command
-        console.log("[useSessionAttachment] Sending tmux command:", tmuxCmd);
-        terminal.sendCommand(tmuxCmd);
-
-        // 10. Wait a moment for tmux to attach, then update UI state
-        await sleep(150);
-
-        // For non-sandboxed sessions, update the attachment now
-        // (Sandboxed sessions already called attachSession earlier)
-        if (!isSandboxed) {
-          attachSession(paneId, session.id, tmuxName);
-        }
-        terminal.focus();
-
+  const selectSession = useCallback(
+    async (sessionId: string, paneId: string): Promise<boolean> => {
+      // Check if already showing this session
+      const activeTab = getActiveTab(paneId);
+      if (activeTab?.sessionId === sessionId) {
         return true;
-      } catch (error) {
-        console.error("[useSessionAttachment] Error attaching:", error);
-        return false;
-      } finally {
-        // Release lock
-        resolveLock();
-        if (
-          lockRef.current?.paneId === paneId &&
-          lockRef.current?.sessionId === sessionId
-        ) {
-          lockRef.current = null;
-        }
       }
-    },
-    [fetchSession, buildAgentCommand, getActiveTab, attachSession]
-  );
 
-  /**
-   * Check if there's an ongoing attachment for a pane.
-   */
-  const isAttaching = useCallback((paneId: string): boolean => {
-    return lockRef.current?.paneId === paneId;
-  }, []);
+      // Fetch fresh session data to check status
+      const session = await fetchSession(sessionId);
+      if (!session) {
+        console.error("[useSessionAttachment] Session not found:", sessionId);
+        return false;
+      }
+
+      // Block selection if session isn't ready yet
+      if (session.lifecycle_status !== "ready") {
+        const statusMessages: Record<string, string> = {
+          creating: "Session is being created...",
+          failed: "Session failed to start",
+          deleting: "Session is being deleted",
+        };
+        const message =
+          statusMessages[session.lifecycle_status] ||
+          "Session is not ready yet";
+        toast.info(message, {
+          description: "Please wait for the session to be ready",
+        });
+        return false;
+      }
+
+      // Update the pane's sessionId - Terminal will reconnect automatically
+      setSession(paneId, sessionId);
+      return true;
+    },
+    [fetchSession, getActiveTab, setSession]
+  );
 
   return {
-    attachToSession,
-    isAttaching,
     fetchSession,
+    selectSession,
   };
 }

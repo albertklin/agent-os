@@ -5,6 +5,7 @@ import { isValidAgentType, type AgentType } from "@/lib/providers";
 import { runSessionSetup } from "@/lib/session-setup";
 // Note: Global Claude hooks are configured at server startup (see server.ts)
 import { isGitRepo } from "@/lib/git";
+import { statusBroadcaster } from "@/lib/status-broadcaster";
 
 // GET /api/sessions - List all sessions and groups
 export async function GET() {
@@ -30,8 +31,9 @@ export async function GET() {
 }
 
 // Generate a unique session name
+// Uses getActiveSessions to exclude failed/deleted sessions from numbering
 function generateSessionName(db: ReturnType<typeof getDb>): string {
-  const sessions = queries.getAllSessions(db).all() as Session[];
+  const sessions = queries.getActiveSessions(db).all() as Session[];
   const existingNumbers = sessions
     .map((s) => {
       const match = s.name.match(/^Session (\d+)$/);
@@ -130,9 +132,19 @@ export async function POST(request: NextRequest) {
       projectId
     );
 
-    // For worktree sessions, set setup_status to pending and trigger background setup
+    // For worktree sessions, set setup_status to pending and lifecycle_status to creating
+    // Then trigger background setup
     if (isWorktreeSession) {
       queries.updateSessionSetupStatus(db).run("pending", null, id);
+      queries.updateSessionLifecycleStatus(db).run("creating", id);
+
+      // Broadcast initial status via SSE so UI shows creating state immediately
+      statusBroadcaster.updateStatus({
+        sessionId: id,
+        status: "idle",
+        lifecycleStatus: "creating",
+        setupStatus: "pending",
+      });
 
       // Fire and forget - background setup will update status via SSE
       runSessionSetup({
@@ -146,6 +158,15 @@ export async function POST(request: NextRequest) {
           error
         );
       });
+    } else {
+      // Non-worktree sessions are ready immediately
+      queries.updateSessionLifecycleStatus(db).run("ready", id);
+      // Broadcast lifecycle change via SSE
+      statusBroadcaster.updateStatus({
+        sessionId: id,
+        status: "idle",
+        lifecycleStatus: "ready",
+      });
     }
 
     // Set claude_session_id if provided (for importing external sessions)
@@ -156,20 +177,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // If forking, copy messages from parent
+    // If forking, copy messages from parent (single batch query)
     if (parentSessionId) {
-      const parentMessages = queries
-        .getSessionMessages(db)
-        .all(parentSessionId);
-      for (const msg of parentMessages as Array<{
-        role: string;
-        content: string;
-        duration_ms: number | null;
-      }>) {
-        queries
-          .createMessage(db)
-          .run(id, msg.role, msg.content, msg.duration_ms);
-      }
+      queries.copySessionMessages(db).run(id, parentSessionId);
     }
 
     const session = queries.getSession(db).get(id) as Session;

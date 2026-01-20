@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { sessionKeys } from "@/data/sessions";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 export type SessionStatusType =
@@ -16,8 +18,11 @@ export type SetupStatusType =
   | "init_container"
   | "init_submodules"
   | "installing_deps"
+  | "starting_session"
   | "ready"
   | "failed";
+
+export type LifecycleStatusType = "creating" | "ready" | "failed" | "deleting";
 
 export interface StatusData {
   status: SessionStatusType;
@@ -29,6 +34,7 @@ export interface StatusData {
   toolDetail?: string;
   setupStatus?: SetupStatusType;
   setupError?: string;
+  lifecycleStatus?: LifecycleStatusType;
 }
 
 interface StatusUpdate {
@@ -40,6 +46,7 @@ interface StatusUpdate {
   toolDetail?: string;
   setupStatus?: SetupStatusType;
   setupError?: string;
+  lifecycleStatus?: LifecycleStatusType;
 }
 
 interface InitEvent {
@@ -71,6 +78,7 @@ export function useStatusStream(): UseStatusStreamResult {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("connecting");
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
+  const queryClient = useQueryClient();
 
   // Refs for cleanup and reconnection
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -79,33 +87,46 @@ export function useStatusStream(): UseStatusStreamResult {
   const mountedRef = useRef(true);
 
   // Handle incoming status update
-  const handleStatusUpdate = useCallback((update: StatusUpdate) => {
-    if (!mountedRef.current) return;
+  const handleStatusUpdate = useCallback(
+    (update: StatusUpdate) => {
+      if (!mountedRef.current) return;
 
-    setStatuses((prev) => {
-      const existing = prev[update.sessionId];
-      return {
-        ...prev,
-        [update.sessionId]: {
-          status: update.status,
-          lastLine: update.lastLine,
-          updatedAt: Date.now(),
-          hookEvent: update.hookEvent,
-          toolName: update.toolName,
-          toolDetail: update.toolDetail,
-          // Preserve setup status from existing or use new value
-          setupStatus: update.setupStatus ?? existing?.setupStatus,
-          setupError: update.setupError ?? existing?.setupError,
-        },
-      };
-    });
+      setStatuses((prev) => {
+        const existing = prev[update.sessionId];
 
-    setLastUpdate(Date.now());
+        // Check if lifecycle status changed - this warrants a cache invalidation
+        // since the session's DB data (lifecycle_status column) has changed
+        const lifecycleChanged =
+          update.lifecycleStatus &&
+          existing?.lifecycleStatus !== update.lifecycleStatus;
 
-    // Note: We intentionally don't invalidate React Query here.
-    // Status updates come via SSE and are stored in local state.
-    // Session data (name, project, etc.) doesn't change during status updates.
-  }, []);
+        if (lifecycleChanged) {
+          // Invalidate sessions cache so UI reflects the new lifecycle status from DB
+          queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+        }
+
+        return {
+          ...prev,
+          [update.sessionId]: {
+            status: update.status,
+            lastLine: update.lastLine,
+            updatedAt: Date.now(),
+            hookEvent: update.hookEvent,
+            toolName: update.toolName,
+            toolDetail: update.toolDetail,
+            // Preserve setup status from existing or use new value
+            setupStatus: update.setupStatus ?? existing?.setupStatus,
+            setupError: update.setupError ?? existing?.setupError,
+            lifecycleStatus:
+              update.lifecycleStatus ?? existing?.lifecycleStatus,
+          },
+        };
+      });
+
+      setLastUpdate(Date.now());
+    },
+    [queryClient]
+  );
 
   // Handle initial status dump
   const handleInit = useCallback((data: InitEvent) => {
@@ -118,6 +139,13 @@ export function useStatusStream(): UseStatusStreamResult {
   // Connect to SSE endpoint
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
+
+    // Clear any pending retry to prevent concurrent connection attempts
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -183,6 +211,9 @@ export function useStatusStream(): UseStatusStreamResult {
   }, [handleInit, handleStatusUpdate]);
 
   // Connect on mount, cleanup on unmount
+  // Note: connect is intentionally excluded from deps to prevent reconnection loops.
+  // The connect function uses refs (mountedRef, eventSourceRef) which don't need to
+  // trigger re-renders, and the callbacks (handleInit, handleStatusUpdate) are stable.
   useEffect(() => {
     mountedRef.current = true;
     connect();
@@ -198,7 +229,8 @@ export function useStatusStream(): UseStatusStreamResult {
         retryTimeoutRef.current = null;
       }
     };
-  }, [connect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     statuses,

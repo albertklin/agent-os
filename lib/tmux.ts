@@ -1,38 +1,148 @@
 /**
  * Tmux Utilities
  *
- * Simple utilities for interacting with tmux sessions.
+ * Utilities for managing tmux sessions, both local and inside containers.
  */
 
-import { exec } from "child_process";
+import { exec as execCallback } from "child_process";
 import { promisify } from "util";
 
-const execAsync = promisify(exec);
+const exec = promisify(execCallback);
 
 /**
- * Check if a tmux session exists
+ * Escape a string for safe use in shell commands.
  */
-export async function tmuxSessionExists(sessionName: string): Promise<boolean> {
+function escapeShellArg(arg: string): string {
+  // Wrap in single quotes and escape any existing single quotes
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Create a new tmux session with a command running inside.
+ * For sandboxed sessions, runs inside a container.
+ */
+export async function createTmuxSession(options: {
+  name: string;
+  cwd: string;
+  command: string;
+  insideContainer?: string; // Container ID if sandboxed
+}): Promise<void> {
+  const { name, cwd, command, insideContainer } = options;
+
+  if (insideContainer) {
+    // For sandboxed sessions, the container typically runs tmux as entrypoint.
+    // This function can create a new tmux session inside the container if needed.
+    await exec(
+      `docker exec ${insideContainer} tmux new-session -d -s ${escapeShellArg(name)} -c ${escapeShellArg(cwd)} ${escapeShellArg(command)}`
+    );
+  } else {
+    // Create a local tmux session
+    await exec(
+      `tmux new-session -d -s ${escapeShellArg(name)} -c ${escapeShellArg(cwd)} ${escapeShellArg(command)}`
+    );
+  }
+}
+
+/**
+ * Check if a tmux session exists and is running.
+ */
+export async function isTmuxSessionAlive(
+  name: string,
+  insideContainer?: string
+): Promise<boolean> {
   try {
-    await execAsync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
+    if (insideContainer) {
+      await exec(
+        `docker exec ${insideContainer} tmux has-session -t ${escapeShellArg(name)}`
+      );
+    } else {
+      await exec(`tmux has-session -t ${escapeShellArg(name)}`);
+    }
     return true;
   } catch {
+    // Exit code non-zero means session doesn't exist
     return false;
   }
 }
 
 /**
- * Get a list of all tmux sessions
+ * Kill a tmux session.
  */
-export async function listTmuxSessions(): Promise<string[]> {
+export async function killTmuxSession(
+  name: string,
+  insideContainer?: string
+): Promise<void> {
   try {
-    const { stdout } = await execAsync(
-      "tmux list-sessions -F '#{session_name}' 2>/dev/null || true"
-    );
-    return stdout.trim().split("\n").filter(Boolean);
+    if (insideContainer) {
+      await exec(
+        `docker exec ${insideContainer} tmux kill-session -t ${escapeShellArg(name)}`
+      );
+    } else {
+      await exec(`tmux kill-session -t ${escapeShellArg(name)}`);
+    }
   } catch {
+    // Ignore errors (session may not exist)
+  }
+}
+
+/**
+ * Get the command and args to attach to a tmux session.
+ * This is used by the server to spawn a PTY that views the session.
+ */
+export function getTmuxAttachCommand(
+  name: string,
+  insideContainer?: string
+): { command: string; args: string[] } {
+  if (insideContainer) {
+    return {
+      command: "docker",
+      args: ["exec", "-it", insideContainer, "tmux", "attach", "-t", name],
+    };
+  } else {
+    return {
+      command: "tmux",
+      args: ["attach", "-t", name],
+    };
+  }
+}
+
+/**
+ * List all tmux sessions (for recovery on server restart).
+ */
+export async function listTmuxSessions(
+  insideContainer?: string
+): Promise<string[]> {
+  try {
+    let result;
+    if (insideContainer) {
+      result = await exec(
+        `docker exec ${insideContainer} tmux list-sessions -F '#{session_name}'`
+      );
+    } else {
+      result = await exec(`tmux list-sessions -F '#{session_name}'`);
+    }
+
+    const sessions = result.stdout
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0);
+
+    return sessions;
+  } catch {
+    // tmux not running or no sessions returns empty list
     return [];
   }
+}
+
+// =============================================================================
+// Legacy functions (preserved for backward compatibility)
+// =============================================================================
+
+/**
+ * Check if a tmux session exists (legacy, use isTmuxSessionAlive instead)
+ */
+export async function tmuxSessionExists(sessionName: string): Promise<boolean> {
+  return isTmuxSessionAlive(sessionName);
 }
 
 /**
@@ -40,13 +150,22 @@ export async function listTmuxSessions(): Promise<string[]> {
  */
 export async function captureTmuxPane(
   sessionName: string,
-  lines: number = 50
+  lines: number = 50,
+  insideContainer?: string
 ): Promise<string> {
   try {
-    const { stdout } = await execAsync(
-      `tmux capture-pane -t "${sessionName}" -p -S -${lines} 2>/dev/null || echo ""`
-    );
-    return stdout.trim();
+    const escapedName = escapeShellArg(sessionName);
+    let result;
+    if (insideContainer) {
+      result = await exec(
+        `docker exec ${insideContainer} tmux capture-pane -t ${escapedName} -p -S -${lines}`
+      );
+    } else {
+      result = await exec(
+        `tmux capture-pane -t ${escapedName} -p -S -${lines} 2>/dev/null || echo ""`
+      );
+    }
+    return result.stdout.trim();
   } catch {
     return "";
   }
@@ -56,13 +175,22 @@ export async function captureTmuxPane(
  * Get the current working directory of a tmux session
  */
 export async function getTmuxSessionCwd(
-  sessionName: string
+  sessionName: string,
+  insideContainer?: string
 ): Promise<string | null> {
   try {
-    const { stdout } = await execAsync(
-      `tmux display-message -t "${sessionName}" -p "#{pane_current_path}" 2>/dev/null || echo ""`
-    );
-    const cwd = stdout.trim();
+    const escapedName = escapeShellArg(sessionName);
+    let result;
+    if (insideContainer) {
+      result = await exec(
+        `docker exec ${insideContainer} tmux display-message -t ${escapedName} -p "#{pane_current_path}"`
+      );
+    } else {
+      result = await exec(
+        `tmux display-message -t ${escapedName} -p "#{pane_current_path}" 2>/dev/null || echo ""`
+      );
+    }
+    const cwd = result.stdout.trim();
     return cwd || null;
   } catch {
     return null;
@@ -74,8 +202,9 @@ export async function getTmuxSessionCwd(
  * For more detailed status, use the statusBroadcaster (SSE-based)
  */
 export async function getSimpleStatus(
-  sessionName: string
+  sessionName: string,
+  insideContainer?: string
 ): Promise<"alive" | "dead"> {
-  const exists = await tmuxSessionExists(sessionName);
+  const exists = await isTmuxSessionAlive(sessionName, insideContainer);
   return exists ? "alive" : "dead";
 }

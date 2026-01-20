@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { ProjectWithDevServers } from "@/lib/projects";
+import type { Project } from "@/lib/db";
 import { projectKeys } from "./keys";
 import { sessionKeys } from "../sessions/keys";
 
-async function fetchProjects(): Promise<ProjectWithDevServers[]> {
+async function fetchProjects(): Promise<Project[]> {
   const res = await fetch("/api/projects");
   if (!res.ok) throw new Error("Failed to fetch projects");
   const data = await res.json();
@@ -39,12 +39,9 @@ export function useToggleProject() {
     },
     onMutate: async ({ projectId, expanded }) => {
       await queryClient.cancelQueries({ queryKey: projectKeys.list() });
-      const previous = queryClient.getQueryData<ProjectWithDevServers[]>(
-        projectKeys.list()
-      );
-      queryClient.setQueryData<ProjectWithDevServers[]>(
-        projectKeys.list(),
-        (old) => old?.map((p) => (p.id === projectId ? { ...p, expanded } : p))
+      const previous = queryClient.getQueryData<Project[]>(projectKeys.list());
+      queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
+        old?.map((p) => (p.id === projectId ? { ...p, expanded } : p))
       );
       return { previous };
     },
@@ -107,12 +104,10 @@ export function useUpdateProject() {
       projectId,
       name,
       workingDirectory,
-      agentType,
     }: {
       projectId: string;
       name?: string;
       workingDirectory?: string;
-      agentType?: string;
     }) => {
       const res = await fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
@@ -120,7 +115,6 @@ export function useUpdateProject() {
         body: JSON.stringify({
           name,
           workingDirectory,
-          agentType,
         }),
       });
       if (!res.ok) throw new Error("Failed to update project");
@@ -136,18 +130,7 @@ export function useCreateProject() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: {
-      name: string;
-      workingDirectory: string;
-      agentType?: string;
-      devServers?: Array<{
-        name: string;
-        type: string;
-        command: string;
-        port?: number;
-        portEnvVar?: string;
-      }>;
-    }) => {
+    mutationFn: async (data: { name: string; workingDirectory: string }) => {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

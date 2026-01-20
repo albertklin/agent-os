@@ -55,7 +55,7 @@ export const queries = {
   updateSessionWorktree: (db: Database.Database) =>
     getStmt(
       db,
-      `UPDATE sessions SET worktree_path = ?, branch_name = ?, base_branch = ?, dev_server_port = ?, updated_at = datetime('now') WHERE id = ?`
+      `UPDATE sessions SET worktree_path = ?, branch_name = ?, base_branch = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
   updateSessionPR: (db: Database.Database) =>
@@ -88,6 +88,13 @@ export const queries = {
       `UPDATE sessions SET project_id = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
+  // Batch move all sessions from one project to another (for project deletion)
+  moveAllSessionsToProject: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE sessions SET project_id = ?, updated_at = datetime('now') WHERE project_id = ?`
+    ),
+
   updateSessionSortOrder: (db: Database.Database) =>
     getStmt(
       db,
@@ -112,11 +119,51 @@ export const queries = {
       `SELECT * FROM sessions WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC`
     ),
 
+  // Get active sessions only (excludes 'failed' and 'deleting' lifecycle statuses)
+  // Use this for operations like name generation where we want to ignore dead sessions
+  getActiveSessions: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT * FROM sessions
+       WHERE lifecycle_status NOT IN ('failed', 'deleting')
+       ORDER BY sort_order ASC, created_at ASC`
+    ),
+
+  // Get ready sessions only (lifecycle_status = 'ready')
+  // Use this for operations that require the session to be fully operational
+  getReadySessions: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT * FROM sessions
+       WHERE lifecycle_status = 'ready'
+       ORDER BY sort_order ASC, created_at ASC`
+    ),
+
+  // Get active sessions by project (excludes 'failed' and 'deleting')
+  getActiveSessionsByProject: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT * FROM sessions
+       WHERE project_id = ? AND lifecycle_status NOT IN ('failed', 'deleting')
+       ORDER BY sort_order ASC, created_at ASC`
+    ),
+
   // Get sessions sharing the same worktree (excluding the given session)
   getSiblingSessionsByWorktree: (db: Database.Database) =>
     getStmt(
       db,
       `SELECT * FROM sessions WHERE worktree_path = ? AND id != ? ORDER BY updated_at DESC`
+    ),
+
+  // Get ACTIVE sessions sharing the same worktree (excludes failed/deleting sessions)
+  // Use this for operations like worktree cleanup that should only consider live sessions
+  getActiveSiblingSessionsByWorktree: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT * FROM sessions
+       WHERE worktree_path = ? AND id != ?
+       AND lifecycle_status NOT IN ('failed', 'deleting')
+       ORDER BY updated_at DESC`
     ),
 
   updateSessionSetupStatus: (db: Database.Database) =>
@@ -125,52 +172,68 @@ export const queries = {
       `UPDATE sessions SET setup_status = ?, setup_error = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
-  updateSessionSandbox: (db: Database.Database) =>
+  updateSessionContainer: (db: Database.Database) =>
     getStmt(
       db,
-      `UPDATE sessions SET container_id = ?, sandbox_status = ?, updated_at = datetime('now') WHERE id = ?`
+      `UPDATE sessions SET container_id = ?, container_status = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
-  updateSessionSandboxWithHealth: (db: Database.Database) =>
+  updateSessionContainerWithHealth: (db: Database.Database) =>
     getStmt(
       db,
       `UPDATE sessions SET
         container_id = ?,
-        sandbox_status = ?,
+        container_status = ?,
         container_health_last_check = datetime('now'),
         container_health_status = ?,
         updated_at = datetime('now')
       WHERE id = ?`
     ),
 
+  updateSessionLifecycleStatus: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE sessions SET lifecycle_status = ?, updated_at = datetime('now') WHERE id = ?`
+    ),
+
+  // Get sessions with unhealthy or unchecked containers
+  // Excludes failed/deleting sessions to avoid checking containers being cleaned up
   getSessionsWithUnhealthyContainers: (db: Database.Database) =>
     getStmt(
       db,
       `SELECT * FROM sessions
        WHERE container_id IS NOT NULL
-       AND sandbox_status = 'ready'
-       AND (container_health_status != 'healthy'
+       AND container_status = 'ready'
+       AND lifecycle_status NOT IN ('failed', 'deleting')
+       AND (container_health_status IS NULL
+            OR container_health_status != 'healthy'
             OR container_health_last_check IS NULL
             OR datetime(container_health_last_check) < datetime('now', '-5 minutes'))`
     ),
 
+  // Get all sessions with active containers
+  // Excludes failed/deleting sessions to avoid operating on containers being cleaned up
   getSessionsWithContainers: (db: Database.Database) =>
     getStmt(
       db,
       `SELECT * FROM sessions
        WHERE container_id IS NOT NULL
-       AND sandbox_status = 'ready'`
+       AND container_status = 'ready'
+       AND lifecycle_status NOT IN ('failed', 'deleting')`
     ),
 
-  validateAutoApproveSandboxConstraints: (db: Database.Database) =>
+  validateAutoApproveContainerConstraints: (db: Database.Database) =>
     getStmt(
       db,
       `SELECT * FROM sessions
        WHERE auto_approve = 1
        AND agent_type = 'claude'
-       AND sandbox_status = 'ready'
+       AND container_status = 'ready'
        AND container_id IS NULL`
     ),
+
+  getSessionsByLifecycleStatus: (db: Database.Database) =>
+    getStmt(db, `SELECT * FROM sessions WHERE lifecycle_status = ?`),
 
   // Messages
   createMessage: (db: Database.Database) =>
@@ -178,6 +241,17 @@ export const queries = {
       db,
       `INSERT INTO messages (session_id, role, content, duration_ms)
        VALUES (?, ?, ?, ?)`
+    ),
+
+  // Batch copy messages from one session to another (for fork)
+  copySessionMessages: (db: Database.Database) =>
+    getStmt(
+      db,
+      `INSERT INTO messages (session_id, role, content, duration_ms)
+       SELECT ?, role, content, duration_ms
+       FROM messages
+       WHERE session_id = ?
+       ORDER BY timestamp ASC`
     ),
 
   getSessionMessages: (db: Database.Database) =>
@@ -250,8 +324,8 @@ export const queries = {
   createProject: (db: Database.Database) =>
     getStmt(
       db,
-      `INSERT INTO projects (id, name, working_directory, agent_type, sort_order)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO projects (id, name, working_directory, sort_order)
+       VALUES (?, ?, ?, ?)`
     ),
 
   getProject: (db: Database.Database) =>
@@ -266,7 +340,7 @@ export const queries = {
   updateProject: (db: Database.Database) =>
     getStmt(
       db,
-      `UPDATE projects SET name = ?, working_directory = ?, agent_type = ?, updated_at = datetime('now') WHERE id = ?`
+      `UPDATE projects SET name = ?, working_directory = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
   updateProjectExpanded: (db: Database.Database) =>
@@ -277,77 +351,4 @@ export const queries = {
 
   deleteProject: (db: Database.Database) =>
     getStmt(db, `DELETE FROM projects WHERE id = ? AND is_uncategorized = 0`),
-
-  // Project dev servers
-  createProjectDevServer: (db: Database.Database) =>
-    getStmt(
-      db,
-      `INSERT INTO project_dev_servers (id, project_id, name, type, command, port, port_env_var, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ),
-
-  getProjectDevServer: (db: Database.Database) =>
-    getStmt(db, `SELECT * FROM project_dev_servers WHERE id = ?`),
-
-  getProjectDevServers: (db: Database.Database) =>
-    getStmt(
-      db,
-      `SELECT * FROM project_dev_servers WHERE project_id = ? ORDER BY sort_order ASC`
-    ),
-
-  updateProjectDevServer: (db: Database.Database) =>
-    getStmt(
-      db,
-      `UPDATE project_dev_servers SET name = ?, type = ?, command = ?, port = ?, port_env_var = ?, sort_order = ? WHERE id = ?`
-    ),
-
-  deleteProjectDevServer: (db: Database.Database) =>
-    getStmt(db, `DELETE FROM project_dev_servers WHERE id = ?`),
-
-  deleteProjectDevServers: (db: Database.Database) =>
-    getStmt(db, `DELETE FROM project_dev_servers WHERE project_id = ?`),
-
-  // Dev servers
-  createDevServer: (db: Database.Database) =>
-    getStmt(
-      db,
-      `INSERT INTO dev_servers (id, project_id, type, name, command, status, pid, container_id, ports, working_directory)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ),
-
-  getDevServer: (db: Database.Database) =>
-    getStmt(db, `SELECT * FROM dev_servers WHERE id = ?`),
-
-  getAllDevServers: (db: Database.Database) =>
-    getStmt(db, `SELECT * FROM dev_servers ORDER BY created_at DESC`),
-
-  getDevServersByProject: (db: Database.Database) =>
-    getStmt(
-      db,
-      `SELECT * FROM dev_servers WHERE project_id = ? ORDER BY created_at DESC`
-    ),
-
-  updateDevServerStatus: (db: Database.Database) =>
-    getStmt(
-      db,
-      `UPDATE dev_servers SET status = ?, updated_at = datetime('now') WHERE id = ?`
-    ),
-
-  updateDevServerPid: (db: Database.Database) =>
-    getStmt(
-      db,
-      `UPDATE dev_servers SET pid = ?, status = ?, updated_at = datetime('now') WHERE id = ?`
-    ),
-
-  updateDevServer: (db: Database.Database) =>
-    getStmt(
-      db,
-      `UPDATE dev_servers SET status = ?, pid = ?, container_id = ?, ports = ?, updated_at = datetime('now') WHERE id = ?`
-    ),
-
-  deleteDevServer: (db: Database.Database) =>
-    getStmt(db, `DELETE FROM dev_servers WHERE id = ?`),
-
-  deleteDevServersByProject: (db: Database.Database) =>
-    getStmt(db, `DELETE FROM dev_servers WHERE project_id = ?`),
 };

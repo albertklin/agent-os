@@ -5,7 +5,6 @@ import {
   useRenameSession,
   useForkSession,
   useMoveSessionToGroup,
-  useMoveSessionToProject,
   type ForkSessionInput,
 } from "@/data/sessions";
 
@@ -17,7 +16,6 @@ export function useSessions() {
   const renameMutation = useRenameSession();
   const forkMutation = useForkSession();
   const moveToGroupMutation = useMoveSessionToGroup();
-  const moveToProjectMutation = useMoveSessionToProject();
 
   const fetchSessions = useCallback(async () => {
     await refetch();
@@ -44,13 +42,6 @@ export function useSessions() {
     [moveToGroupMutation]
   );
 
-  const moveSessionToProject = useCallback(
-    async (sessionId: string, projectId: string) => {
-      await moveToProjectMutation.mutateAsync({ sessionId, projectId });
-    },
-    [moveToProjectMutation]
-  );
-
   return {
     sessions,
     groups,
@@ -58,6 +49,5 @@ export function useSessions() {
     renameSession,
     forkSession,
     moveSessionToGroup,
-    moveSessionToProject,
   };
 }

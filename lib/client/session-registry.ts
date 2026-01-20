@@ -14,7 +14,6 @@ interface TerminalState {
 interface SessionEntry {
   tabId: string;
   sessionId?: string;
-  attachedTmux?: string;
   terminalState?: TerminalState;
 }
 

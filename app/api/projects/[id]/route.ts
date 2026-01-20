@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getProjectWithDevServers,
+  getProject,
   updateProject,
   deleteProject,
   toggleProjectExpanded,
@@ -10,11 +10,11 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// GET /api/projects/[id] - Get a single project with dev servers
+// GET /api/projects/[id] - Get a single project
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const project = getProjectWithDevServers(id);
+    const project = getProject(id);
 
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, workingDirectory, agentType, expanded } = body;
+    const { name, workingDirectory, expanded } = body;
 
     // Handle expanded toggle separately
     if (typeof expanded === "boolean") {
@@ -43,11 +43,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     // Update other fields if provided
-    if (name || workingDirectory || agentType) {
+    if (name || workingDirectory) {
       const project = updateProject(id, {
         name,
         working_directory: workingDirectory,
-        agent_type: agentType,
       });
 
       if (!project) {
@@ -58,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const updated = getProjectWithDevServers(id);
+    const updated = getProject(id);
     return NextResponse.json({ project: updated });
   } catch (error) {
     console.error("Error updating project:", error);

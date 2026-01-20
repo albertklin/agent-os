@@ -14,9 +14,8 @@ import { promisify } from "util";
 import { getDb, queries } from "@/lib/db";
 import type { SetupStatus } from "@/lib/db/types";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
-import { createWorktree, type CreateWorktreeOptions } from "@/lib/worktrees";
+import { createWorktree, deleteWorktree } from "@/lib/worktrees";
 import { setupWorktree } from "@/lib/env-setup";
-import { findAvailablePort } from "@/lib/ports";
 import {
   createContainer,
   isDockerAvailable,
@@ -24,6 +23,7 @@ import {
   destroyContainer,
   logSecurityEvent,
 } from "@/lib/container";
+import { sessionManager } from "@/lib/session-manager";
 
 const execAsync = promisify(exec);
 
@@ -35,18 +35,46 @@ export interface SessionSetupOptions {
 }
 
 /**
+ * Clean up worktree on setup failure.
+ * This prevents orphaned worktrees from accumulating.
+ */
+async function cleanupWorktreeOnFailure(
+  worktreePath: string,
+  projectPath: string
+): Promise<void> {
+  try {
+    await deleteWorktree(worktreePath, projectPath);
+    console.log(
+      `[session-setup] Cleaned up worktree after failure: ${worktreePath}`
+    );
+  } catch (error) {
+    // Log but don't throw - cleanup is best-effort
+    console.error(
+      `[session-setup] Failed to clean up worktree ${worktreePath}:`,
+      error instanceof Error ? error.message : "Unknown error"
+    );
+  }
+}
+
+/**
  * Update session setup status in DB and broadcast via SSE
  */
 function updateSetupStatus(
   sessionId: string,
   setupStatus: SetupStatus,
-  setupError: string | null = null
+  setupError: string | null = null,
+  lifecycleStatus?: "creating" | "ready" | "failed" | "deleting"
 ): void {
   try {
     const db = getDb();
     queries
       .updateSessionSetupStatus(db)
       .run(setupStatus, setupError, sessionId);
+
+    // Update lifecycle_status if provided
+    if (lifecycleStatus) {
+      queries.updateSessionLifecycleStatus(db).run(lifecycleStatus, sessionId);
+    }
   } catch (error) {
     console.error(`[session-setup] Failed to update DB status:`, error);
   }
@@ -57,6 +85,7 @@ function updateSetupStatus(
     status: "idle",
     setupStatus,
     setupError: setupError ?? undefined,
+    lifecycleStatus,
   });
 }
 
@@ -71,7 +100,16 @@ export async function runSessionSetup(
 
   console.log(`[session-setup] Starting setup for session ${sessionId}`);
 
+  // Track worktree path for cleanup in catch block
+  let worktreePath: string | null = null;
+  // Track container ID for cleanup in catch block
+  let containerId: string | null = null;
+
   try {
+    // NOTE: With lifecycle guards, sessions cannot be deleted while in 'creating' state.
+    // This means we don't need to check if the session was deleted during setup.
+    // If setup fails, we clean up resources and mark the session as 'failed'.
+
     // Step 1: Create worktree
     updateSetupStatus(sessionId, "creating_worktree");
 
@@ -80,9 +118,9 @@ export async function runSessionSetup(
       featureName,
       baseBranch,
     });
+    worktreePath = worktreeInfo.worktreePath; // Track for cleanup
 
     // Update session with worktree info
-    const port = await findAvailablePort();
     const db = getDb();
     queries
       .updateSessionWorktree(db)
@@ -90,7 +128,6 @@ export async function runSessionSetup(
         worktreeInfo.worktreePath,
         worktreeInfo.branchName,
         worktreeInfo.baseBranch,
-        port,
         sessionId
       );
 
@@ -115,10 +152,11 @@ export async function runSessionSetup(
           console.log(
             `[container] Creating container for session ${sessionId}`
           );
-          const { containerId } = await createContainer({
+          const containerResult = await createContainer({
             sessionId,
             worktreePath: worktreeInfo.worktreePath,
           });
+          containerId = containerResult.containerId; // Track for cleanup
 
           // SECURITY: Verify health BEFORE marking ready
           const health = await verifyContainerHealth(
@@ -142,8 +180,21 @@ export async function runSessionSetup(
             });
 
             queries
-              .updateSessionSandboxWithHealth(db)
+              .updateSessionContainerWithHealth(db)
               .run(null, "failed", "unhealthy", sessionId);
+
+            // Container health check failed - clean up worktree and mark as failed
+            await cleanupWorktreeOnFailure(
+              worktreeInfo.worktreePath,
+              projectPath
+            );
+            updateSetupStatus(
+              sessionId,
+              "failed",
+              `Container health check failed: ${health.error}`,
+              "failed"
+            );
+            return; // Abort setup
           } else {
             // Healthy - mark as ready
             logSecurityEvent({
@@ -155,7 +206,7 @@ export async function runSessionSetup(
 
             // ATOMIC: Update DB with health status
             queries
-              .updateSessionSandboxWithHealth(db)
+              .updateSessionContainerWithHealth(db)
               .run(containerId, "ready", "healthy", sessionId);
           }
         } catch (error) {
@@ -174,17 +225,35 @@ export async function runSessionSetup(
           });
 
           queries
-            .updateSessionSandboxWithHealth(db)
+            .updateSessionContainerWithHealth(db)
             .run(null, "failed", "unhealthy", sessionId);
+
+          // Container creation failed - clean up worktree and mark as failed
+          await cleanupWorktreeOnFailure(
+            worktreeInfo.worktreePath,
+            projectPath
+          );
+          updateSetupStatus(sessionId, "failed", errorMsg, "failed");
+          return; // Abort setup
         }
       } else {
         console.warn(
           `[container] Docker not available, skipping container for session ${sessionId}`
         );
-        // Mark sandbox as failed since we can't provide isolation
+        // Mark container as failed since we can't provide isolation
         queries
-          .updateSessionSandboxWithHealth(db)
+          .updateSessionContainerWithHealth(db)
           .run(null, "failed", null, sessionId);
+
+        // Docker not available - clean up worktree and mark as failed
+        await cleanupWorktreeOnFailure(worktreeInfo.worktreePath, projectPath);
+        updateSetupStatus(
+          sessionId,
+          "failed",
+          "Docker is not available for sandboxed session",
+          "failed"
+        );
+        return; // Abort setup
       }
     }
 
@@ -209,7 +278,6 @@ export async function runSessionSetup(
     const setupResult = await setupWorktree({
       worktreePath: worktreeInfo.worktreePath,
       sourcePath: projectPath,
-      port,
     });
 
     if (!setupResult.success) {
@@ -220,8 +288,14 @@ export async function runSessionSetup(
       throw new Error(errorMsg || "Dependency installation failed");
     }
 
-    // Step 5: Mark as ready
-    updateSetupStatus(sessionId, "ready");
+    // Step 5: Start the tmux session
+    // This creates the tmux session that the terminal will attach to
+    updateSetupStatus(sessionId, "starting_session");
+    await sessionManager.startTmuxSession(sessionId, "");
+
+    // Step 6: Mark as ready (both setup_status and lifecycle_status)
+    updateSetupStatus(sessionId, "ready", null, "ready");
+
     console.log(`[session-setup] Setup completed for session ${sessionId}`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error";
@@ -229,6 +303,28 @@ export async function runSessionSetup(
       `[session-setup] Setup failed for session ${sessionId}:`,
       errorMsg
     );
-    updateSetupStatus(sessionId, "failed", errorMsg);
+
+    // Clean up container if it was created
+    if (containerId) {
+      try {
+        await destroyContainer(containerId);
+        console.log(
+          `[session-setup] Cleaned up container ${containerId} after failure`
+        );
+      } catch (cleanupError) {
+        console.error(
+          `[session-setup] Failed to clean up container ${containerId}:`,
+          cleanupError instanceof Error ? cleanupError.message : "Unknown error"
+        );
+      }
+    }
+
+    // Clean up worktree if it was created
+    if (worktreePath) {
+      await cleanupWorktreeOnFailure(worktreePath, projectPath);
+    }
+
+    // Update both setup_status and lifecycle_status, and broadcast via SSE
+    updateSetupStatus(sessionId, "failed", errorMsg, "failed");
   }
 }

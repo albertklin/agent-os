@@ -2,25 +2,17 @@
 
 import { useCallback } from "react";
 import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
   SortableContext,
   horizontalListSortingStrategy,
   useSortable,
 } from "@dnd-kit/sortable";
+import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import {
   SplitSquareHorizontal,
   SplitSquareVertical,
   X,
-  Unplug,
   Plus,
   FolderOpen,
   GitBranch,
@@ -33,16 +25,21 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Session } from "@/lib/db";
+import {
+  createDraggableId,
+  createDropzoneId,
+  useTabDnd,
+} from "@/contexts/TabDndContext";
 
 type ViewMode = "terminal" | "files" | "git";
 
 interface Tab {
   id: string;
   sessionId: string | null;
-  attachedTmux: string | null;
 }
 
 interface DesktopTabBarProps {
+  paneId: string;
   tabs: Tab[];
   activeTabId: string;
   session: Session | null | undefined;
@@ -51,24 +48,22 @@ interface DesktopTabBarProps {
   isFocused: boolean;
   canSplit: boolean;
   canClose: boolean;
-  hasAttachedTmux: boolean;
   gitDrawerOpen: boolean;
   shellDrawerOpen: boolean;
   onTabSwitch: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   onTabAdd: () => void;
-  onReorderTabs: (fromIndex: number, toIndex: number) => void;
   onViewModeChange: (mode: ViewMode) => void;
   onGitDrawerToggle: () => void;
   onShellDrawerToggle: () => void;
   onSplitHorizontal: () => void;
   onSplitVertical: () => void;
   onClose: () => void;
-  onDetach: () => void;
 }
 
 // Sortable tab component
 interface SortableTabProps {
+  paneId: string;
   tab: Tab;
   isActive: boolean;
   tabName: string;
@@ -78,6 +73,7 @@ interface SortableTabProps {
 }
 
 function SortableTab({
+  paneId,
   tab,
   isActive,
   tabName,
@@ -85,6 +81,7 @@ function SortableTab({
   onSwitch,
   onClose,
 }: SortableTabProps) {
+  const draggableId = createDraggableId(paneId, tab.id);
   const {
     attributes,
     listeners,
@@ -92,7 +89,7 @@ function SortableTab({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: tab.id });
+  } = useSortable({ id: draggableId });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -134,6 +131,7 @@ function SortableTab({
 }
 
 export function DesktopTabBar({
+  paneId,
   tabs,
   activeTabId,
   session,
@@ -142,87 +140,69 @@ export function DesktopTabBar({
   isFocused,
   canSplit,
   canClose,
-  hasAttachedTmux,
   gitDrawerOpen,
   shellDrawerOpen,
   onTabSwitch,
   onTabClose,
   onTabAdd,
-  onReorderTabs,
   onViewModeChange,
   onGitDrawerToggle,
   onShellDrawerToggle,
   onSplitHorizontal,
   onSplitVertical,
   onClose,
-  onDetach,
 }: DesktopTabBarProps) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8, // Require 8px of movement before starting drag
-      },
-    })
-  );
+  const { dragState } = useTabDnd();
+  const isDraggingOverThis =
+    dragState.overPaneId === paneId && dragState.activePaneId !== paneId;
+
+  // Make the tab bar a drop zone for cross-pane drops
+  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+    id: createDropzoneId(paneId),
+  });
 
   const getTabName = useCallback(
     (tab: Tab) => {
       if (tab.sessionId) {
         const s = sessions.find((sess) => sess.id === tab.sessionId);
-        return s?.name || tab.attachedTmux || "Session";
+        return s?.name || "Session";
       }
-      if (tab.attachedTmux) return tab.attachedTmux;
-      return "New Tab";
+      return "Shell";
     },
     [sessions]
   );
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-
-      const oldIndex = tabs.findIndex((t) => t.id === active.id);
-      const newIndex = tabs.findIndex((t) => t.id === over.id);
-
-      if (oldIndex !== -1 && newIndex !== -1) {
-        onReorderTabs(oldIndex, newIndex);
-      }
-    },
-    [tabs, onReorderTabs]
-  );
+  // Create sortable IDs for this pane's tabs
+  const sortableIds = tabs.map((t) => createDraggableId(paneId, t.id));
 
   return (
     <div
+      ref={setDroppableRef}
       className={cn(
         "flex items-center gap-1 overflow-x-auto px-1 pt-1 transition-colors",
-        isFocused ? "bg-muted" : "bg-muted/50"
+        isFocused ? "bg-muted" : "bg-muted/50",
+        (isDraggingOverThis || isOver) && "ring-primary/50 ring-2 ring-inset"
       )}
     >
       {/* Tabs */}
       <div className="flex min-w-0 flex-1 items-center gap-0.5">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
+        <SortableContext
+          items={sortableIds}
+          strategy={horizontalListSortingStrategy}
         >
-          <SortableContext
-            items={tabs.map((t) => t.id)}
-            strategy={horizontalListSortingStrategy}
-          >
-            {tabs.map((tab) => (
-              <SortableTab
-                key={tab.id}
-                tab={tab}
-                isActive={tab.id === activeTabId}
-                tabName={getTabName(tab)}
-                canClose={tabs.length > 1}
-                onSwitch={() => onTabSwitch(tab.id)}
-                onClose={() => onTabClose(tab.id)}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
+          {tabs.map((tab) => (
+            <SortableTab
+              key={tab.id}
+              paneId={paneId}
+              tab={tab}
+              isActive={tab.id === activeTabId}
+              tabName={getTabName(tab)}
+              canClose={tabs.length > 1}
+              onSwitch={() => onTabSwitch(tab.id)}
+              onClose={() => onTabClose(tab.id)}
+            />
+          ))}
+        </SortableContext>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -325,24 +305,6 @@ export function DesktopTabBar({
 
       {/* Pane Controls */}
       <div className="ml-auto flex items-center gap-0.5 px-2">
-        {hasAttachedTmux && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDetach();
-                }}
-                className="h-6 w-6"
-              >
-                <Unplug className="h-3 w-3" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Detach from tmux</TooltipContent>
-          </Tooltip>
-        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

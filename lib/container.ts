@@ -340,6 +340,10 @@ export interface CreateContainerResult {
   containerId: string;
 }
 
+// Overall timeout for container creation (3 minutes)
+// This covers: docker run (60s) + firewall init (120s) + buffer
+const CONTAINER_CREATION_TIMEOUT = 180000;
+
 /**
  * Create and start a sandbox container for a session.
  *
@@ -350,7 +354,7 @@ export interface CreateContainerResult {
  * - Has resource limits (memory, CPU, PIDs, file descriptors)
  * - Initializes the firewall after start
  *
- * @throws ContainerError on failure
+ * @throws ContainerError on failure (including timeout)
  */
 export async function createContainer(
   opts: CreateContainerOptions
@@ -363,10 +367,23 @@ export async function createContainer(
     `[container] Creating container ${containerName} for worktree ${worktreePath}`
   );
 
-  try {
-    // Start container with resource limits and security options
-    const { stdout } = await execAsync(
-      `docker run -d \
+  // Wrap the entire creation process in a timeout with proper cleanup
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(
+        ContainerError.createFailed(
+          `Container creation timed out after ${CONTAINER_CREATION_TIMEOUT / 1000}s`
+        )
+      );
+    }, CONTAINER_CREATION_TIMEOUT);
+  });
+
+  const createPromise = (async (): Promise<CreateContainerResult> => {
+    try {
+      // Start container with resource limits and security options
+      const { stdout } = await execAsync(
+        `docker run -d \
         --name "${containerName}" \
         --cap-add=NET_ADMIN --cap-add=NET_RAW \
         --memory=4g \
@@ -381,53 +398,65 @@ export async function createContainer(
         -e CLAUDE_CONFIG_DIR="/home/node/.claude" \
         ${SANDBOX_IMAGE} \
         sleep infinity`,
-      { timeout: 60000 }
-    );
-
-    const containerId = stdout.trim().substring(0, 12);
-    console.log(`[container] Container ${containerId} started`);
-
-    // Initialize firewall inside the container (run as root via -u flag)
-    // This avoids needing sudo inside the container, so no-new-privileges can stay enabled
-    console.log(`[container] Initializing firewall...`);
-    try {
-      await execAsync(
-        `docker exec -u root ${containerId} /usr/local/bin/init-firewall.sh`,
-        { timeout: 120000 } // 2 minute timeout for firewall init (needs to fetch GitHub IPs)
+        { timeout: 60000 }
       );
 
-      logSecurityEvent({
-        type: "firewall_init",
-        sessionId,
-        containerId,
-        success: true,
-      });
+      const containerId = stdout.trim().substring(0, 12);
+      console.log(`[container] Container ${containerId} started`);
 
-      console.log(`[container] Firewall initialized`);
+      // Initialize firewall inside the container (run as root via -u flag)
+      // This avoids needing sudo inside the container, so no-new-privileges can stay enabled
+      console.log(`[container] Initializing firewall...`);
+      try {
+        await execAsync(
+          `docker exec -u root ${containerId} /usr/local/bin/init-firewall.sh`,
+          { timeout: 120000 } // 2 minute timeout for firewall init (needs to fetch GitHub IPs)
+        );
+
+        logSecurityEvent({
+          type: "firewall_init",
+          sessionId,
+          containerId,
+          success: true,
+        });
+
+        console.log(`[container] Firewall initialized`);
+      } catch (error) {
+        const errorMsg =
+          error instanceof Error ? error.message : "Unknown error";
+
+        logSecurityEvent({
+          type: "firewall_init",
+          sessionId,
+          containerId,
+          success: false,
+          error: errorMsg,
+        });
+
+        // Firewall init failed - destroy the container and throw
+        console.error(`[container] Firewall initialization failed:`, error);
+        await destroyContainer(containerId).catch(() => {});
+        throw ContainerError.firewallFailed(errorMsg);
+      }
+
+      return { containerId };
     } catch (error) {
+      if (error instanceof ContainerError) {
+        throw error;
+      }
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
-
-      logSecurityEvent({
-        type: "firewall_init",
-        sessionId,
-        containerId,
-        success: false,
-        error: errorMsg,
-      });
-
-      // Firewall init failed - destroy the container and throw
-      console.error(`[container] Firewall initialization failed:`, error);
-      await destroyContainer(containerId).catch(() => {});
-      throw ContainerError.firewallFailed(errorMsg);
+      throw ContainerError.createFailed(errorMsg);
     }
+  })();
 
-    return { containerId };
+  // Race between the creation and the timeout, then clear the timeout
+  try {
+    const result = await Promise.race([createPromise, timeoutPromise]);
+    clearTimeout(timeoutId!);
+    return result;
   } catch (error) {
-    if (error instanceof ContainerError) {
-      throw error;
-    }
-    const errorMsg = error instanceof Error ? error.message : "Unknown error";
-    throw ContainerError.createFailed(errorMsg);
+    clearTimeout(timeoutId!);
+    throw error;
   }
 }
 

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { getDb, queries, type Session } from "@/lib/db";
+import { destroyContainer } from "@/lib/container";
+import { deleteWorktree, isAgentOSWorktree } from "@/lib/worktrees";
+import { statusBroadcaster } from "@/lib/status-broadcaster";
 
 const execAsync = promisify(exec);
 
@@ -34,9 +37,48 @@ export async function POST() {
       }
     }
 
-    // Delete ALL sessions from database
+    // Get all sessions from database for cleanup
     const dbSessions = queries.getAllSessions(db).all() as Session[];
+    let containersDestroyed = 0;
+    let worktreesDeleted = 0;
+
+    // Clean up resources for each session
     for (const session of dbSessions) {
+      // Destroy container if present
+      if (session.container_id) {
+        try {
+          await destroyContainer(session.container_id);
+          containersDestroyed++;
+        } catch {
+          // Continue even if container cleanup fails
+        }
+      }
+
+      // Delete worktree if present and it's an AgentOS worktree
+      // Note: We use a simplified cleanup here - no sibling checks since we're deleting all
+      if (session.worktree_path && isAgentOSWorktree(session.worktree_path)) {
+        try {
+          // Get the git common dir from the worktree
+          const { stdout: gitDir } = await execAsync(
+            `git -C "${session.worktree_path}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo ""`,
+            { timeout: 5000 }
+          );
+          const gitCommonDir = gitDir.trim().replace(/\/.git$/, "");
+
+          if (gitCommonDir) {
+            // Delete without branch deletion - let git prune handle orphan branches
+            await deleteWorktree(session.worktree_path, gitCommonDir, false);
+            worktreesDeleted++;
+          }
+        } catch {
+          // Continue even if worktree cleanup fails
+        }
+      }
+
+      // Clear SSE state
+      statusBroadcaster.clearStatus(session.id);
+
+      // Delete from database
       try {
         queries.deleteSession(db).run(session.id);
       } catch {
@@ -48,6 +90,8 @@ export async function POST() {
       killed: killed.length,
       sessions: killed,
       deletedFromDb: dbSessions.length,
+      containersDestroyed,
+      worktreesDeleted,
     });
   } catch (error) {
     console.error("Error killing tmux sessions:", error);

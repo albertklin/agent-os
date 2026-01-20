@@ -43,6 +43,18 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
+    // Lifecycle guard: can only send keys to a ready session
+    if (session.lifecycle_status !== "ready") {
+      log(`ERROR: Session ${id} is not ready (${session.lifecycle_status})`);
+      return NextResponse.json(
+        {
+          error: "Session is not ready",
+          lifecycle_status: session.lifecycle_status,
+        },
+        { status: 409 }
+      );
+    }
+
     const tmuxSessionName = `${session.agent_type}-${id}`;
     log(`Tmux session name: ${tmuxSessionName}`);
 

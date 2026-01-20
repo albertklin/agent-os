@@ -56,29 +56,11 @@ export function createSchema(db: Database.Database): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
-    -- Dev servers table
-    CREATE TABLE IF NOT EXISTS dev_servers (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'node',
-      name TEXT NOT NULL DEFAULT '',
-      command TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'stopped',
-      pid INTEGER,
-      container_id TEXT,
-      ports TEXT NOT NULL DEFAULT '[]',
-      working_directory TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-    );
-
     -- Projects table (replaces groups)
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       working_directory TEXT NOT NULL,
-      agent_type TEXT NOT NULL DEFAULT 'claude',
       expanded INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER NOT NULL DEFAULT 0,
       is_uncategorized INTEGER NOT NULL DEFAULT 0,
@@ -86,26 +68,11 @@ export function createSchema(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    -- Project dev servers (configuration templates)
-    CREATE TABLE IF NOT EXISTS project_dev_servers (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'node',
-      command TEXT NOT NULL,
-      port INTEGER,
-      port_env_var TEXT,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-    );
-
     -- Indexes for common queries
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id);
     CREATE INDEX IF NOT EXISTS idx_tool_calls_message ON tool_calls(message_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
-    CREATE INDEX IF NOT EXISTS idx_project_dev_servers_project ON project_dev_servers(project_id);
-
     -- Default Uncategorized project
     INSERT OR IGNORE INTO projects (id, name, working_directory, is_uncategorized, sort_order)
     VALUES ('uncategorized', 'Uncategorized', '~', 1, 999999);

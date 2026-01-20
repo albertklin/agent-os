@@ -10,28 +10,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Loader2, GitBranch } from "lucide-react";
-import type { AgentType } from "@/lib/providers";
 import { useCreateProject } from "@/data/projects";
 
 const RECENT_DIRS_KEY = "agentOS:recentDirectories";
 const MAX_RECENT_DIRS = 5;
-
-const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
-  { value: "claude", label: "Claude Code" },
-  { value: "codex", label: "Codex" },
-  { value: "opencode", label: "OpenCode" },
-  { value: "gemini", label: "Gemini CLI" },
-  { value: "aider", label: "Aider" },
-  { value: "cursor", label: "Cursor CLI" },
-];
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -46,7 +29,6 @@ export function NewProjectDialog({
 }: NewProjectDialogProps) {
   const [name, setName] = useState("");
   const [workingDirectory, setWorkingDirectory] = useState("~");
-  const [agentType, setAgentType] = useState<AgentType>("claude");
   const [error, setError] = useState<string | null>(null);
   const [recentDirs, setRecentDirs] = useState<string[]>([]);
   const [isGitRepo, setIsGitRepo] = useState(false);
@@ -126,8 +108,6 @@ export function NewProjectDialog({
       {
         name: name.trim(),
         workingDirectory,
-        agentType,
-        devServers: [],
       },
       {
         onSuccess: (data) => {
@@ -145,7 +125,6 @@ export function NewProjectDialog({
   const handleClose = () => {
     setName("");
     setWorkingDirectory("~");
-    setAgentType("claude");
     setError(null);
     onClose();
   };
@@ -205,26 +184,6 @@ export function NewProjectDialog({
                 ))}
               </div>
             )}
-          </div>
-
-          {/* Agent Type */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Default Agent</label>
-            <Select
-              value={agentType}
-              onValueChange={(v) => setAgentType(v as AgentType)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {AGENT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           {error && <p className="text-sm text-red-500">{error}</p>}

@@ -29,18 +29,20 @@ function toSessionStatus(
   const sessionName = session?.tmux_name || `session-${sessionId}`;
 
   if (!data) {
-    // Check if session has setup status from DB (for newly created sessions)
+    // Check if session has setup status or lifecycle status from DB (for newly created sessions)
     if (session?.setup_status && session.setup_status !== "ready") {
       return {
         sessionName,
         status: "unknown",
         setupStatus: session.setup_status,
         setupError: session.setup_error ?? undefined,
+        lifecycleStatus: session.lifecycle_status ?? undefined,
       };
     }
     return {
       sessionName,
       status: "unknown",
+      lifecycleStatus: session?.lifecycle_status ?? undefined,
     };
   }
 
@@ -52,6 +54,7 @@ function toSessionStatus(
     toolDetail: data.toolDetail,
     setupStatus: data.setupStatus,
     setupError: data.setupError,
+    lifecycleStatus: data.lifecycleStatus,
   };
 }
 

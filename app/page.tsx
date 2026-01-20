@@ -1,27 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-
-// Debug log buffer - persists even if console is closed
-const debugLogs: string[] = [];
-const MAX_DEBUG_LOGS = 100;
-
-function debugLog(message: string) {
-  const timestamp = new Date().toISOString().split("T")[1].slice(0, 12);
-  const entry = `[${timestamp}] ${message}`;
-  debugLogs.push(entry);
-  if (debugLogs.length > MAX_DEBUG_LOGS) debugLogs.shift();
-  console.log(`[AgentOS] ${message}`);
-}
-
-// Expose to window for debugging
-if (typeof window !== "undefined") {
-  (window as unknown as { agentOSLogs: () => void }).agentOSLogs = () => {
-    console.log("=== AgentOS Debug Logs ===");
-    debugLogs.forEach((log) => console.log(log));
-    console.log("=== End Logs ===");
-  };
-}
+import { useState, useEffect, useCallback } from "react";
 import { PaneProvider, usePanes } from "@/contexts/PaneContext";
 import { Pane } from "@/components/Pane";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -30,11 +9,9 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useSessions } from "@/hooks/useSessions";
 import { useProjects } from "@/hooks/useProjects";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
-import { useDevServersManager } from "@/hooks/useDevServersManager";
 import { useSessionStatuses } from "@/hooks/useSessionStatuses";
 import { useSessionAttachment } from "@/hooks/useSessionAttachment";
 import type { Session } from "@/lib/db";
-import type { TerminalHandle } from "@/components/Terminal";
 import { DesktopView } from "@/components/views/DesktopView";
 import { MobileView } from "@/components/views/MobileView";
 
@@ -49,158 +26,37 @@ function HomeContent() {
     useState(false);
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [copiedSessionId, setCopiedSessionId] = useState(false);
-  const terminalRefs = useRef<Map<string, TerminalHandle>>(new Map());
 
   // Pane context
-  const { focusedPaneId, attachSession, getActiveTab, addTab } = usePanes();
+  const { focusedPaneId, getActiveTab, addTab } = usePanes();
   const focusedActiveTab = getActiveTab(focusedPaneId);
   const { isMobile, isHydrated } = useViewport();
 
-  // Session attachment with locking
-  const { attachToSession: attachToSessionWithLock } = useSessionAttachment();
+  // Session selection (server handles tmux attachment automatically)
+  const { selectSession } = useSessionAttachment();
 
   // Data hooks
   const { sessions, fetchSessions } = useSessions();
   const { projects, fetchProjects } = useProjects();
-  const {
-    startDevServerProjectId,
-    setStartDevServerProjectId,
-    startDevServer,
-    createDevServer,
-  } = useDevServersManager();
 
   // Set CSS variable for viewport height (handles mobile keyboard)
   useViewportHeight();
 
-  // Terminal ref management
-  const registerTerminalRef = useCallback(
-    (paneId: string, tabId: string, ref: TerminalHandle | null) => {
-      const key = `${paneId}:${tabId}`;
-      if (ref) {
-        terminalRefs.current.set(key, ref);
-        debugLog(
-          `Terminal registered: ${key}, total refs: ${terminalRefs.current.size}`
-        );
-      } else {
-        terminalRefs.current.delete(key);
-        debugLog(
-          `Terminal unregistered: ${key}, total refs: ${terminalRefs.current.size}`
-        );
-      }
-    },
-    []
-  );
-
-  // Get terminal for a pane, with fallback to first available
-  const getTerminalWithFallback = useCallback(():
-    | { terminal: TerminalHandle; paneId: string; tabId: string }
-    | undefined => {
-    debugLog(
-      `getTerminalWithFallback called, total refs: ${terminalRefs.current.size}, focusedPaneId: ${focusedPaneId}`
-    );
-
-    // Try focused pane first
-    const activeTab = getActiveTab(focusedPaneId);
-    debugLog(`activeTab for focused pane: ${activeTab?.id || "null"}`);
-
-    if (activeTab) {
-      const key = `${focusedPaneId}:${activeTab.id}`;
-      const terminal = terminalRefs.current.get(key);
-      debugLog(
-        `Looking for terminal at key "${key}": ${terminal ? "found" : "not found"}`
-      );
-      if (terminal) {
-        return { terminal, paneId: focusedPaneId, tabId: activeTab.id };
-      }
-    }
-
-    // Fallback to first available terminal
-    const firstEntry = terminalRefs.current.entries().next().value;
-    if (firstEntry) {
-      const [key, terminal] = firstEntry as [string, TerminalHandle];
-      const [paneId, tabId] = key.split(":");
-      debugLog(`Using fallback terminal: ${key}`);
-      return { terminal, paneId, tabId };
-    }
-
-    debugLog(
-      `NO TERMINAL FOUND. Available keys: ${Array.from(terminalRefs.current.keys()).join(", ") || "none"}`
-    );
-    return undefined;
-  }, [focusedPaneId, getActiveTab]);
-
-  // Attach session to terminal
-  // Uses the new hook with locking to prevent race conditions
+  // Select session in focused pane - server handles tmux attachment automatically
   const attachToSession = useCallback(
     async (session: Session) => {
-      const terminalInfo = getTerminalWithFallback();
-      if (!terminalInfo) {
-        debugLog(
-          `ERROR: No terminal available to attach session: ${session.name}`
-        );
-        alert(
-          `[AgentOS Debug] No terminal available!\n\nRun agentOSLogs() in console to see debug logs.`
-        );
-        return;
-      }
-
-      const { terminal, paneId } = terminalInfo;
-      debugLog(`Attaching to session ${session.name} in pane ${paneId}`);
-
-      // Use the new hook with locking - pass sessions for parent lookup during fork
-      const success = await attachToSessionWithLock(
-        session.id,
-        terminal,
-        paneId,
-        sessions
-      );
-
-      if (!success) {
-        debugLog(`Failed to attach to session ${session.name}`);
-      }
+      await selectSession(session.id, focusedPaneId);
     },
-    [getTerminalWithFallback, attachToSessionWithLock, sessions]
+    [selectSession, focusedPaneId]
   );
 
   // Open session in new tab
   const openSessionInNewTab = useCallback(
     (session: Session) => {
-      const existingKeys = new Set(terminalRefs.current.keys());
-      // Create tab with sessionId so Terminal renders (instead of placeholder)
+      // Create tab with sessionId - Terminal will connect and server will attach to tmux
       addTab(focusedPaneId, session.id);
-
-      let attempts = 0;
-      const maxAttempts = 20;
-
-      const waitForNewTerminal = () => {
-        attempts++;
-
-        for (const key of terminalRefs.current.keys()) {
-          if (!existingKeys.has(key) && key.startsWith(`${focusedPaneId}:`)) {
-            const terminal = terminalRefs.current.get(key);
-            if (terminal) {
-              // Use the new hook with locking
-              attachToSessionWithLock(
-                session.id,
-                terminal,
-                focusedPaneId,
-                sessions
-              );
-              return;
-            }
-          }
-        }
-
-        if (attempts < maxAttempts) {
-          setTimeout(waitForNewTerminal, 50);
-        } else {
-          debugLog(`Failed to find new terminal after ${maxAttempts} attempts`);
-        }
-      };
-
-      setTimeout(waitForNewTerminal, 50);
     },
-    [addTab, focusedPaneId, attachToSessionWithLock, sessions]
+    [addTab, focusedPaneId]
   );
 
   // Notification click handler
@@ -256,18 +112,9 @@ function HomeContent() {
   // Session selection handler
   const handleSelectSession = useCallback(
     (sessionId: string) => {
-      debugLog(`handleSelectSession called for: ${sessionId}`);
-      const session = sessions.find((s) => s.id === sessionId);
-      if (session) {
-        debugLog(`Found session: ${session.name}, calling attachToSession`);
-        attachToSession(session);
-      } else {
-        debugLog(
-          `Session not found in sessions array (length: ${sessions.length})`
-        );
-      }
+      selectSession(sessionId, focusedPaneId);
     },
-    [sessions, attachToSession]
+    [selectSession, focusedPaneId]
   );
 
   // Keyboard navigation for sessions and tabs/panes
@@ -285,12 +132,11 @@ function HomeContent() {
         paneId={paneId}
         sessions={sessions}
         projects={projects}
-        onRegisterTerminal={registerTerminalRef}
         onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
         onSelectSession={handleSelectSession}
       />
     ),
-    [sessions, projects, registerTerminalRef, isMobile, handleSelectSession]
+    [sessions, projects, isMobile, handleSelectSession]
   );
 
   // New session in project handler
@@ -368,13 +214,10 @@ function HomeContent() {
     [projects, fetchSessions, attachToSession]
   );
 
-  // Active session and dev server project
+  // Active session
   const activeSession = sessions.find(
     (s) => s.id === focusedActiveTab?.sessionId
   );
-  const startDevServerProject = startDevServerProjectId
-    ? (projects.find((p) => p.id === startDevServerProjectId) ?? null)
-    : null;
 
   // View props
   const viewProps = {
@@ -405,10 +248,6 @@ function HomeContent() {
     handleOpenTerminal,
     handleSessionCreated,
     handleCreateProject,
-    handleStartDevServer: startDevServer,
-    handleCreateDevServer: createDevServer,
-    startDevServerProject,
-    setStartDevServerProjectId,
     renderPane,
   };
 

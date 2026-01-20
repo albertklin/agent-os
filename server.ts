@@ -4,17 +4,13 @@ import next from "next";
 import { WebSocketServer, WebSocket } from "ws";
 import * as pty from "node-pty";
 import { writeGlobalHooksConfig } from "./lib/hooks/generate-config";
-import {
-  ensureSandboxImage,
-  isContainerRunning,
-  logSecurityEvent,
-} from "./lib/container";
-import { getDb, queries } from "./lib/db";
-import { statusBroadcaster } from "./lib/status-broadcaster";
+import { ensureSandboxImage, isContainerRunning } from "./lib/container";
+import { getDb } from "./lib/db";
 import {
   validateDatabaseConstraints,
   fixOrphanedAutoApproveSessions,
 } from "./lib/db/validation";
+import { sessionManager } from "./lib/session-manager";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
@@ -30,10 +26,10 @@ app.prepare().then(async () => {
     console.log(`> Claude hooks configured at ${result.path}`);
   }
 
-  // Sync session statuses from tmux
-  const syncResult = statusBroadcaster.syncFromTmux();
+  // Recover sessions from previous server run
+  const recoveryResult = await sessionManager.recoverSessions();
   console.log(
-    `> Session statuses synced: ${syncResult.synced} total (${syncResult.alive} alive, ${syncResult.dead} dead)`
+    `> Sessions recovered: ${recoveryResult.synced} total (${recoveryResult.alive} alive, ${recoveryResult.dead} dead)`
   );
 
   // Build sandbox container image - Docker is required
@@ -70,6 +66,21 @@ app.prepare().then(async () => {
   // Terminal WebSocket server
   const terminalWss = new WebSocketServer({ noServer: true });
 
+  // Track active connections per session to limit concurrent connections
+  const activeConnections = new Map<string, Set<WebSocket>>();
+  const MAX_CONNECTIONS_PER_SESSION = 3;
+
+  // Helper to clean up connection tracking
+  function removeConnection(sessionId: string, ws: WebSocket): void {
+    const conns = activeConnections.get(sessionId);
+    if (conns) {
+      conns.delete(ws);
+      if (conns.size === 0) {
+        activeConnections.delete(sessionId);
+      }
+    }
+  }
+
   // Handle WebSocket upgrades
   server.on("upgrade", (request, socket, head) => {
     const { pathname } = parse(request.url || "");
@@ -86,175 +97,154 @@ app.prepare().then(async () => {
   terminalWss.on(
     "connection",
     async (ws: WebSocket, request: import("http").IncomingMessage) => {
-      let ptyProcess: pty.IPty;
+      let ptyProcess: pty.IPty | null = null;
+
+      // Parse sessionId early so it's available for cleanup in event handlers
+      const requestUrl = new URL(
+        request.url || "",
+        `http://${request.headers.host}`
+      );
+      const sessionId = requestUrl.searchParams.get("sessionId");
+
       try {
-        // Parse sessionId from WebSocket URL query params
-        const requestUrl = new URL(
-          request.url || "",
-          `http://${request.headers.host}`
-        );
-        const sessionId = requestUrl.searchParams.get("sessionId");
-
-        // Fetch session details
-        interface SessionData {
-          container_id: string | null;
-          sandbox_status: string | null;
-          auto_approve: number;
-          agent_type: string;
-          worktree_path: string | null;
+        // 1. If no sessionId provided, send error and close
+        if (!sessionId) {
+          console.error("[terminal] No sessionId provided in WebSocket URL");
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "No session ID provided",
+            })
+          );
+          ws.close();
+          return;
         }
 
-        let session: SessionData | undefined;
+        // 3. Use sessionManager.getSession(sessionId) to get the session
+        const session = await sessionManager.getSession(sessionId);
 
-        if (sessionId) {
-          const db = getDb();
-          session = queries.getSession(db).get(sessionId) as
-            | SessionData
-            | undefined;
+        // 4. If session not found, send error and close
+        if (!session) {
+          console.error(`[terminal] Session ${sessionId} not found`);
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Session not found",
+            })
+          );
+          ws.close();
+          return;
         }
 
-        // Debug logging for terminal connection
+        // 5. Check lifecycle_status === 'ready' - if not, send error and close
+        if (session.lifecycle_status !== "ready") {
+          console.error(
+            `[terminal] Session ${sessionId} not ready: lifecycle_status=${session.lifecycle_status}`
+          );
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: `Session is not ready (status: ${session.lifecycle_status}). Please wait for setup to complete or recreate the session.`,
+            })
+          );
+          ws.close();
+          return;
+        }
+
+        // 6. Check connection limit for this session
+        const sessionConns = activeConnections.get(sessionId) || new Set();
+        if (sessionConns.size >= MAX_CONNECTIONS_PER_SESSION) {
+          console.warn(
+            `[terminal] Session ${sessionId} has too many connections (${sessionConns.size})`
+          );
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: `Too many connections to this session. Maximum ${MAX_CONNECTIONS_PER_SESSION} allowed.`,
+            })
+          );
+          ws.close();
+          return;
+        }
+
+        // 7. Re-fetch session to prevent TOCTOU race (session could be deleted between check and use)
+        const freshSession = await sessionManager.getSession(sessionId);
+        if (!freshSession || freshSession.lifecycle_status !== "ready") {
+          console.error(
+            `[terminal] Session ${sessionId} no longer ready (race condition detected)`
+          );
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Session is no longer available. Please try again.",
+            })
+          );
+          ws.close();
+          return;
+        }
+
+        // 8. For sandboxed sessions, verify container is still running
+        const isSandboxed =
+          freshSession.container_id &&
+          freshSession.container_status === "ready";
+        if (isSandboxed) {
+          const containerRunning = await isContainerRunning(
+            freshSession.container_id!
+          );
+          if (!containerRunning) {
+            console.error(
+              `[terminal] Container ${freshSession.container_id} for session ${sessionId} is not running`
+            );
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message:
+                  "Session container is not running. The session may have crashed or been stopped. Please recreate the session.",
+              })
+            );
+            ws.close();
+            return;
+          }
+        }
+
+        // 9. Track this connection
+        if (!activeConnections.has(sessionId)) {
+          activeConnections.set(sessionId, new Set());
+        }
+        activeConnections.get(sessionId)!.add(ws);
+
+        // 9. Use sessionManager.getViewCommand(session) to get the attach command
+        const { command, args } = sessionManager.getViewCommand(freshSession);
+
         console.log(
-          `[terminal] Connection received: sessionId=${sessionId}, session=${session ? "found" : "not found"}, auto_approve=${session?.auto_approve}, agent_type=${session?.agent_type}, sandbox_status=${session?.sandbox_status}, container_id=${session?.container_id}`
+          `[terminal] Attaching to session ${sessionId} with command: ${command} ${args.join(" ")} (connection ${activeConnections.get(sessionId)!.size}/${MAX_CONNECTIONS_PER_SESSION})`
         );
 
-        // Check if this session requires a sandbox (auto-approve Claude sessions)
-        const requiresSandbox =
-          session && session.auto_approve && session.agent_type === "claude";
-
-        console.log(`[terminal] requiresSandbox=${requiresSandbox}`);
-
-        if (requiresSandbox && session) {
-          // SECURITY: Fail-closed - refuse connection if sandbox not ready
-          if (session.sandbox_status !== "ready") {
-            console.error(
-              `[terminal] SECURITY: Refusing connection for session ${sessionId} - sandbox_status=${session.sandbox_status}`
-            );
-
-            if (sessionId) {
-              logSecurityEvent({
-                type: "container_access_denied",
-                sessionId,
-                success: false,
-                error: `Sandbox not ready: status=${session.sandbox_status}`,
-              });
-            }
-
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message:
-                  "Container sandbox is not ready. Please wait for setup to complete or recreate the session.",
-              })
-            );
-            ws.close();
-            return;
-          }
-
-          // SECURITY: Validate container_id exists
-          if (!session.container_id) {
-            console.error(
-              `[terminal] SECURITY: Refusing connection for session ${sessionId} - no container_id`
-            );
-
-            if (sessionId) {
-              logSecurityEvent({
-                type: "container_access_denied",
-                sessionId,
-                success: false,
-                error: "Container configuration error: no container_id",
-              });
-            }
-
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message:
-                  "Container configuration error. Please recreate the session.",
-              })
-            );
-            ws.close();
-            return;
-          }
-
-          // SECURITY: Check container is running before spawning PTY
-          // (Full health check with firewall/mount validation happens at container creation)
-          const containerId = session.container_id;
-          const running = await isContainerRunning(containerId);
-
-          if (!running) {
-            console.error(
-              `[terminal] SECURITY: Refusing connection for session ${sessionId} - container not running`
-            );
-
-            logSecurityEvent({
-              type: "container_access_denied",
-              sessionId: sessionId!,
-              containerId,
-              success: false,
-              error: "Container not running",
-            });
-
-            // Update DB to reflect failure
-            const db = getDb();
-            queries
-              .updateSessionSandboxWithHealth(db)
-              .run(containerId, "failed", "unhealthy", sessionId);
-
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: "Container has stopped. Please recreate the session.",
-              })
-            );
-            ws.close();
-            return;
-          }
-
-          // Health check passed - spawn shell inside container
-          console.log(
-            `[terminal] Spawning shell inside container ${containerId} for session ${sessionId}`
-          );
-          ptyProcess = pty.spawn(
-            "docker",
-            ["exec", "-it", containerId, "/bin/zsh", "-l"],
-            {
-              name: "xterm-256color",
-              cols: 80,
-              rows: 24,
-              cwd: process.env.HOME || "/",
-              env: {
-                PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
-                HOME: process.env.HOME || "/",
-                TERM: "xterm-256color",
-              },
-            }
-          );
-        } else {
-          // Non-sandboxed session: spawn on host
-          const shell = process.env.SHELL || "/bin/zsh";
-          // Use minimal env - only essentials for shell to work
-          // This lets Next.js/Vite/etc load .env.local without interference from parent process env
-          const minimalEnv: { [key: string]: string } = {
+        // 10. Spawn PTY with the attach command (this attaches to the existing tmux session)
+        ptyProcess = pty.spawn(command, args, {
+          name: "xterm-256color",
+          cols: 80,
+          rows: 24,
+          cwd: process.env.HOME || "/",
+          env: {
             PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
             HOME: process.env.HOME || "/",
-            USER: process.env.USER || "",
-            SHELL: shell,
             TERM: "xterm-256color",
-            COLORTERM: "truecolor",
             LANG: process.env.LANG || "en_US.UTF-8",
-          };
-
-          ptyProcess = pty.spawn(shell, [], {
-            name: "xterm-256color",
-            cols: 80,
-            rows: 24,
-            cwd: process.env.HOME || "/",
-            env: minimalEnv,
-          });
-        }
+          },
+        });
       } catch (err) {
-        console.error("Failed to spawn pty:", err);
+        console.error("[terminal] Failed to spawn pty:", err);
+        // Clean up PTY process if it was partially created
+        if (ptyProcess) {
+          try {
+            ptyProcess.kill();
+          } catch {
+            // Ignore kill errors
+          }
+        }
+        // Clean up connection tracking on PTY spawn failure
+        if (sessionId) removeConnection(sessionId, ws);
         ws.send(
           JSON.stringify({ type: "error", message: "Failed to start terminal" })
         );
@@ -262,6 +252,7 @@ app.prepare().then(async () => {
         return;
       }
 
+      // Relay I/O between WebSocket and PTY
       ptyProcess.onData((data: string) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "output", data }));
@@ -275,32 +266,35 @@ app.prepare().then(async () => {
         }
       });
 
+      // Handle input (send to PTY), resize (resize PTY), close (kill PTY)
       ws.on("message", (message: Buffer) => {
         try {
           const msg = JSON.parse(message.toString());
           switch (msg.type) {
             case "input":
-              ptyProcess.write(msg.data);
+              ptyProcess?.write(msg.data);
               break;
             case "resize":
-              ptyProcess.resize(msg.cols, msg.rows);
+              ptyProcess?.resize(msg.cols, msg.rows);
               break;
-            case "command":
-              ptyProcess.write(msg.data + "\r");
-              break;
+            // Note: "command" message type removed - client no longer sends commands
           }
         } catch (err) {
-          console.error("Error parsing message:", err);
+          console.error("[terminal] Error parsing message:", err);
         }
       });
 
       ws.on("close", () => {
-        ptyProcess.kill();
+        ptyProcess?.kill();
+        // Use captured sessionId instead of re-parsing URL
+        if (sessionId) removeConnection(sessionId, ws);
       });
 
       ws.on("error", (err) => {
-        console.error("WebSocket error:", err);
-        ptyProcess.kill();
+        console.error("[terminal] WebSocket error:", err);
+        ptyProcess?.kill();
+        // Clean up connection tracking on error
+        if (sessionId) removeConnection(sessionId, ws);
       });
     }
   );
@@ -324,4 +318,39 @@ app.prepare().then(async () => {
   server.listen(port, () => {
     console.log(`> Agent-OS ready on http://${hostname}:${port}`);
   });
+
+  // Graceful shutdown handler
+  const shutdown = async (signal: string) => {
+    console.log(`\n> Received ${signal}, shutting down gracefully...`);
+
+    // Close WebSocket server (stops accepting new connections)
+    terminalWss.close();
+
+    // Close all active WebSocket connections
+    for (const [sessionId, connections] of activeConnections) {
+      for (const ws of connections) {
+        try {
+          ws.close(1001, "Server shutting down");
+        } catch {
+          // Ignore close errors
+        }
+      }
+    }
+    activeConnections.clear();
+
+    // Close HTTP server
+    server.close(() => {
+      console.log("> Server closed");
+      process.exit(0);
+    });
+
+    // Force exit after 10s if graceful shutdown hangs
+    setTimeout(() => {
+      console.error("> Forced shutdown after timeout");
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 });

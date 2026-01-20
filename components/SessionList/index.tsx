@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { ServerLogsModal } from "@/components/DevServers";
 import {
   ProjectsSection,
   NewProjectDialog,
@@ -18,13 +17,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ProjectSectionSkeleton } from "@/components/ui/skeleton";
 import { Plus, FolderPlus, AlertCircle } from "lucide-react";
-import type { ProjectWithDevServers } from "@/lib/projects";
+import type { Project } from "@/lib/db";
 import { usePanes } from "@/contexts/PaneContext";
 
 // Data hooks
 import { useSessionsQuery, useReorderSessions } from "@/data/sessions";
 import { useProjectsQuery, useCreateProject } from "@/data/projects";
-import { useDevServersQuery } from "@/data/dev-servers";
 
 import type { SessionListProps } from "./SessionList.types";
 import type { ForkOptions } from "@/components/ForkSessionDialog";
@@ -39,8 +37,6 @@ export function SessionList({
   onOpenInTab,
   onNewSessionInProject,
   onOpenTerminal,
-  onStartDevServer,
-  onCreateDevServer,
 }: SessionListProps) {
   const { clearSessionFromTabs } = usePanes();
 
@@ -56,7 +52,6 @@ export function SessionList({
     isPending: isProjectsPending,
     isError: isProjectsError,
   } = useProjectsQuery();
-  const { data: devServers = [] } = useDevServersQuery();
 
   // Combined loading state for initial load
   const isInitialLoading = isSessionsPending || isProjectsPending;
@@ -97,10 +92,8 @@ export function SessionList({
   // Local UI state
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
-  const [editingProject, setEditingProject] =
-    useState<ProjectWithDevServers | null>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showKillAllConfirm, setShowKillAllConfirm] = useState(false);
-  const [logsServerId, setLogsServerId] = useState<string | null>(null);
 
   // Use projects if available
   const useProjectsView = projects.length > 0;
@@ -113,11 +106,6 @@ export function SessionList({
     () => new Map(sessions.map((s) => [s.id, s.name])),
     [sessions]
   );
-
-  // Find server for logs modal
-  const logsServer = logsServerId
-    ? devServers.find((s) => s.id === logsServerId)
-    : null;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -199,7 +187,6 @@ export function SessionList({
               activeSessionId={activeSessionId}
               sessionStatuses={sessionStatuses}
               isForkingSession={mutations.isForkingSession}
-              devServers={devServers}
               onToggleProject={mutations.handleToggleProject}
               onEditProject={(projectId) => {
                 const project = projects.find((p) => p.id === projectId);
@@ -211,16 +198,10 @@ export function SessionList({
               onOpenTerminal={onOpenTerminal}
               onSelectSession={onSelect}
               onOpenSessionInTab={onOpenInTab}
-              onMoveSession={mutations.handleMoveSessionToProject}
               onReorderSessions={(updates) => reorderSessions.mutate(updates)}
               onForkSession={handleForkSession}
               onDeleteSession={mutations.handleDeleteSession}
               onRenameSession={mutations.handleRenameSession}
-              onStartDevServer={onStartDevServer}
-              onStopDevServer={mutations.handleStopDevServer}
-              onRestartDevServer={mutations.handleRestartDevServer}
-              onRemoveDevServer={mutations.handleRemoveDevServer}
-              onViewDevServerLogs={setLogsServerId}
             />
           )}
 
@@ -247,15 +228,6 @@ export function SessionList({
         </div>
       </ScrollArea>
 
-      {/* Server Logs Modal */}
-      {logsServer && (
-        <ServerLogsModal
-          serverId={logsServer.id}
-          serverName={logsServer.name}
-          onClose={() => setLogsServerId(null)}
-        />
-      )}
-
       {/* New Project Dialog */}
       <NewProjectDialog
         open={showNewProjectDialog}
@@ -277,8 +249,6 @@ export function SessionList({
               {
                 name,
                 workingDirectory: path,
-                agentType: "claude",
-                devServers: [],
               },
               {
                 onSuccess: () => setShowFolderPicker(false),

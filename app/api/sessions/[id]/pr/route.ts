@@ -86,6 +86,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
+    // Lifecycle guard: can only get PR info for a ready session
+    if (session.lifecycle_status !== "ready") {
+      return NextResponse.json(
+        {
+          error: "Session is not ready",
+          lifecycle_status: session.lifecycle_status,
+        },
+        { status: 409 }
+      );
+    }
+
     if (!session.worktree_path || !session.branch_name) {
       return NextResponse.json(
         { error: "Session is not a worktree session" },
@@ -133,6 +144,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (!session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    // Lifecycle guard: can only create PR for a ready session
+    if (session.lifecycle_status !== "ready") {
+      return NextResponse.json(
+        {
+          error: "Session is not ready",
+          lifecycle_status: session.lifecycle_status,
+        },
+        { status: 409 }
+      );
     }
 
     if (!session.worktree_path || !session.branch_name) {

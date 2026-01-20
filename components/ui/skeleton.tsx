@@ -86,26 +86,3 @@ export function ProjectSectionSkeleton({
     </div>
   );
 }
-
-interface DevServerSkeletonProps {
-  count?: number;
-}
-
-export function DevServerSkeleton({ count = 2 }: DevServerSkeletonProps) {
-  return (
-    <div className="space-y-2">
-      {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          className="bg-accent/30 flex items-center justify-between rounded-lg p-3"
-        >
-          <div className="flex items-center gap-3">
-            <ShimmeringLoader className="h-3 w-3 rounded-full" delayIndex={i} />
-            <ShimmeringLoader className="h-4 w-24" delayIndex={i} />
-          </div>
-          <ShimmeringLoader className="h-6 w-16 rounded" delayIndex={i} />
-        </div>
-      ))}
-    </div>
-  );
-}

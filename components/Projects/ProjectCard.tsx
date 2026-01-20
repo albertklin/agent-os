@@ -8,7 +8,6 @@ import {
   MoreHorizontal,
   Settings,
   Plus,
-  Server,
   Trash2,
   Pencil,
   FolderOpen,
@@ -29,24 +28,17 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import type { Project, DevServer } from "@/lib/db";
+import type { Project } from "@/lib/db";
 
 interface ProjectCardProps {
   project: Project;
   sessionCount: number;
-  runningDevServers?: DevServer[];
   isDropTarget?: boolean;
   onClick?: () => void;
   onToggleExpanded?: (expanded: boolean) => void;
   onEdit?: () => void;
   onNewSession?: () => void;
   onOpenTerminal?: () => void;
-  onStartDevServer?: () => void;
   onOpenInEditor?: () => void;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
@@ -55,14 +47,12 @@ interface ProjectCardProps {
 export function ProjectCard({
   project,
   sessionCount,
-  runningDevServers = [],
   isDropTarget = false,
   onClick,
   onToggleExpanded,
   onEdit,
   onNewSession,
   onOpenTerminal,
-  onStartDevServer,
   onOpenInEditor,
   onDelete,
   onRename,
@@ -72,16 +62,10 @@ export function ProjectCard({
   const inputRef = useRef<HTMLInputElement>(null);
   const justStartedEditingRef = useRef(false);
 
-  const hasRunningServers = runningDevServers.length > 0;
-  // Uncategorized can have New Session, Open Terminal, and Rename, but not Edit/Delete/DevServer
+  // Uncategorized can have New Session, Open Terminal, and Rename, but not Edit/Delete
   const hasActions = project.is_uncategorized
     ? onNewSession || onOpenTerminal || onRename
-    : onEdit ||
-      onNewSession ||
-      onOpenTerminal ||
-      onStartDevServer ||
-      onDelete ||
-      onRename;
+    : onEdit || onNewSession || onOpenTerminal || onDelete || onRename;
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -211,24 +195,6 @@ export function ProjectCard({
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {project.name}
         </span>
-      )}
-
-      {/* Running servers indicator */}
-      {hasRunningServers && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex flex-shrink-0 items-center gap-1 text-green-500">
-              <Server className="h-3 w-3" />
-              <span className="text-xs">{runningDevServers.length}</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>
-              {runningDevServers.length} dev server
-              {runningDevServers.length > 1 ? "s" : ""} running
-            </p>
-          </TooltipContent>
-        </Tooltip>
       )}
 
       {/* Session count */}

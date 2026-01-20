@@ -26,35 +26,18 @@ import { CSS } from "@dnd-kit/utilities";
 import { ProjectCard } from "./ProjectCard";
 import { SessionCard } from "@/components/SessionCard";
 import { type ForkOptions } from "@/components/ForkSessionDialog";
-import { DevServerCard } from "@/components/DevServers/DevServerCard";
 import { selectionStore, selectionActions } from "@/stores/sessionSelection";
-import type { Session, Group, DevServer } from "@/lib/db";
-import type { ProjectWithDevServers } from "@/lib/projects";
+import type { Session, Group, Project } from "@/lib/db";
 import type { SessionOrderUpdate } from "@/data/sessions";
-
-interface SessionStatus {
-  sessionName: string;
-  status: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
-  lastLine?: string;
-  setupStatus?:
-    | "pending"
-    | "creating_worktree"
-    | "init_container"
-    | "init_submodules"
-    | "installing_deps"
-    | "ready"
-    | "failed";
-  setupError?: string;
-}
+import type { SessionStatus } from "@/components/SessionList/SessionList.types";
 
 interface ProjectsSectionProps {
-  projects: ProjectWithDevServers[];
+  projects: Project[];
   sessions: Session[];
   groups: Group[]; // For backward compatibility with SessionCard move feature
   activeSessionId?: string;
   sessionStatuses?: Record<string, SessionStatus>;
   isForkingSession?: boolean;
-  devServers?: DevServer[];
   onToggleProject?: (projectId: string, expanded: boolean) => void;
   onEditProject?: (projectId: string) => void;
   onDeleteProject?: (projectId: string) => void;
@@ -63,7 +46,6 @@ interface ProjectsSectionProps {
   onOpenTerminal?: (projectId: string) => void;
   onSelectSession: (sessionId: string) => void;
   onOpenSessionInTab?: (sessionId: string) => void;
-  onMoveSession?: (sessionId: string, projectId: string) => void;
   onReorderSessions?: (updates: SessionOrderUpdate[]) => void;
   onForkSession?: (
     sessionId: string,
@@ -72,11 +54,6 @@ interface ProjectsSectionProps {
   onDeleteSession?: (sessionId: string, sessionName?: string) => void;
   onRenameSession?: (sessionId: string, newName: string) => void;
   onCreatePR?: (sessionId: string) => void;
-  onStartDevServer?: (projectId: string) => void;
-  onStopDevServer?: (serverId: string) => Promise<void>;
-  onRestartDevServer?: (serverId: string) => Promise<void>;
-  onRemoveDevServer?: (serverId: string) => Promise<void>;
-  onViewDevServerLogs?: (serverId: string) => void;
 }
 
 // Sortable wrapper for SessionCard
@@ -87,14 +64,13 @@ interface SortableSessionCardProps {
   tmuxStatus?: "idle" | "running" | "waiting" | "error" | "dead" | "unknown";
   setupStatus?: SessionStatus["setupStatus"];
   setupError?: string;
+  lifecycleStatus?: SessionStatus["lifecycleStatus"];
   groups: Group[];
-  projects: ProjectWithDevServers[];
   isSelected: boolean;
   isInSelectMode: boolean;
   onToggleSelect: (shiftKey: boolean) => void;
   onClick: () => void;
   onOpenInTab?: () => void;
-  onMoveToProject?: (projectId: string) => void;
   onFork?: (options: ForkOptions | null) => Promise<void>;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
@@ -203,7 +179,6 @@ function ProjectsSectionComponent({
   activeSessionId,
   sessionStatuses,
   isForkingSession,
-  devServers = [],
   onToggleProject,
   onEditProject,
   onDeleteProject,
@@ -212,17 +187,11 @@ function ProjectsSectionComponent({
   onOpenTerminal,
   onSelectSession,
   onOpenSessionInTab,
-  onMoveSession,
   onReorderSessions,
   onForkSession,
   onDeleteSession,
   onRenameSession,
   onCreatePR,
-  onStartDevServer,
-  onStopDevServer,
-  onRestartDevServer,
-  onRemoveDevServer,
-  onViewDevServerLogs,
 }: ProjectsSectionProps) {
   const { selectedIds } = useSnapshot(selectionStore);
   const isInSelectMode = selectedIds.size > 0;
@@ -291,24 +260,6 @@ function ProjectsSectionComponent({
         {} as Record<string, Session[]>
       ),
     [sessions]
-  );
-
-  // Get running dev servers for a project (for ProjectCard badge)
-  const getProjectRunningServers = useCallback(
-    (projectId: string): DevServer[] => {
-      return devServers.filter(
-        (ds) => ds.project_id === projectId && ds.status === "running"
-      );
-    },
-    [devServers]
-  );
-
-  // Get all dev servers for a project
-  const getProjectDevServers = useCallback(
-    (projectId: string): DevServer[] => {
-      return devServers.filter((ds) => ds.project_id === projectId);
-    },
-    [devServers]
   );
 
   // Find the active dragged session
@@ -459,15 +410,19 @@ function ProjectsSectionComponent({
       <div className="space-y-1">
         {projects.map((project) => {
           const projectSessions = sessionsByProject[project.id] || [];
-          const runningServers = getProjectRunningServers(project.id);
-          const projectDevServers = getProjectDevServers(project.id);
-          const isDropTarget = !!(overProjectId === project.id && activeId);
+          // Only show as drop target for inter-project drags (not when reordering within same project)
+          const activeSessionProjectId =
+            activeSession?.project_id || "uncategorized";
+          const isDropTarget = !!(
+            overProjectId === project.id &&
+            activeId &&
+            activeSessionProjectId !== project.id
+          );
 
           const projectCardElement = (
             <ProjectCard
               project={project}
               sessionCount={projectSessions.length}
-              runningDevServers={runningServers}
               isDropTarget={isDropTarget}
               onToggleExpanded={(expanded) =>
                 onToggleProject?.(project.id, expanded)
@@ -482,11 +437,6 @@ function ProjectsSectionComponent({
               }
               onOpenTerminal={
                 onOpenTerminal ? () => onOpenTerminal(project.id) : undefined
-              }
-              onStartDevServer={
-                !project.is_uncategorized && onStartDevServer
-                  ? () => onStartDevServer(project.id)
-                  : undefined
               }
               onDelete={
                 !project.is_uncategorized && onDeleteProject
@@ -519,141 +469,128 @@ function ProjectsSectionComponent({
                     isDropTarget ? "bg-accent/30 rounded" : ""
                   }`}
                 >
-                  {/* Dev servers for this project */}
-                  {projectDevServers.length > 0 && (
-                    <div className="space-y-px pb-0.5">
-                      {projectDevServers.map((server) => (
-                        <DevServerCard
-                          key={server.id}
-                          server={server}
-                          onStart={
-                            onRestartDevServer
-                              ? (id) => onRestartDevServer(id)
-                              : async () => {}
-                          }
-                          onStop={onStopDevServer || (async () => {})}
-                          onRestart={onRestartDevServer || (async () => {})}
-                          onRemove={onRemoveDevServer || (async () => {})}
-                          onViewLogs={
-                            onViewDevServerLogs
-                              ? (id) => onViewDevServerLogs(id)
-                              : () => {}
-                          }
-                        />
-                      ))}
-                    </div>
-                  )}
-
                   {/* Project sessions with sortable context */}
-                  <SortableContext
-                    items={projectSessions.map((s) => s.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {(() => {
-                      // Calculate if this is an inter-project drag targeting this project
-                      const activeSessionProjectId =
-                        activeSession?.project_id || "uncategorized";
-                      const isInterProjectDragToThisProject =
-                        activeId &&
-                        activeSessionProjectId !== project.id &&
-                        overProjectId === project.id;
+                  {(() => {
+                    // Calculate if this is an inter-project drag targeting this project
+                    const activeSessionProjectId =
+                      activeSession?.project_id || "uncategorized";
+                    const isInterProjectDrag =
+                      activeId && activeSessionProjectId !== project.id;
+                    const isInterProjectDragToThisProject =
+                      isInterProjectDrag && overProjectId === project.id;
 
-                      if (projectSessions.length === 0) {
-                        return <ProjectDropZone projectId={project.id} />;
-                      }
+                    // Only include end drop zone in sortable items during inter-project drags
+                    // For intra-project reordering, the sortable strategy handles end positioning
+                    const sortableItems = isInterProjectDrag
+                      ? [
+                          ...projectSessions.map((s) => s.id),
+                          `project-drop-${project.id}`,
+                        ]
+                      : projectSessions.map((s) => s.id);
 
+                    if (projectSessions.length === 0) {
                       return (
-                        <>
-                          {projectSessions.map((session) => {
-                            // Show drop indicator before this session when:
-                            // 1. This is an inter-project drag
-                            // 2. This session is being hovered over
-                            const showDropIndicator =
-                              isInterProjectDragToThisProject &&
-                              overId === session.id;
+                        <SortableContext
+                          items={[`project-drop-${project.id}`]}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          <ProjectDropZone projectId={project.id} />
+                        </SortableContext>
+                      );
+                    }
 
-                            return (
-                              <React.Fragment key={session.id}>
-                                {showDropIndicator && <DropIndicator />}
-                                <SortableSessionCard
-                                  session={session}
-                                  isRecentlyDropped={
-                                    session.id === recentlyDroppedId
-                                  }
-                                  isActive={session.id === activeSessionId}
-                                  isForking={isForkingSession}
-                                  tmuxStatus={
-                                    sessionStatuses?.[session.id]?.status
-                                  }
-                                  setupStatus={
-                                    sessionStatuses?.[session.id]?.setupStatus
-                                  }
-                                  setupError={
-                                    sessionStatuses?.[session.id]?.setupError
-                                  }
-                                  groups={groups}
-                                  projects={projects}
-                                  isSelected={selectedIds.has(session.id)}
-                                  isInSelectMode={isInSelectMode}
-                                  onToggleSelect={(shiftKey) =>
-                                    handleToggleSelect(session.id, shiftKey)
-                                  }
-                                  onClick={() => onSelectSession(session.id)}
-                                  onOpenInTab={
-                                    onOpenSessionInTab
-                                      ? () => onOpenSessionInTab(session.id)
-                                      : undefined
-                                  }
-                                  onMoveToProject={
-                                    onMoveSession
-                                      ? (projectId) =>
-                                          onMoveSession(session.id, projectId)
-                                      : undefined
-                                  }
-                                  onFork={
-                                    onForkSession
-                                      ? async (options) =>
-                                          onForkSession(session.id, options)
-                                      : undefined
-                                  }
-                                  onDelete={
-                                    onDeleteSession
-                                      ? () =>
-                                          onDeleteSession(
-                                            session.id,
-                                            session.name
-                                          )
-                                      : undefined
-                                  }
-                                  onRename={
-                                    onRenameSession
-                                      ? (newName) =>
-                                          onRenameSession(session.id, newName)
-                                      : undefined
-                                  }
-                                  onCreatePR={
-                                    onCreatePR
-                                      ? () => onCreatePR(session.id)
-                                      : undefined
-                                  }
-                                />
-                              </React.Fragment>
-                            );
-                          })}
-                          {/* Drop zone at end of list for adding to bottom */}
+                    return (
+                      <SortableContext
+                        items={sortableItems}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {projectSessions.map((session) => {
+                          // Show drop indicator before this session when:
+                          // 1. This is an inter-project drag
+                          // 2. This session is being hovered over
+                          const showDropIndicator =
+                            isInterProjectDragToThisProject &&
+                            overId === session.id;
+
+                          return (
+                            <React.Fragment key={session.id}>
+                              {showDropIndicator && <DropIndicator />}
+                              <SortableSessionCard
+                                session={session}
+                                isRecentlyDropped={
+                                  session.id === recentlyDroppedId
+                                }
+                                isActive={session.id === activeSessionId}
+                                isForking={isForkingSession}
+                                tmuxStatus={
+                                  sessionStatuses?.[session.id]?.status
+                                }
+                                setupStatus={
+                                  sessionStatuses?.[session.id]?.setupStatus
+                                }
+                                setupError={
+                                  sessionStatuses?.[session.id]?.setupError
+                                }
+                                lifecycleStatus={
+                                  sessionStatuses?.[session.id]?.lifecycleStatus
+                                }
+                                groups={groups}
+                                isSelected={selectedIds.has(session.id)}
+                                isInSelectMode={isInSelectMode}
+                                onToggleSelect={(shiftKey) =>
+                                  handleToggleSelect(session.id, shiftKey)
+                                }
+                                onClick={() => onSelectSession(session.id)}
+                                onOpenInTab={
+                                  onOpenSessionInTab
+                                    ? () => onOpenSessionInTab(session.id)
+                                    : undefined
+                                }
+                                onFork={
+                                  onForkSession
+                                    ? async (options) =>
+                                        onForkSession(session.id, options)
+                                    : undefined
+                                }
+                                onDelete={
+                                  onDeleteSession
+                                    ? () =>
+                                        onDeleteSession(
+                                          session.id,
+                                          session.name
+                                        )
+                                    : undefined
+                                }
+                                onRename={
+                                  onRenameSession
+                                    ? (newName) =>
+                                        onRenameSession(session.id, newName)
+                                    : undefined
+                                }
+                                onCreatePR={
+                                  onCreatePR
+                                    ? () => onCreatePR(session.id)
+                                    : undefined
+                                }
+                              />
+                            </React.Fragment>
+                          );
+                        })}
+                        {/* Drop zone at end of list - only during inter-project drags */}
+                        {isInterProjectDrag && (
                           <ProjectDropZone
                             projectId={project.id}
                             variant="end"
                           />
-                          {/* Show indicator at the end when dropping on project drop zone */}
-                          {isInterProjectDragToThisProject &&
-                            overId === `project-drop-${project.id}` && (
-                              <DropIndicator />
-                            )}
-                        </>
-                      );
-                    })()}
-                  </SortableContext>
+                        )}
+                        {/* Show indicator at the end when dropping on project drop zone */}
+                        {isInterProjectDragToThisProject &&
+                          overId === `project-drop-${project.id}` && (
+                            <DropIndicator />
+                          )}
+                      </SortableContext>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -669,7 +606,6 @@ function ProjectsSectionComponent({
               session={activeSession}
               isActive={false}
               groups={groups}
-              projects={projects}
               isSelected={false}
               isInSelectMode={false}
               onToggleSelect={() => {}}
