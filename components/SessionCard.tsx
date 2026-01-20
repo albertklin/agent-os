@@ -196,7 +196,8 @@ function SessionCardComponent({
       const input = inputRef.current;
       // Mark that we just started editing to ignore immediate blur
       justStartedEditingRef.current = true;
-      // Small timeout to ensure input is fully mounted
+      // Delay focus to allow Radix dropdown to complete its focus restoration
+      // (dropdown returns focus to trigger button after closing)
       setTimeout(() => {
         input.focus();
         input.select();
@@ -204,7 +205,7 @@ function SessionCardComponent({
         setTimeout(() => {
           justStartedEditingRef.current = false;
         }, 100);
-      }, 0);
+      }, 50);
     }
   }, [isEditing]);
 
