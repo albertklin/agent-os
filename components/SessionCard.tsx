@@ -350,13 +350,13 @@ function SessionCardComponent({
         "group flex w-full items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
         "min-h-[36px] md:min-h-0", // Compact touch target
         "cursor-pointer",
-        isSettingUp && "opacity-70",
+        (isSettingUp || isDeleting) && "opacity-70",
         setupFailed && "border border-red-500/30",
         isSelected
           ? "bg-primary/20"
           : isActive
             ? "bg-primary/10"
-            : isSettingUp
+            : isSettingUp || isDeleting
               ? "bg-muted/50"
               : "hover:bg-accent/50",
         status === "waiting" && !isActive && !isSelected && "bg-yellow-500/5"
@@ -383,7 +383,7 @@ function SessionCardComponent({
             <div
               className={cn(
                 "flex-shrink-0",
-                isSettingUp
+                isSettingUp || isDeleting
                   ? "text-blue-500"
                   : setupFailed
                     ? "text-red-500"
@@ -392,7 +392,7 @@ function SessionCardComponent({
                       : config.color
               )}
             >
-              {isSettingUp ? (
+              {isSettingUp || isDeleting ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : setupFailed ? (
                 <XCircle className="h-3 w-3" />
@@ -404,7 +404,9 @@ function SessionCardComponent({
             </div>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {setupConfig ? (
+            {isDeleting ? (
+              <span>Deleting session...</span>
+            ) : setupConfig ? (
               <div className="flex flex-col gap-1">
                 <span>{setupConfig.label}</span>
                 {setupError && (
@@ -574,8 +576,15 @@ function SessionCardComponent({
         </span>
       )}
 
-      {/* Time ago - hide when setting up */}
-      {!setupConfig && (
+      {/* Deleting status badge */}
+      {isDeleting && (
+        <span className="flex flex-shrink-0 items-center gap-0.5 rounded bg-blue-500/20 px-1 text-[10px] text-blue-400">
+          Deleting
+        </span>
+      )}
+
+      {/* Time ago - hide when setting up or deleting */}
+      {!setupConfig && !isDeleting && (
         <span className="text-muted-foreground hidden flex-shrink-0 text-[10px] group-hover:hidden sm:block">
           {timeAgo}
         </span>
