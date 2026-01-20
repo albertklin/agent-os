@@ -29,6 +29,7 @@ npm run format       # Format with Prettier
 
 ## Gotchas
 
+- **Tailscale is required** - The server binds ONLY to the Tailscale interface for security. It will refuse to start if Tailscale is not running. Run `tailscale up` before starting the server.
 - **Docker is required** - The server requires Docker for sandboxed sessions. Ensure Docker is running and your user is in the `docker` group.
 - **Worktrees need their own node_modules** - Run `npm install --legacy-peer-deps` when starting work in a new worktree
 - Use `npm run typecheck` not `npx tsc` - the latter fails with a misleading error

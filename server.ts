@@ -11,10 +11,29 @@ import {
   fixOrphanedAutoApproveSessions,
 } from "./lib/db/validation";
 import { sessionManager } from "./lib/session-manager";
+import { getTailscaleIP } from "./lib/tailscale";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = "0.0.0.0";
 const port = parseInt(process.env.PORT || "3011", 10);
+
+// Require Tailscale - server only binds to Tailscale interface
+const tailscaleIP = getTailscaleIP();
+if (!tailscaleIP) {
+  console.error("");
+  console.error("ERROR: Tailscale is required but not available.");
+  console.error("");
+  console.error(
+    "Agent-OS only accepts connections from your Tailscale network."
+  );
+  console.error("Please ensure Tailscale is installed and connected:");
+  console.error("  - Install Tailscale: https://tailscale.com/download");
+  console.error("  - Run: tailscale up");
+  console.error("  - Verify with: tailscale ip -4");
+  console.error("");
+  process.exit(1);
+}
+
+const hostname = tailscaleIP;
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
@@ -333,8 +352,10 @@ app.prepare().then(async () => {
     }
   }
 
-  server.listen(port, () => {
-    console.log(`> Agent-OS ready on http://${hostname}:${port}`);
+  server.listen(port, hostname, () => {
+    console.log(
+      `> Agent-OS ready on http://${hostname}:${port} (Tailscale only)`
+    );
   });
 
   // Graceful shutdown handler
