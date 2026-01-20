@@ -25,6 +25,7 @@ export interface WorktreeStatus {
 
 export interface DeleteOptions {
   mergeInto?: string;
+  discardUncommittedChanges?: boolean;
 }
 
 interface DeleteSessionDialogProps {
@@ -49,6 +50,7 @@ export function DeleteSessionDialog({
   const [deleting, setDeleting] = useState(false);
   const [mergeOption, setMergeOption] = useState<"keep" | "merge">("keep");
   const [mergeBranch, setMergeBranch] = useState<string>("");
+  const [discardChanges, setDiscardChanges] = useState(false);
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -59,6 +61,7 @@ export function DeleteSessionDialog({
       setError(null);
       setMergeOption("keep");
       setMergeBranch("");
+      setDiscardChanges(false);
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -97,19 +100,28 @@ export function DeleteSessionDialog({
   const handleConfirm = async () => {
     setDeleting(true);
     const options: DeleteOptions =
-      mergeOption === "merge" && mergeBranch ? { mergeInto: mergeBranch } : {};
+      mergeOption === "merge" && mergeBranch
+        ? {
+            mergeInto: mergeBranch,
+            discardUncommittedChanges: status?.hasUncommittedChanges
+              ? discardChanges
+              : undefined,
+          }
+        : {};
     onConfirm(options);
   };
 
   const hasSiblings = (status?.siblingSessionNames?.length ?? 0) > 0;
-  const requiresAcknowledgment =
-    (status?.hasUncommittedChanges && !hasSiblings) ?? false;
-  const canDelete = !requiresAcknowledgment || acknowledged;
+  const hasUncommitted = status?.hasUncommittedChanges && !hasSiblings;
+  // When merging with uncommitted changes, the user must check the discard checkbox
+  // Otherwise, for plain delete with uncommitted changes, they must acknowledge the loss
+  const canDelete =
+    !hasUncommitted || // No uncommitted changes or has siblings
+    (mergeOption !== "merge" && acknowledged) || // Not merging but acknowledged
+    (mergeOption === "merge" && discardChanges); // Merging with discard confirmed
+  // Allow merge when there are commits, even with uncommitted changes (user can discard them)
   const canMerge =
-    status?.hasWorktree &&
-    status?.commitCount > 0 &&
-    !hasSiblings &&
-    !status?.hasUncommittedChanges;
+    status?.hasWorktree && status?.commitCount > 0 && !hasSiblings;
 
   return (
     <ADialog
@@ -235,38 +247,51 @@ export function DeleteSessionDialog({
                   <code className="bg-muted rounded px-1">{mergeBranch}</code>
                 </p>
               )}
-            </div>
-          )}
-
-          {/* Uncommitted changes warning with checkbox - only show when worktree will be deleted */}
-          {status?.hasUncommittedChanges && !hasSiblings && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-amber-200">
-                    This session has uncommitted changes that will be lost!
-                  </p>
-                  {status?.commitCount > 0 && (
-                    <p className="text-xs text-amber-200/70">
-                      Merge option disabled - commit your changes first
-                    </p>
-                  )}
+              {/* Show discard option when merging with uncommitted changes */}
+              {mergeOption === "merge" && status?.hasUncommittedChanges && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
                   <label className="flex cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={acknowledged}
-                      onChange={(e) => setAcknowledged(e.target.checked)}
+                      checked={discardChanges}
+                      onChange={(e) => setDiscardChanges(e.target.checked)}
                       className="h-4 w-4 rounded border-amber-500/50 bg-transparent accent-amber-500"
                     />
-                    <span className="text-sm text-amber-200/80">
-                      I understand my changes will be lost
+                    <span className="text-sm text-amber-200">
+                      Discard uncommitted changes before merge
                     </span>
                   </label>
                 </div>
-              </div>
+              )}
             </div>
           )}
+
+          {/* Uncommitted changes warning with checkbox - only show when not merging */}
+          {status?.hasUncommittedChanges &&
+            !hasSiblings &&
+            mergeOption !== "merge" && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-amber-200">
+                      This session has uncommitted changes that will be lost!
+                    </p>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={acknowledged}
+                        onChange={(e) => setAcknowledged(e.target.checked)}
+                        className="h-4 w-4 rounded border-amber-500/50 bg-transparent accent-amber-500"
+                      />
+                      <span className="text-sm text-amber-200/80">
+                        I understand my changes will be lost
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
 
           {/* Final confirmation text */}
           <p className="text-muted-foreground text-sm">

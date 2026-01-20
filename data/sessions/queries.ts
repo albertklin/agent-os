@@ -36,6 +36,7 @@ interface DeleteSessionResponse {
 
 export interface DeleteSessionOptions {
   mergeInto?: string;
+  discardUncommittedChanges?: boolean;
 }
 
 export function useDeleteSession() {
@@ -49,13 +50,15 @@ export function useDeleteSession() {
       sessionId: string;
       options?: DeleteSessionOptions;
     }): Promise<DeleteSessionResponse> => {
+      const hasBody = options?.mergeInto || options?.discardUncommittedChanges;
       const res = await fetch(`/api/sessions/${sessionId}`, {
         method: "DELETE",
-        headers: options?.mergeInto
-          ? { "Content-Type": "application/json" }
-          : undefined,
-        body: options?.mergeInto
-          ? JSON.stringify({ mergeInto: options.mergeInto })
+        headers: hasBody ? { "Content-Type": "application/json" } : undefined,
+        body: hasBody
+          ? JSON.stringify({
+              mergeInto: options?.mergeInto,
+              discardUncommittedChanges: options?.discardUncommittedChanges,
+            })
           : undefined,
       });
       const data = await res.json();
