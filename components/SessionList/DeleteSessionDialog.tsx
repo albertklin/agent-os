@@ -196,38 +196,50 @@ export function DeleteSessionDialog({
           {canMerge && status?.branches && status.branches.length > 0 && (
             <div className="border-border/50 bg-muted/30 space-y-3 rounded-lg border p-3">
               <div className="space-y-2">
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="radio"
-                    name="mergeOption"
-                    checked={mergeOption === "merge"}
-                    onChange={() => setMergeOption("merge")}
-                    className="h-4 w-4"
-                  />
-                  <span className="text-sm">Merge into:</span>
-                  <Select
-                    value={mergeBranch}
-                    onValueChange={(value) => {
-                      setMergeBranch(value);
-                      setMergeOption("merge");
-                    }}
-                    disabled={deleting}
-                  >
-                    <SelectTrigger className="h-7 w-32">
-                      <SelectValue placeholder="Select branch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {status.branches
-                        .filter((b) => b !== status.branchName)
-                        .map((branch) => (
-                          <SelectItem key={branch} value={branch}>
-                            {branch}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  <span className="text-sm">then delete branch</span>
-                </label>
+                <div className="space-y-1">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="mergeOption"
+                      checked={mergeOption === "merge"}
+                      onChange={() => setMergeOption("merge")}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm">Merge into:</span>
+                    <Select
+                      value={mergeBranch}
+                      onValueChange={(value) => {
+                        setMergeBranch(value);
+                        setMergeOption("merge");
+                      }}
+                      disabled={deleting}
+                    >
+                      <SelectTrigger className="h-7 w-32">
+                        <SelectValue placeholder="Select branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {status.branches
+                          .filter((b) => b !== status.branchName)
+                          .map((branch) => (
+                            <SelectItem key={branch} value={branch}>
+                              {branch}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-sm">then delete branch</span>
+                  </label>
+                  {mergeOption === "merge" && (
+                    <p className="text-muted-foreground ml-6 flex items-center gap-1.5 text-xs">
+                      <GitMerge className="h-3 w-3" />
+                      {status.commitCount} commit
+                      {status.commitCount !== 1 ? "s" : ""} will be merged into{" "}
+                      <code className="bg-muted rounded px-1">
+                        {mergeBranch}
+                      </code>
+                    </p>
+                  )}
+                </div>
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="radio"
@@ -239,14 +251,6 @@ export function DeleteSessionDialog({
                   <span className="text-sm">Just delete (keep branch)</span>
                 </label>
               </div>
-              {mergeOption === "merge" && (
-                <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                  <GitMerge className="h-3 w-3" />
-                  {status.commitCount} commit
-                  {status.commitCount !== 1 ? "s" : ""} will be merged into{" "}
-                  <code className="bg-muted rounded px-1">{mergeBranch}</code>
-                </p>
-              )}
               {/* Show discard option when merging with uncommitted changes */}
               {mergeOption === "merge" && status?.hasUncommittedChanges && (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
