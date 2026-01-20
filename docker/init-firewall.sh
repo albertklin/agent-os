@@ -37,6 +37,16 @@ iptables -A INPUT -p tcp --sport 22 -m state --state ESTABLISHED -j ACCEPT
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
+# Allow traffic to Docker host on port 3011 only (for AgentOS status updates)
+# Resolve host.docker.internal to get the host gateway IP
+HOST_IP=$(getent hosts host.docker.internal | awk '{print $1}')
+if [ -n "$HOST_IP" ]; then
+    echo "Allowing traffic to Docker host at $HOST_IP:3011"
+    iptables -A OUTPUT -d "$HOST_IP" -p tcp --dport 3011 -j ACCEPT
+else
+    echo "WARNING: Could not resolve host.docker.internal - status updates to host may fail"
+fi
+
 # Create ipset with CIDR support
 ipset create allowed-domains hash:net
 
