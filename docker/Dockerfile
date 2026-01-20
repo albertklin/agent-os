@@ -93,4 +93,9 @@ RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 COPY init-firewall.sh /usr/local/bin/
 USER root
 RUN chmod +x /usr/local/bin/init-firewall.sh
+
+# Copy tmux configuration for proper terminal behavior
+COPY tmux.conf /home/node/.tmux.conf
+RUN chown node:node /home/node/.tmux.conf
+
 USER node

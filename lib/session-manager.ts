@@ -122,6 +122,7 @@ class SessionManager {
     let tmuxCmd: string;
     if (isSandboxed) {
       // Create tmux session inside the container
+      // Container has .tmux.conf with mouse/resize settings
       if (agentCommand) {
         tmuxCmd = `docker exec -d ${session.container_id} tmux new-session -d -s "${tmuxName}" -c "${cwd}" "${agentCommand}"`;
       } else {
