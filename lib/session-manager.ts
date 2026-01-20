@@ -19,7 +19,7 @@ import {
   destroyContainer,
   isContainerRunning,
 } from "./container";
-import { deleteWorktree } from "./worktrees";
+import { deleteWorktree, getMainRepoFromWorktree } from "./worktrees";
 import { statusBroadcaster } from "./status-broadcaster";
 
 const execAsync = promisify(exec);
@@ -167,6 +167,8 @@ class SessionManager {
    * This includes:
    * - Killing the tmux session
    * - Destroying the container (if any)
+   * - Deleting the worktree (if any)
+   * - Clearing status broadcaster state
    * - Deleting from database
    */
   async deleteSession(sessionId: string): Promise<void> {
@@ -177,6 +179,18 @@ class SessionManager {
       );
       return;
     }
+
+    // Race condition guard - prevent concurrent deletes
+    if (session.lifecycle_status === "deleting") {
+      console.warn(
+        `[session-manager] Session ${sessionId} already being deleted`
+      );
+      return;
+    }
+
+    // Mark as deleting FIRST to prevent concurrent deletes
+    const db = getDb();
+    queries.updateSessionLifecycleStatus(db).run("deleting", sessionId);
 
     const tmuxName = getTmuxSessionName(session);
     const isSandboxed =
@@ -215,12 +229,40 @@ class SessionManager {
           `[session-manager] Failed to destroy container ${session.container_id}:`,
           error
         );
-        // Continue with database deletion even if container cleanup fails
+        // Continue with deletion even if container cleanup fails
       }
     }
 
+    // Clean up worktree if present
+    if (session.worktree_path) {
+      try {
+        // Derive the main repo path from the worktree itself
+        const mainRepoPath = await getMainRepoFromWorktree(
+          session.worktree_path
+        );
+        if (mainRepoPath) {
+          await deleteWorktree(session.worktree_path, mainRepoPath, false);
+          console.log(
+            `[session-manager] Deleted worktree ${session.worktree_path}`
+          );
+        } else {
+          console.warn(
+            `[session-manager] Could not determine main repo for worktree ${session.worktree_path}, skipping cleanup`
+          );
+        }
+      } catch (error) {
+        console.error(
+          `[session-manager] Failed to delete worktree ${session.worktree_path}:`,
+          error
+        );
+        // Continue with deletion even if worktree cleanup fails
+      }
+    }
+
+    // Clear status broadcaster state
+    statusBroadcaster.clearStatus(sessionId);
+
     // Delete from database
-    const db = getDb();
     queries.deleteSession(db).run(sessionId);
     console.log(`[session-manager] Deleted session ${sessionId} from database`);
   }
@@ -316,18 +358,19 @@ class SessionManager {
       }
 
       // Clean up worktree if present
-      if (session.worktree_path && session.project_id) {
+      if (session.worktree_path) {
         try {
-          const project = queries.getProject(db).get(session.project_id) as
-            | { working_directory: string }
-            | undefined;
-          if (project?.working_directory) {
-            await deleteWorktree(
-              session.worktree_path,
-              project.working_directory
-            );
+          const mainRepoPath = await getMainRepoFromWorktree(
+            session.worktree_path
+          );
+          if (mainRepoPath) {
+            await deleteWorktree(session.worktree_path, mainRepoPath);
             console.log(
               `[session-manager] Deleted orphaned worktree ${session.worktree_path} for deleting session ${session.id}`
+            );
+          } else {
+            console.warn(
+              `[session-manager] Could not determine main repo for worktree ${session.worktree_path}, skipping cleanup for deleting session ${session.id}`
             );
           }
         } catch (error) {
@@ -388,19 +431,19 @@ class SessionManager {
       }
 
       // Clean up any orphaned worktree
-      if (session.worktree_path && session.project_id) {
+      if (session.worktree_path) {
         try {
-          // Get project to find the main repo path
-          const project = queries.getProject(db).get(session.project_id) as
-            | { working_directory: string }
-            | undefined;
-          if (project?.working_directory) {
-            await deleteWorktree(
-              session.worktree_path,
-              project.working_directory
-            );
+          const mainRepoPath = await getMainRepoFromWorktree(
+            session.worktree_path
+          );
+          if (mainRepoPath) {
+            await deleteWorktree(session.worktree_path, mainRepoPath);
             console.log(
               `[session-manager] Deleted orphaned worktree ${session.worktree_path} for stuck session ${session.id}`
+            );
+          } else {
+            console.warn(
+              `[session-manager] Could not determine main repo for worktree ${session.worktree_path}, skipping cleanup for stuck session ${session.id}`
             );
           }
         } catch (error) {
@@ -460,6 +503,30 @@ class SessionManager {
           } catch (error) {
             console.error(
               `[session-manager] Failed to destroy orphaned container ${session.container_id}:`,
+              error
+            );
+          }
+        }
+
+        // Clean up orphaned worktree if present
+        if (session.worktree_path) {
+          try {
+            const mainRepoPath = await getMainRepoFromWorktree(
+              session.worktree_path
+            );
+            if (mainRepoPath) {
+              await deleteWorktree(session.worktree_path, mainRepoPath);
+              console.log(
+                `[session-manager] Deleted orphaned worktree ${session.worktree_path} for dead session ${session.id}`
+              );
+            } else {
+              console.warn(
+                `[session-manager] Could not determine main repo for worktree ${session.worktree_path}, skipping cleanup for dead session ${session.id}`
+              );
+            }
+          } catch (error) {
+            console.error(
+              `[session-manager] Failed to delete orphaned worktree ${session.worktree_path}:`,
               error
             );
           }

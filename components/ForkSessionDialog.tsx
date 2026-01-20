@@ -12,7 +12,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { GitBranch, Loader2 } from "lucide-react";
+import { generateFeatureName } from "@/components/NewSessionDialog/NewSessionDialog.types";
 
 export interface ForkOptions {
   useWorktree: boolean;
@@ -23,6 +31,8 @@ export interface ForkOptions {
 interface ForkSessionDialogProps {
   sessionId: string;
   sessionName: string;
+  workingDirectory: string;
+  currentBranch?: string | null;
   defaultBaseBranch?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -33,6 +43,8 @@ interface ForkSessionDialogProps {
 export function ForkSessionDialog({
   sessionId,
   sessionName,
+  workingDirectory,
+  currentBranch,
   defaultBaseBranch = "main",
   open,
   onOpenChange,
@@ -41,16 +53,40 @@ export function ForkSessionDialog({
 }: ForkSessionDialogProps) {
   const [useWorktree, setUseWorktree] = useState(false);
   const [featureName, setFeatureName] = useState("");
-  const [baseBranch, setBaseBranch] = useState(defaultBaseBranch);
+  const [baseBranch, setBaseBranch] = useState(
+    currentBranch || defaultBaseBranch
+  );
+  const [branches, setBranches] = useState<string[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
+
+  // Fetch branches when dialog opens
+  useEffect(() => {
+    if (open && workingDirectory) {
+      setLoadingBranches(true);
+      fetch("/api/git/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: workingDirectory }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.branches && data.branches.length > 0) {
+            setBranches(data.branches);
+          }
+        })
+        .catch(console.error)
+        .finally(() => setLoadingBranches(false));
+    }
+  }, [open, workingDirectory]);
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       setUseWorktree(false);
       setFeatureName("");
-      setBaseBranch(defaultBaseBranch);
+      setBaseBranch(currentBranch || defaultBaseBranch);
     }
-  }, [open, defaultBaseBranch]);
+  }, [open, currentBranch, defaultBaseBranch]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,7 +139,13 @@ export function ForkSessionDialog({
             <Switch
               id="use-worktree"
               checked={useWorktree}
-              onCheckedChange={setUseWorktree}
+              onCheckedChange={(checked) => {
+                setUseWorktree(checked);
+                // Auto-populate feature name when enabling worktree
+                if (checked && !featureName) {
+                  setFeatureName(generateFeatureName());
+                }
+              }}
             />
           </div>
 
@@ -133,12 +175,26 @@ export function ForkSessionDialog({
                 <label htmlFor="base-branch" className="text-sm font-medium">
                   Base branch
                 </label>
-                <Input
-                  id="base-branch"
-                  value={baseBranch}
-                  onChange={(e) => setBaseBranch(e.target.value)}
-                  placeholder="main"
-                />
+                <Select value={baseBranch} onValueChange={setBaseBranch}>
+                  <SelectTrigger id="base-branch">
+                    <SelectValue placeholder="Select branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {loadingBranches ? (
+                      <SelectItem value="_loading" disabled>
+                        Loading branches...
+                      </SelectItem>
+                    ) : branches.length > 0 ? (
+                      branches.map((branch) => (
+                        <SelectItem key={branch} value={branch}>
+                          {branch}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value={baseBranch}>{baseBranch}</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
                 <p className="text-muted-foreground text-xs">
                   Branch to create the worktree from
                 </p>

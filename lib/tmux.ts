@@ -80,8 +80,16 @@ export async function killTmuxSession(
     } else {
       await exec(`tmux kill-session -t ${escapeShellArg(name)}`);
     }
-  } catch {
-    // Ignore errors (session may not exist)
+  } catch (error) {
+    // Log at debug level - session may not exist which is expected
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    // Only log if it's not the expected "session not found" error
+    if (
+      !msg.includes("session not found") &&
+      !msg.includes("no server running")
+    ) {
+      console.warn(`[tmux] Failed to kill session ${name}:`, msg);
+    }
   }
 }
 

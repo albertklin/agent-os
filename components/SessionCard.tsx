@@ -221,13 +221,6 @@ function SessionCardComponent({
   const handleCardClick = (e: React.MouseEvent) => {
     if (isEditing) return;
 
-    // Don't allow clicking if session is still setting up
-    if (isSettingUp) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-
     // If in select mode (any items selected), any click toggles selection
     if (isInSelectMode && onToggleSelect) {
       e.preventDefault();
@@ -352,7 +345,8 @@ function SessionCardComponent({
       className={cn(
         "group flex w-full items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
         "min-h-[36px] md:min-h-0", // Compact touch target
-        isSettingUp ? "cursor-wait opacity-70" : "cursor-pointer",
+        "cursor-pointer",
+        isSettingUp && "opacity-70",
         setupFailed && "border border-red-500/30",
         isSelected
           ? "bg-primary/20"
@@ -598,6 +592,8 @@ function SessionCardComponent({
     <ForkSessionDialog
       sessionId={session.id}
       sessionName={session.name}
+      workingDirectory={session.worktree_path || session.working_directory}
+      currentBranch={session.branch_name}
       defaultBaseBranch={session.base_branch || "main"}
       open={forkDialogOpen}
       onOpenChange={setForkDialogOpen}

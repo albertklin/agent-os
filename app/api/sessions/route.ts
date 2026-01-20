@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb, queries, type Session, type Group } from "@/lib/db";
-import { isValidAgentType, type AgentType } from "@/lib/providers";
+import { isValidAgentType, type AgentType, getProvider } from "@/lib/providers";
 import { runSessionSetup } from "@/lib/session-setup";
 // Note: Global Claude hooks are configured at server startup (see server.ts)
 import { isGitRepo } from "@/lib/git";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
+import { sessionManager } from "@/lib/session-manager";
+import { buildAgentCommand } from "@/lib/sessions";
 
 // GET /api/sessions - List all sessions and groups
 export async function GET() {
@@ -82,8 +84,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error:
-              "Sandboxed (auto-approve) sessions require an isolated worktree. " +
-              "Please provide useWorktree: true and a featureName.",
+              "Skipping permissions requires an isolated worktree. " +
+              "Please enable 'Isolated worktree' and provide a feature name.",
           },
           { status: 400 }
         );
@@ -98,8 +100,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error:
-              "Sandboxed sessions require a git repository (for worktree isolation). " +
-              "The specified working directory is not a git repository.",
+              "Skipping permissions requires a git repository for worktree isolation. " +
+              "The selected directory is not a git repository.",
           },
           { status: 400 }
         );
@@ -152,6 +154,7 @@ export async function POST(request: NextRequest) {
         projectPath: workingDirectory,
         featureName: featureName.trim(),
         baseBranch: baseBranch || "main", // Handle null from frontend
+        initialPrompt: initialPrompt?.trim() || undefined,
       }).catch((error) => {
         console.error(
           `[session-setup] Unhandled error for session ${id}:`,
@@ -159,14 +162,32 @@ export async function POST(request: NextRequest) {
         );
       });
     } else {
-      // Non-worktree sessions are ready immediately
-      queries.updateSessionLifecycleStatus(db).run("ready", id);
-      // Broadcast lifecycle change via SSE
-      statusBroadcaster.updateStatus({
-        sessionId: id,
-        status: "idle",
-        lifecycleStatus: "ready",
-      });
+      // Non-worktree sessions need their tmux session created before they're ready
+      // startTmuxSession creates the tmux session and sets lifecycle_status to 'ready'
+      try {
+        const agentCommand = buildAgentCommand(agentType, {
+          model,
+          autoApprove,
+          initialPrompt,
+        });
+        await sessionManager.startTmuxSession(id, agentCommand);
+      } catch (error) {
+        console.error(
+          `[sessions] Failed to start tmux session for ${id}:`,
+          error
+        );
+        // Mark session as failed if tmux creation fails
+        queries.updateSessionLifecycleStatus(db).run("failed", id);
+        statusBroadcaster.updateStatus({
+          sessionId: id,
+          status: "idle",
+          lifecycleStatus: "failed",
+        });
+        return NextResponse.json(
+          { error: "Failed to start terminal session" },
+          { status: 500 }
+        );
+      }
     }
 
     // Set claude_session_id if provided (for importing external sessions)

@@ -180,7 +180,9 @@ export function DesktopTabBar({
       ref={setDroppableRef}
       className={cn(
         "flex items-center gap-1 overflow-x-auto px-1 pt-1 transition-colors",
-        isFocused ? "bg-muted" : "bg-muted/50",
+        isFocused
+          ? "bg-muted border-primary/50 border-b-2"
+          : "bg-muted/50 border-b-2 border-transparent",
         (isDraggingOverThis || isOver) && "ring-primary/50 ring-2 ring-inset"
       )}
     >
@@ -197,7 +199,7 @@ export function DesktopTabBar({
               tab={tab}
               isActive={tab.id === activeTabId}
               tabName={getTabName(tab)}
-              canClose={tabs.length > 1}
+              canClose={true}
               onSwitch={() => onTabSwitch(tab.id)}
               onClose={() => onTabClose(tab.id)}
             />

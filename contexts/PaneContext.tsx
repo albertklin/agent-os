@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from "react";
 import {
@@ -92,11 +93,25 @@ export function PaneProvider({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
-  // Persist state changes to localStorage (only after hydration)
+  // Persist state changes to localStorage with debouncing (only after hydration)
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
     if (hydrated) {
-      savePaneState(state);
+      // Clear any pending save
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      // Debounce localStorage writes to avoid blocking UI
+      saveTimeoutRef.current = setTimeout(() => {
+        savePaneState(state);
+      }, 500);
     }
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+    };
   }, [state, hydrated]);
 
   const focusPane = useCallback((paneId: string) => {
@@ -150,8 +165,33 @@ export function PaneProvider({ children }: { children: ReactNode }) {
   const closeTab = useCallback((paneId: string, tabId: string) => {
     setState((prev) => {
       const pane = prev.panes[paneId];
-      if (!pane || pane.tabs.length <= 1) return prev; // Keep at least one tab
+      if (!pane) return prev;
 
+      // If this is the last tab in the pane
+      if (pane.tabs.length <= 1) {
+        const paneCount = countPanes(prev.layout);
+
+        // If there are multiple panes, close this pane
+        if (paneCount > 1) {
+          const newState = closePane(prev, paneId);
+          return newState || prev;
+        }
+
+        // If this is the only pane, replace with a placeholder tab
+        const newTab = createTab();
+        return {
+          ...prev,
+          panes: {
+            ...prev.panes,
+            [paneId]: {
+              tabs: [newTab],
+              activeTabId: newTab.id,
+            },
+          },
+        };
+      }
+
+      // Multiple tabs - just remove this one
       const newTabs = pane.tabs.filter((t) => t.id !== tabId);
       const newActiveTabId =
         pane.activeTabId === tabId ? newTabs[0].id : pane.activeTabId;

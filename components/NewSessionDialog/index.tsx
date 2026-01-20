@@ -128,7 +128,7 @@ export function NewSessionDialog({
               <WorktreeSection
                 gitInfo={form.gitInfo}
                 featureName={form.featureName}
-                onFeatureNameChange={form.setFeatureName}
+                onFeatureNameChange={form.handleFeatureNameChange}
                 baseBranch={form.baseBranch}
                 onBaseBranchChange={form.setBaseBranch}
               />

@@ -128,10 +128,10 @@ class StatusBroadcaster {
   subscribe(callback: SSECallback): void {
     this.subscribers.add(callback);
 
-    // Start intervals if this is the first subscriber
+    // Start heartbeat if this is the first subscriber
+    // (cleanup is already running from constructor)
     if (this.subscribers.size === 1) {
       this.startHeartbeat();
-      this.startCleanup();
     }
   }
 
@@ -141,10 +141,9 @@ class StatusBroadcaster {
   unsubscribe(callback: SSECallback): void {
     this.subscribers.delete(callback);
 
-    // Stop intervals if no more subscribers
+    // Stop heartbeat if no more subscribers (cleanup keeps running to prevent memory growth)
     if (this.subscribers.size === 0) {
       this.stopHeartbeat();
-      this.stopCleanup();
     }
   }
 
@@ -213,6 +212,16 @@ class StatusBroadcaster {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
+  }
+
+  /**
+   * Shutdown the broadcaster - stop all intervals.
+   * Call this during graceful server shutdown.
+   */
+  shutdown(): void {
+    this.stopHeartbeat();
+    this.stopCleanup();
+    console.log("[status-broadcaster] Shutdown complete");
   }
 
   /**

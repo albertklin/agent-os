@@ -73,6 +73,7 @@ export function useNewSessionForm({
   // Worktree state
   const [useWorktree, setUseWorktree] = useState(false);
   const [featureName, setFeatureName] = useState("");
+  const [featureNameDirty, setFeatureNameDirty] = useState(false); // Track manual edits
   const [baseBranch, setBaseBranch] = useState("main");
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [checkingGit, setCheckingGit] = useState(false);
@@ -119,15 +120,18 @@ export function useNewSessionForm({
         setUseWorktree(
           savedUseWorktree !== null ? savedUseWorktree === "true" : true
         );
-        setFeatureName(generateFeatureName());
+        // Feature name will be synced to session name via effect
+        setFeatureNameDirty(false);
       } else {
         setUseWorktree(false);
         setFeatureName("");
+        setFeatureNameDirty(false);
       }
     } catch {
       setGitInfo(null);
       setUseWorktree(false);
       setFeatureName("");
+      setFeatureNameDirty(false);
     } finally {
       setCheckingGit(false);
     }
@@ -140,6 +144,13 @@ export function useNewSessionForm({
     }, 500);
     return () => clearTimeout(timer);
   }, [workingDirectory, checkGitRepo]);
+
+  // Sync feature name to session name (unless manually edited)
+  useEffect(() => {
+    if (useWorktree && !featureNameDirty) {
+      setFeatureName(name);
+    }
+  }, [name, useWorktree, featureNameDirty]);
 
   // Load preferences from localStorage
   useEffect(() => {
@@ -226,6 +237,11 @@ export function useNewSessionForm({
     localStorage.setItem(USE_WORKTREE_KEY, String(checked));
   };
 
+  const handleFeatureNameChange = (value: string) => {
+    setFeatureName(value);
+    setFeatureNameDirty(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     createSession.reset(); // Clear any previous errors
@@ -278,6 +294,7 @@ export function useNewSessionForm({
     setProjectId(null);
     setUseWorktree(false);
     setFeatureName("");
+    setFeatureNameDirty(false);
     setBaseBranch("main");
     setInitialPrompt("");
     setCreationStep("creating");
@@ -305,7 +322,7 @@ export function useNewSessionForm({
     useWorktree,
     handleUseWorktreeChange,
     featureName,
-    setFeatureName,
+    handleFeatureNameChange,
     baseBranch,
     setBaseBranch,
     gitInfo,

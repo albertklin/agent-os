@@ -49,6 +49,53 @@ function resolvePath(p: string): string {
 }
 
 /**
+ * Get the main repository path from a worktree path.
+ * Uses `git rev-parse --git-common-dir` to find the main repo's .git directory,
+ * then derives the repo path from that.
+ * Returns null if the path is not a valid worktree or git repo.
+ */
+export async function getMainRepoFromWorktree(
+  worktreePath: string
+): Promise<string | null> {
+  const resolved = resolvePath(worktreePath);
+  if (!fs.existsSync(resolved)) {
+    return null;
+  }
+
+  try {
+    // Get the absolute path to the main repo's .git directory
+    const { stdout } = await execAsync(
+      `git -C "${resolved}" rev-parse --path-format=absolute --git-common-dir`,
+      { timeout: 5000 }
+    );
+    const gitCommonDir = path.normalize(stdout.trim());
+
+    // gitCommonDir is the .git directory of the main repo (e.g., /path/to/repo/.git)
+    // The repo path is its parent directory
+    if (gitCommonDir.endsWith(".git")) {
+      return path.dirname(gitCommonDir);
+    }
+
+    // Handle edge case: if path contains .git as a directory component
+    // (e.g., /path/to/repo/.git/worktrees/foo), find the .git directory
+    const parts = gitCommonDir.split(path.sep);
+    const gitIndex = parts.lastIndexOf(".git");
+    if (gitIndex !== -1) {
+      return parts.slice(0, gitIndex).join(path.sep);
+    }
+
+    return null;
+  } catch (error) {
+    // Log for debugging but don't throw - caller handles null
+    console.debug(
+      `[worktrees] Failed to get main repo from ${worktreePath}:`,
+      error instanceof Error ? error.message : "Unknown error"
+    );
+    return null;
+  }
+}
+
+/**
  * Generate a unique worktree directory name
  */
 function generateWorktreeDirName(
@@ -164,8 +211,12 @@ export async function deleteWorktree(
       `git -C "${resolvedProjectPath}" worktree remove "${resolvedWorktreePath}" --force`,
       { timeout: 30000 }
     );
-  } catch {
+  } catch (error) {
     // If git worktree remove fails, try manual cleanup
+    console.warn(
+      `[worktrees] git worktree remove failed, attempting manual cleanup:`,
+      error instanceof Error ? error.message : "Unknown error"
+    );
     if (fs.existsSync(resolvedWorktreePath)) {
       await fs.promises.rm(resolvedWorktreePath, {
         recursive: true,
@@ -177,8 +228,11 @@ export async function deleteWorktree(
       await execAsync(`git -C "${resolvedProjectPath}" worktree prune`, {
         timeout: 10000,
       });
-    } catch {
-      // Ignore prune errors
+    } catch (pruneError) {
+      console.warn(
+        `[worktrees] git worktree prune failed:`,
+        pruneError instanceof Error ? pruneError.message : "Unknown error"
+      );
     }
   }
 
@@ -194,8 +248,11 @@ export async function deleteWorktree(
         `git -C "${resolvedProjectPath}" branch -D "${branchName}"`,
         { timeout: 10000 }
       );
-    } catch {
-      // Ignore branch deletion errors (might be merged or checked out elsewhere)
+    } catch (error) {
+      console.warn(
+        `[worktrees] Branch deletion failed for ${branchName}:`,
+        error instanceof Error ? error.message : "Unknown error"
+      );
     }
   }
 }

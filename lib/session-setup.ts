@@ -24,6 +24,7 @@ import {
   logSecurityEvent,
 } from "@/lib/container";
 import { sessionManager } from "@/lib/session-manager";
+import { buildAgentCommand } from "@/lib/sessions";
 
 const execAsync = promisify(exec);
 
@@ -32,6 +33,7 @@ export interface SessionSetupOptions {
   projectPath: string;
   featureName: string;
   baseBranch: string;
+  initialPrompt?: string;
 }
 
 /**
@@ -96,7 +98,8 @@ function updateSetupStatus(
 export async function runSessionSetup(
   options: SessionSetupOptions
 ): Promise<void> {
-  const { sessionId, projectPath, featureName, baseBranch } = options;
+  const { sessionId, projectPath, featureName, baseBranch, initialPrompt } =
+    options;
 
   console.log(`[session-setup] Starting setup for session ${sessionId}`);
 
@@ -120,21 +123,23 @@ export async function runSessionSetup(
     });
     worktreePath = worktreeInfo.worktreePath; // Track for cleanup
 
-    // Update session with worktree info
+    // Update session with worktree info (atomic transaction)
     const db = getDb();
-    queries
-      .updateSessionWorktree(db)
-      .run(
-        worktreeInfo.worktreePath,
-        worktreeInfo.branchName,
-        worktreeInfo.baseBranch,
-        sessionId
-      );
+    db.transaction(() => {
+      queries
+        .updateSessionWorktree(db)
+        .run(
+          worktreeInfo.worktreePath,
+          worktreeInfo.branchName,
+          worktreeInfo.baseBranch,
+          sessionId
+        );
 
-    // Also update the working directory to the worktree path
-    db.prepare(
-      "UPDATE sessions SET working_directory = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(worktreeInfo.worktreePath, sessionId);
+      // Also update the working directory to the worktree path
+      db.prepare(
+        "UPDATE sessions SET working_directory = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(worktreeInfo.worktreePath, sessionId);
+    })();
 
     // Step 2: Initialize container for auto-approve sessions
     // This must happen AFTER worktree creation so container can mount the worktree
@@ -188,6 +193,14 @@ export async function runSessionSetup(
               worktreeInfo.worktreePath,
               projectPath
             );
+            // Clear stale worktree DB fields after cleanup
+            db.prepare(
+              `
+              UPDATE sessions
+              SET worktree_path = NULL, branch_name = NULL, base_branch = NULL, working_directory = ?
+              WHERE id = ?
+            `
+            ).run(projectPath, sessionId);
             updateSetupStatus(
               sessionId,
               "failed",
@@ -233,6 +246,14 @@ export async function runSessionSetup(
             worktreeInfo.worktreePath,
             projectPath
           );
+          // Clear stale worktree DB fields after cleanup
+          db.prepare(
+            `
+            UPDATE sessions
+            SET worktree_path = NULL, branch_name = NULL, base_branch = NULL, working_directory = ?
+            WHERE id = ?
+          `
+          ).run(projectPath, sessionId);
           updateSetupStatus(sessionId, "failed", errorMsg, "failed");
           return; // Abort setup
         }
@@ -247,6 +268,14 @@ export async function runSessionSetup(
 
         // Docker not available - clean up worktree and mark as failed
         await cleanupWorktreeOnFailure(worktreeInfo.worktreePath, projectPath);
+        // Clear stale worktree DB fields after cleanup
+        db.prepare(
+          `
+          UPDATE sessions
+          SET worktree_path = NULL, branch_name = NULL, base_branch = NULL, working_directory = ?
+          WHERE id = ?
+        `
+        ).run(projectPath, sessionId);
         updateSetupStatus(
           sessionId,
           "failed",
@@ -291,7 +320,23 @@ export async function runSessionSetup(
     // Step 5: Start the tmux session
     // This creates the tmux session that the terminal will attach to
     updateSetupStatus(sessionId, "starting_session");
-    await sessionManager.startTmuxSession(sessionId, "");
+
+    // Get full session info to build the agent command
+    const fullSession = queries.getSession(db).get(sessionId) as {
+      agent_type: string;
+      model: string;
+      auto_approve: number;
+    } | null;
+
+    const agentCommand = fullSession
+      ? buildAgentCommand(fullSession.agent_type, {
+          model: fullSession.model,
+          autoApprove: Boolean(fullSession.auto_approve),
+          initialPrompt,
+        })
+      : "";
+
+    await sessionManager.startTmuxSession(sessionId, agentCommand);
 
     // Step 6: Mark as ready (both setup_status and lifecycle_status)
     updateSetupStatus(sessionId, "ready", null, "ready");
@@ -303,6 +348,8 @@ export async function runSessionSetup(
       `[session-setup] Setup failed for session ${sessionId}:`,
       errorMsg
     );
+
+    const db = getDb();
 
     // Clean up container if it was created
     if (containerId) {
@@ -317,11 +364,23 @@ export async function runSessionSetup(
           cleanupError instanceof Error ? cleanupError.message : "Unknown error"
         );
       }
+      // Clear container DB fields regardless of whether destroy succeeded
+      queries
+        .updateSessionContainerWithHealth(db)
+        .run(null, "failed", null, sessionId);
     }
 
     // Clean up worktree if it was created
     if (worktreePath) {
       await cleanupWorktreeOnFailure(worktreePath, projectPath);
+      // Clear stale worktree DB fields after cleanup
+      db.prepare(
+        `
+        UPDATE sessions
+        SET worktree_path = NULL, branch_name = NULL, base_branch = NULL, working_directory = ?
+        WHERE id = ?
+      `
+      ).run(projectPath, sessionId);
     }
 
     // Update both setup_status and lifecycle_status, and broadcast via SSE

@@ -8,6 +8,7 @@
 
 import type { Session } from "./db";
 import type { AgentType } from "./providers";
+import { getProvider } from "./providers";
 
 /**
  * Compute the tmux session name for a session.
@@ -56,4 +57,44 @@ export function parseTmuxSessionName(
  */
 export function getSessionCwd(session: Session): string {
   return session.working_directory?.replace("~", "$HOME") || "$HOME";
+}
+
+/**
+ * Build the agent command to run in the tmux session.
+ * Uses the provider's command and builds appropriate flags.
+ *
+ * @param agentType - The agent type (e.g., "claude", "codex")
+ * @param options - Options for building the command
+ * @returns The full command string, or empty string for shell provider
+ */
+export function buildAgentCommand(
+  agentType: AgentType | string,
+  options: {
+    claudeSessionId?: string | null;
+    parentSessionId?: string | null;
+    model?: string;
+    autoApprove?: boolean;
+    initialPrompt?: string | null;
+  } = {}
+): string {
+  const provider = getProvider(agentType as AgentType);
+
+  // Shell provider has no command
+  if (!provider.command) {
+    return "";
+  }
+
+  const flags = provider.buildFlags({
+    sessionId: options.claudeSessionId,
+    parentSessionId: options.parentSessionId,
+    model: options.model,
+    autoApprove: options.autoApprove,
+    initialPrompt: options.initialPrompt ?? undefined,
+  });
+
+  if (flags.length === 0) {
+    return provider.command;
+  }
+
+  return `${provider.command} ${flags.join(" ")}`;
 }

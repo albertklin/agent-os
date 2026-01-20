@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { PaneProvider, usePanes } from "@/contexts/PaneContext";
 import { Pane } from "@/components/Pane";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -32,6 +32,12 @@ function HomeContent() {
   const focusedActiveTab = getActiveTab(focusedPaneId);
   const { isMobile, isHydrated } = useViewport();
 
+  // Ref to track current focusedPaneId for callbacks (avoids stale closures)
+  const focusedPaneIdRef = useRef(focusedPaneId);
+  useEffect(() => {
+    focusedPaneIdRef.current = focusedPaneId;
+  }, [focusedPaneId]);
+
   // Session selection (server handles tmux attachment automatically)
   const { selectSession } = useSessionAttachment();
 
@@ -45,18 +51,18 @@ function HomeContent() {
   // Select session in focused pane - server handles tmux attachment automatically
   const attachToSession = useCallback(
     async (session: Session) => {
-      await selectSession(session.id, focusedPaneId);
+      await selectSession(session.id, focusedPaneIdRef.current);
     },
-    [selectSession, focusedPaneId]
+    [selectSession]
   );
 
   // Open session in new tab
   const openSessionInNewTab = useCallback(
     (session: Session) => {
       // Create tab with sessionId - Terminal will connect and server will attach to tmux
-      addTab(focusedPaneId, session.id);
+      addTab(focusedPaneIdRef.current, session.id);
     },
-    [addTab, focusedPaneId]
+    [addTab]
   );
 
   // Notification click handler

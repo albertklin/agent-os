@@ -85,6 +85,7 @@ export function useStatusStream(): UseStatusStreamResult {
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryDelayRef = useRef(INITIAL_RETRY_DELAY);
   const mountedRef = useRef(true);
+  const isConnectingRef = useRef(false);
 
   // Handle incoming status update
   const handleStatusUpdate = useCallback(
@@ -140,6 +141,12 @@ export function useStatusStream(): UseStatusStreamResult {
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
 
+    // Guard against concurrent connection attempts
+    if (isConnectingRef.current) {
+      return;
+    }
+    isConnectingRef.current = true;
+
     // Clear any pending retry to prevent concurrent connection attempts
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current);
@@ -157,6 +164,7 @@ export function useStatusStream(): UseStatusStreamResult {
 
     eventSource.onopen = () => {
       if (!mountedRef.current) return;
+      isConnectingRef.current = false;
       setConnectionStatus("connected");
       retryDelayRef.current = INITIAL_RETRY_DELAY; // Reset retry delay on successful connect
     };
@@ -187,6 +195,7 @@ export function useStatusStream(): UseStatusStreamResult {
     eventSource.onerror = () => {
       if (!mountedRef.current) return;
 
+      isConnectingRef.current = false;
       eventSource.close();
       eventSourceRef.current = null;
       setConnectionStatus("disconnected");
@@ -220,6 +229,7 @@ export function useStatusStream(): UseStatusStreamResult {
 
     return () => {
       mountedRef.current = false;
+      isConnectingRef.current = false;
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;

@@ -3,6 +3,8 @@ import { randomUUID } from "crypto";
 import { getDb, queries, type Session, type Project } from "@/lib/db";
 import { runSessionSetup } from "@/lib/session-setup";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
+import { sessionManager } from "@/lib/session-manager";
+import { buildAgentCommand } from "@/lib/sessions";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -32,7 +34,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Validate worktree options
     if (useWorktree && !featureName) {
       return NextResponse.json(
-        { error: "featureName is required when useWorktree is true" },
+        { error: "Feature name is required when using an isolated worktree" },
         { status: 400 }
       );
     }
@@ -66,8 +68,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json(
           {
             error:
-              "Forking a sandboxed (auto-approve) session requires an isolated worktree. " +
-              "Please provide useWorktree: true and a featureName.",
+              "Forking a session with skipped permissions requires an isolated worktree. " +
+              "Please enable 'Isolated worktree' and provide a feature name.",
           },
           { status: 400 }
         );
@@ -150,23 +152,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           parent.base_branch,
           newId
         );
-      // Non-worktree fork that shares parent's worktree is immediately ready
-      queries.updateSessionLifecycleStatus(db).run("ready", newId);
-      // Broadcast lifecycle change via SSE
-      statusBroadcaster.updateStatus({
-        sessionId: newId,
-        status: "idle",
-        lifecycleStatus: "ready",
+
+      // Create tmux session with fork command
+      const agentCommand = buildAgentCommand(agentType, {
+        parentSessionId: parent.claude_session_id,
+        model: parent.model,
+        autoApprove: Boolean(parent.auto_approve),
       });
+      await sessionManager.startTmuxSession(newId, agentCommand);
     } else {
-      // No worktree at all - session is immediately ready
-      queries.updateSessionLifecycleStatus(db).run("ready", newId);
-      // Broadcast lifecycle change via SSE
-      statusBroadcaster.updateStatus({
-        sessionId: newId,
-        status: "idle",
-        lifecycleStatus: "ready",
+      // No worktree at all - create tmux session with fork command
+      const agentCommand = buildAgentCommand(agentType, {
+        parentSessionId: parent.claude_session_id,
+        model: parent.model,
+        autoApprove: Boolean(parent.auto_approve),
       });
+      await sessionManager.startTmuxSession(newId, agentCommand);
     }
 
     // NOTE: We do NOT copy claude_session_id here.

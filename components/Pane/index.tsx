@@ -169,7 +169,7 @@ export const Pane = memo(function Pane({
         "flex h-full w-full flex-col overflow-hidden",
         !isMobile && "rounded-lg shadow-lg shadow-black/10 dark:shadow-black/30"
       )}
-      onClick={handleFocus}
+      onMouseDown={handleFocus}
     >
       {/* Tab Bar - Mobile vs Desktop */}
       {isMobile ? (

@@ -184,15 +184,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Lifecycle guard: only allow deletion when session is ready or failed
-    // (can't delete while creating or already deleting)
-    if (
-      existing.lifecycle_status !== "ready" &&
-      existing.lifecycle_status !== "failed"
-    ) {
+    // Lifecycle guard: only prevent deletion if already deleting
+    // Allow deletion in any other state (ready, failed, creating) for cleanup
+    if (existing.lifecycle_status === "deleting") {
       return NextResponse.json(
         {
-          error: "Session cannot be deleted in current state",
+          error: "Session is already being deleted",
           lifecycle_status: existing.lifecycle_status,
         },
         { status: 409 }

@@ -53,6 +53,9 @@ export function initDb(): Database.Database {
   return withInitLock(() => {
     const db = new Database(DB_PATH, { timeout: 10000 });
 
+    // Enable foreign key enforcement (SQLite doesn't enforce by default)
+    db.pragma("foreign_keys = ON");
+
     // Enable WAL mode for better concurrency
     db.pragma("journal_mode = WAL");
     db.pragma("busy_timeout = 10000");
@@ -83,3 +86,21 @@ export const db = new Proxy({} as Database.Database, {
     return (getDb() as unknown as Record<string | symbol, unknown>)[prop];
   },
 });
+
+/**
+ * Close the database connection.
+ * Should be called during graceful shutdown to ensure WAL is checkpointed.
+ */
+export function closeDb(): void {
+  if (_db) {
+    try {
+      // Checkpoint WAL before closing to ensure all writes are flushed
+      _db.pragma("wal_checkpoint(TRUNCATE)");
+      _db.close();
+      _db = null;
+      console.log("[db] Database closed");
+    } catch (error) {
+      console.error("[db] Error closing database:", error);
+    }
+  }
+}

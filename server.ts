@@ -70,6 +70,9 @@ app.prepare().then(async () => {
   const activeConnections = new Map<string, Set<WebSocket>>();
   const MAX_CONNECTIONS_PER_SESSION = 3;
 
+  // Track active PTY processes for proper cleanup on shutdown
+  const activePtyProcesses = new Map<WebSocket, pty.IPty>();
+
   // Helper to clean up connection tracking
   function removeConnection(sessionId: string, ws: WebSocket): void {
     const conns = activeConnections.get(sessionId);
@@ -233,6 +236,9 @@ app.prepare().then(async () => {
             LANG: process.env.LANG || "en_US.UTF-8",
           },
         });
+
+        // Register PTY process for tracking (for cleanup on shutdown)
+        activePtyProcesses.set(ws, ptyProcess);
       } catch (err) {
         console.error("[terminal] Failed to spawn pty:", err);
         // Clean up PTY process if it was partially created
@@ -285,14 +291,26 @@ app.prepare().then(async () => {
       });
 
       ws.on("close", () => {
-        ptyProcess?.kill();
+        try {
+          ptyProcess?.kill();
+        } catch (err) {
+          console.error("[terminal] Failed to kill PTY on close:", err);
+        }
+        // Remove from PTY tracking map
+        activePtyProcesses.delete(ws);
         // Use captured sessionId instead of re-parsing URL
         if (sessionId) removeConnection(sessionId, ws);
       });
 
       ws.on("error", (err) => {
         console.error("[terminal] WebSocket error:", err);
-        ptyProcess?.kill();
+        try {
+          ptyProcess?.kill();
+        } catch (killErr) {
+          console.error("[terminal] Failed to kill PTY on error:", killErr);
+        }
+        // Remove from PTY tracking map
+        activePtyProcesses.delete(ws);
         // Clean up connection tracking on error
         if (sessionId) removeConnection(sessionId, ws);
       });
@@ -326,6 +344,17 @@ app.prepare().then(async () => {
     // Close WebSocket server (stops accepting new connections)
     terminalWss.close();
 
+    // Kill all PTY processes explicitly (don't rely on ws.on("close") handlers)
+    console.log(`> Killing ${activePtyProcesses.size} PTY processes...`);
+    for (const [ws, ptyProcess] of activePtyProcesses) {
+      try {
+        ptyProcess.kill();
+      } catch (err) {
+        console.error("[shutdown] Failed to kill PTY:", err);
+      }
+    }
+    activePtyProcesses.clear();
+
     // Close all active WebSocket connections
     for (const [sessionId, connections] of activeConnections) {
       for (const ws of connections) {
@@ -337,6 +366,19 @@ app.prepare().then(async () => {
       }
     }
     activeConnections.clear();
+
+    // Stop status broadcaster intervals
+    const { statusBroadcaster } = await import("./lib/status-broadcaster");
+    statusBroadcaster.shutdown();
+
+    // Remove Claude hooks so they don't fire when server is down
+    const { removeGlobalAgentOsHooks } =
+      await import("./lib/hooks/generate-config");
+    removeGlobalAgentOsHooks();
+
+    // Close database connection (ensures WAL checkpoint)
+    const { closeDb } = await import("./lib/db");
+    closeDb();
 
     // Close HTTP server
     server.close(() => {

@@ -17,7 +17,7 @@ import {
  * - Notification → "waiting" (permission prompts, etc.)
  * - Stop → "idle" (Claude finished responding)
  * - SessionStart → "idle" (session ready, waiting for input)
- * - SessionEnd → "idle" (session ended)
+ * - SessionEnd → "dead" (session terminated)
  *
  * Hook payload from Claude (as JSON on stdin):
  * {
@@ -53,7 +53,7 @@ interface ToolInput {
 interface HookPayload {
   // Required: At least one of these to identify the AgentOS session
   agentos_session_id?: string; // Direct AgentOS session ID
-  session_id?: string; // AgentOS session ID (alias)
+  session_id?: string; // Claude's internal session ID (also used as fallback for AgentOS ID)
   tmux_session?: string; // Tmux session name (e.g., "claude-abc123")
 
   // Hook event info
@@ -67,6 +67,9 @@ interface HookPayload {
   // SessionStart/SessionEnd specific
   source?: string; // For SessionStart: "startup" | "resume" | "clear" | "compact"
   reason?: string; // For SessionEnd: "clear" | "logout" | "prompt_input_exit" | "other"
+
+  // Claude's internal session ID (for capturing and storing)
+  claude_session_id?: string;
 
   // Optional: Direct status override (for testing or manual updates)
   status?: SessionStatus;
@@ -109,8 +112,10 @@ function mapEventToStatus(
       return "idle";
 
     case "stop":
-    case "sessionend":
       return "idle";
+
+    case "sessionend":
+      return "dead";
 
     case "notification":
       // Notifications typically mean Claude is waiting for user input/response
@@ -246,6 +251,20 @@ export async function POST(request: NextRequest) {
 
     // Extract tool detail from tool_input (command, file path, etc.)
     const toolDetail = extractToolDetail(payload.tool_name, payload.tool_input);
+
+    // Capture Claude's session ID on SessionStart event
+    // The session_id in the payload is Claude's internal ID, not our AgentOS ID
+    const normalizedEvent = event?.toLowerCase();
+    if (normalizedEvent === "sessionstart" && payload.session_id) {
+      try {
+        const db = getDb();
+        db.prepare(
+          "UPDATE sessions SET claude_session_id = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(payload.session_id, sessionId);
+      } catch (error) {
+        console.error("Failed to store claude_session_id:", error);
+      }
+    }
 
     // Broadcast the update
     statusBroadcaster.updateStatus({

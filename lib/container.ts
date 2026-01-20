@@ -456,6 +456,26 @@ export async function createContainer(
     return result;
   } catch (error) {
     clearTimeout(timeoutId!);
+
+    // If timeout or error occurred, try to clean up any partially-created container
+    try {
+      const { stdout } = await execAsync(
+        `docker ps -aq --filter "name=${containerName}"`,
+        { timeout: 5000 }
+      );
+      const containerId = stdout.trim();
+      if (containerId) {
+        console.log(
+          `[container] Cleaning up partially-created container ${containerId}`
+        );
+        await execAsync(`docker rm -f ${containerId}`, {
+          timeout: 10000,
+        }).catch(() => {});
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+
     throw error;
   }
 }
