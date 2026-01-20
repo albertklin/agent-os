@@ -14,6 +14,7 @@ import { promisify } from "util";
 import { getDb, queries, type Session } from "./db";
 import { getTmuxSessionName } from "./sessions";
 import * as tmux from "./tmux";
+import { escapeShellArg } from "./tmux";
 import {
   createContainer,
   destroyContainer,
@@ -119,21 +120,22 @@ class SessionManager {
     }
 
     // Build the tmux command
+    // Use escapeShellArg to properly handle quotes in session names and commands
     let tmuxCmd: string;
     if (isSandboxed) {
       // Create tmux session inside the container
       // Container has .tmux.conf with mouse/resize settings
       if (agentCommand) {
-        tmuxCmd = `docker exec -d ${session.container_id} tmux new-session -d -s "${tmuxName}" -c "${cwd}" "${agentCommand}"`;
+        tmuxCmd = `docker exec -d ${session.container_id} tmux new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)} ${escapeShellArg(agentCommand)}`;
       } else {
-        tmuxCmd = `docker exec -d ${session.container_id} tmux new-session -d -s "${tmuxName}" -c "${cwd}"`;
+        tmuxCmd = `docker exec -d ${session.container_id} tmux new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)}`;
       }
     } else {
       // Create tmux session on the host
       if (agentCommand) {
-        tmuxCmd = `tmux new-session -d -s "${tmuxName}" -c "${cwd}" "${agentCommand}"`;
+        tmuxCmd = `tmux new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)} ${escapeShellArg(agentCommand)}`;
       } else {
-        tmuxCmd = `tmux new-session -d -s "${tmuxName}" -c "${cwd}"`;
+        tmuxCmd = `tmux new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)}`;
       }
     }
 
@@ -202,13 +204,13 @@ class SessionManager {
       if (isSandboxed) {
         // Kill tmux inside the container
         await execAsync(
-          `docker exec ${session.container_id} tmux kill-session -t "${tmuxName}" 2>/dev/null || true`,
+          `docker exec ${session.container_id} tmux kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
           { timeout: 10000 }
         );
       } else {
         // Kill tmux on the host
         await execAsync(
-          `tmux kill-session -t "${tmuxName}" 2>/dev/null || true`,
+          `tmux kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
           { timeout: 5000 }
         );
       }
@@ -292,7 +294,7 @@ class SessionManager {
       // Then check if tmux session exists inside the container
       try {
         await execAsync(
-          `docker exec ${session.container_id} tmux has-session -t "${tmuxName}" 2>/dev/null`,
+          `docker exec ${session.container_id} tmux has-session -t ${escapeShellArg(tmuxName)} 2>/dev/null`,
           { timeout: 5000 }
         );
         return true;

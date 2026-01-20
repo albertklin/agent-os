@@ -12,7 +12,7 @@ const exec = promisify(execCallback);
 /**
  * Escape a string for safe use in shell commands.
  */
-function escapeShellArg(arg: string): string {
+export function escapeShellArg(arg: string): string {
   // Wrap in single quotes and escape any existing single quotes
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }
