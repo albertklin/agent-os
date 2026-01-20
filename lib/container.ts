@@ -382,6 +382,7 @@ export async function createContainer(
   const createPromise = (async (): Promise<CreateContainerResult> => {
     try {
       // Start container with resource limits and security options
+      // Note: ~/.claude is NOT mounted - we copy it after start so container has writable copy
       const { stdout } = await execAsync(
         `docker run -d \
         --name "${containerName}" \
@@ -393,7 +394,6 @@ export async function createContainer(
         --ulimit nofile=1024:2048 \
         --security-opt=no-new-privileges \
         -v "${worktreePath}:/workspace:rw" \
-        -v "${claudeConfigDir}:/home/node/.claude:ro" \
         -e NODE_OPTIONS="--max-old-space-size=4096" \
         -e CLAUDE_CONFIG_DIR="/home/node/.claude" \
         ${SANDBOX_IMAGE} \
@@ -403,6 +403,36 @@ export async function createContainer(
 
       const containerId = stdout.trim().substring(0, 12);
       console.log(`[container] Container ${containerId} started`);
+
+      // Copy host's ~/.claude directory into container (gives container a writable copy)
+      // This preserves auth credentials, settings, etc. while allowing container to write session state
+      if (fs.existsSync(claudeConfigDir)) {
+        console.log(`[container] Copying Claude config into container...`);
+        try {
+          // Copy contents of .claude directory
+          await execAsync(
+            `docker cp "${claudeConfigDir}/." "${containerId}:/home/node/.claude/"`,
+            { timeout: 30000 }
+          );
+          // Fix ownership since docker cp preserves host UID/GID
+          await execAsync(
+            `docker exec -u root "${containerId}" chown -R node:node /home/node/.claude`,
+            { timeout: 10000 }
+          );
+          console.log(`[container] Claude config copied successfully`);
+        } catch (copyError) {
+          const copyErrorMsg =
+            copyError instanceof Error ? copyError.message : "Unknown error";
+          console.warn(
+            `[container] Failed to copy Claude config (continuing anyway): ${copyErrorMsg}`
+          );
+          // Don't fail the container creation - claude might still work with defaults
+        }
+      } else {
+        console.log(
+          `[container] No Claude config directory found at ${claudeConfigDir}, skipping copy`
+        );
+      }
 
       // Initialize firewall inside the container (run as root via -u flag)
       // This avoids needing sudo inside the container, so no-new-privileges can stay enabled
