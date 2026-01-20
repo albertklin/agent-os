@@ -499,6 +499,38 @@ cmd_start_foreground() {
     exec npm start
 }
 
+cmd_notify_on() {
+    local disable_file="$AGENT_OS_HOME/notify-disabled"
+    local global_disable="$HOME/.claude-notify-disabled"
+
+    if [[ -f "$disable_file" ]]; then
+        rm -f "$disable_file"
+        if [[ -f "$global_disable" ]]; then
+            log_warn "AgentOS notifications enabled, but ~/.claude-notify-disabled exists (system-wide disable)"
+        else
+            log_success "Push notifications enabled"
+        fi
+    else
+        if [[ -f "$global_disable" ]]; then
+            log_info "AgentOS notifications already enabled, but ~/.claude-notify-disabled exists (system-wide disable)"
+        else
+            log_info "Push notifications are already enabled"
+        fi
+    fi
+}
+
+cmd_notify_off() {
+    local disable_file="$AGENT_OS_HOME/notify-disabled"
+    mkdir -p "$AGENT_OS_HOME"
+
+    if [[ -f "$disable_file" ]]; then
+        log_info "Push notifications are already disabled"
+    else
+        touch "$disable_file"
+        log_success "Push notifications disabled"
+    fi
+}
+
 cmd_help() {
     echo ""
     echo -e "${BOLD}AgentOS${NC} - Self-hosted AI coding session manager"
@@ -516,6 +548,8 @@ cmd_help() {
     echo "  update      Update to latest version (use 'update local' for local source)"
     echo "  enable      Enable auto-start on boot"
     echo "  disable     Disable auto-start"
+    echo "  notify-on   Enable push notifications (ntfy.sh)"
+    echo "  notify-off  Disable push notifications"
     echo "  uninstall   Remove AgentOS completely"
     echo ""
     echo "Environment variables:"
