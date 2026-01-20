@@ -4,7 +4,9 @@ import {
   isAgentOSWorktree,
   hasUncommittedChanges,
   branchHasChanges,
+  getMainRepoFromWorktree,
 } from "@/lib/worktrees";
+import { getCommitCount, getBranches } from "@/lib/git";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -29,15 +31,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         branchWillBeDeleted: false,
         branchName: null,
         siblingSessionNames: [],
+        baseBranch: null,
+        commitCount: 0,
+        branches: [],
       });
     }
 
     const baseBranch = session.base_branch || "main";
 
-    // Check for uncommitted changes and branch status in parallel
-    const [uncommitted, hasCommits] = await Promise.all([
+    // Get main repo for branch listing
+    const mainRepo = await getMainRepoFromWorktree(session.worktree_path);
+
+    // Check for uncommitted changes, branch status, and get commit count in parallel
+    const [uncommitted, hasCommits, commitCount, branches] = await Promise.all([
       hasUncommittedChanges(session.worktree_path),
       branchHasChanges(session.worktree_path, baseBranch),
+      getCommitCount(session.worktree_path, baseBranch),
+      mainRepo ? getBranches(mainRepo) : Promise.resolve([]),
     ]);
 
     // Check for active sibling sessions sharing this worktree
@@ -53,6 +63,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       branchWillBeDeleted: !hasCommits,
       branchName: session.branch_name || null,
       siblingSessionNames,
+      baseBranch,
+      commitCount,
+      branches,
     });
   } catch (error) {
     console.error("Error checking worktree status:", error);

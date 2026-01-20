@@ -10,6 +10,7 @@ export {
 } from "./queries";
 export type {
   CreateSessionInput,
+  DeleteSessionOptions,
   ForkSessionInput,
   SessionOrderUpdate,
 } from "./queries";

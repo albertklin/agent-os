@@ -27,26 +27,56 @@ export function useSessionsQuery() {
 interface DeleteSessionResponse {
   success: boolean;
   branchDeleted?: boolean;
+  branchMerged?: boolean;
   branchName?: string;
+  error?: string;
+  message?: string;
+  conflictFiles?: string[];
+}
+
+export interface DeleteSessionOptions {
+  mergeInto?: string;
 }
 
 export function useDeleteSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (sessionId: string): Promise<DeleteSessionResponse> => {
+    mutationFn: async ({
+      sessionId,
+      options,
+    }: {
+      sessionId: string;
+      options?: DeleteSessionOptions;
+    }): Promise<DeleteSessionResponse> => {
       const res = await fetch(`/api/sessions/${sessionId}`, {
         method: "DELETE",
+        headers: options?.mergeInto
+          ? { "Content-Type": "application/json" }
+          : undefined,
+        body: options?.mergeInto
+          ? JSON.stringify({ mergeInto: options.mergeInto })
+          : undefined,
       });
-      if (!res.ok) throw new Error("Failed to delete session");
-      return res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        // Throw with structured error for merge conflicts
+        const error = new Error(data.message || "Failed to delete session");
+        (error as Error & { data: DeleteSessionResponse }).data = data;
+        throw error;
+      }
+      return data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
 
       // Show toast with branch outcome if this was a worktree session
       if (data.branchName) {
-        if (data.branchDeleted) {
+        if (data.branchMerged) {
+          toast.success(
+            `Session deleted, branch "${data.branchName}" merged and cleaned up`
+          );
+        } else if (data.branchDeleted) {
           toast.success(
             `Session deleted, branch "${data.branchName}" cleaned up (no changes)`
           );

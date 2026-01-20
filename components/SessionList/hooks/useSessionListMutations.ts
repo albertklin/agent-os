@@ -6,6 +6,7 @@ import {
   useRenameSession,
   useForkSession,
   type ForkSessionInput,
+  type DeleteSessionOptions,
 } from "@/data/sessions";
 import {
   useToggleProject,
@@ -69,12 +70,36 @@ export function useSessionListMutations({
   );
 
   // Called when dialog is confirmed
-  const confirmDeleteSession = useCallback(async () => {
-    const { sessionId } = deleteDialogState;
-    setDeleteDialogState((s) => ({ ...s, open: false }));
-    await deleteSessionMutation.mutateAsync(sessionId);
-    onSessionDeleted?.(sessionId);
-  }, [deleteDialogState, deleteSessionMutation, onSessionDeleted]);
+  const confirmDeleteSession = useCallback(
+    async (options?: DeleteSessionOptions) => {
+      const { sessionId } = deleteDialogState;
+      setDeleteDialogState((s) => ({ ...s, open: false }));
+      try {
+        await deleteSessionMutation.mutateAsync({ sessionId, options });
+        onSessionDeleted?.(sessionId);
+      } catch (error) {
+        // Handle merge conflict errors - reopen dialog is handled by the component
+        const errorData = (
+          error as Error & {
+            data?: { error?: string; conflictFiles?: string[] };
+          }
+        ).data;
+        if (errorData?.error === "merge_conflict") {
+          const files = errorData.conflictFiles?.slice(0, 3).join(", ") || "";
+          toast.error(
+            `Merge conflict${files ? `: ${files}${errorData.conflictFiles && errorData.conflictFiles.length > 3 ? "..." : ""}` : ""}`
+          );
+        } else if (errorData?.error === "uncommitted_changes") {
+          toast.error("Cannot merge: session has uncommitted changes");
+        } else {
+          toast.error(
+            error instanceof Error ? error.message : "Failed to delete session"
+          );
+        }
+      }
+    },
+    [deleteDialogState, deleteSessionMutation, onSessionDeleted]
+  );
 
   // Called when dialog is dismissed
   const closeDeleteDialog = useCallback(() => {
