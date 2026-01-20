@@ -232,7 +232,12 @@ async function imageExists(): Promise<boolean> {
 function computeDockerConfigHash(): string {
   const hash = crypto.createHash("sha256");
 
-  const files = ["Dockerfile", "init-firewall.sh", "tmux.conf"];
+  const files = [
+    "Dockerfile",
+    "init-firewall.sh",
+    "tmux.conf",
+    "git-wrapper.sh",
+  ];
   for (const file of files) {
     const filePath = path.join(DOCKER_DIR, file);
     if (fs.existsSync(filePath)) {
@@ -362,6 +367,7 @@ export async function createContainer(
   const { sessionId, worktreePath } = opts;
   const containerName = `agentos-${sessionId}`;
   const claudeConfigDir = path.join(os.homedir(), ".claude");
+  const sshAuthSock = process.env.SSH_AUTH_SOCK;
 
   console.log(
     `[container] Creating container ${containerName} for worktree ${worktreePath}`
@@ -383,6 +389,46 @@ export async function createContainer(
     try {
       // Start container with resource limits and security options
       // Note: ~/.claude is NOT mounted - we copy it after start so container has writable copy
+      // SSH agent socket is mounted if available for git authentication
+      const sshAgentMount = sshAuthSock
+        ? `-v "${sshAuthSock}:/ssh-agent" -e SSH_AUTH_SOCK=/ssh-agent`
+        : "";
+
+      // For git worktrees, we need to mount the main repo's .git directory
+      // The worktree's .git file contains "gitdir: /path/to/main/.git/worktrees/<name>"
+      // We mount the main .git dir at the same host path so the gitdir reference works
+      let gitDirMount = "";
+      const gitFile = path.join(worktreePath, ".git");
+      if (fs.existsSync(gitFile)) {
+        const stat = fs.statSync(gitFile);
+        // Only process if .git is a file (worktree), not a directory (regular repo)
+        if (stat.isFile()) {
+          const gitFileContent = fs.readFileSync(gitFile, "utf-8").trim();
+          if (gitFileContent.startsWith("gitdir:")) {
+            // Extract the gitdir path (e.g., /home/user/repo/.git/worktrees/branch)
+            const gitdirPath = gitFileContent.replace("gitdir:", "").trim();
+            // Find the main .git directory (parent of /worktrees/<name>)
+            const worktreesIndex = gitdirPath.lastIndexOf("/worktrees/");
+            if (worktreesIndex !== -1) {
+              const mainGitDir = gitdirPath.substring(0, worktreesIndex);
+              // Security: validate the path looks like a .git directory
+              // This prevents path injection via malicious .git files
+              if (mainGitDir.endsWith(".git") && fs.existsSync(mainGitDir)) {
+                // Mount the main .git directory at the same path inside the container
+                gitDirMount = `-v "${mainGitDir}:${mainGitDir}:rw"`;
+                console.log(
+                  `[container] Mounting git directory ${mainGitDir} for worktree support`
+                );
+              } else {
+                console.warn(
+                  `[container] Skipping suspicious gitdir path: ${mainGitDir}`
+                );
+              }
+            }
+          }
+        }
+      }
+
       const { stdout } = await execAsync(
         `docker run -d \
         --name "${containerName}" \
@@ -395,6 +441,8 @@ export async function createContainer(
         --ulimit nofile=1024:2048 \
         --security-opt=no-new-privileges \
         -v "${worktreePath}:/workspace:rw" \
+        ${gitDirMount} \
+        ${sshAgentMount} \
         -e NODE_OPTIONS="--max-old-space-size=4096" \
         -e CLAUDE_CONFIG_DIR="/home/node/.claude" \
         ${SANDBOX_IMAGE} \
@@ -462,6 +510,29 @@ export async function createContainer(
             copyError instanceof Error ? copyError.message : "Unknown error";
           console.warn(
             `[container] Failed to copy .claude.json (continuing anyway): ${copyErrorMsg}`
+          );
+        }
+      }
+
+      // Copy ~/.gitconfig for git user.name and user.email (required for commits)
+      const gitconfigFile = path.join(os.homedir(), ".gitconfig");
+      if (fs.existsSync(gitconfigFile)) {
+        console.log(`[container] Copying .gitconfig into container...`);
+        try {
+          await execAsync(
+            `docker cp "${gitconfigFile}" "${containerId}:/home/node/.gitconfig"`,
+            { timeout: 10000 }
+          );
+          await execAsync(
+            `docker exec -u root "${containerId}" chown node:node /home/node/.gitconfig`,
+            { timeout: 5000 }
+          );
+          console.log(`[container] .gitconfig copied successfully`);
+        } catch (copyError) {
+          const copyErrorMsg =
+            copyError instanceof Error ? copyError.message : "Unknown error";
+          console.warn(
+            `[container] Failed to copy .gitconfig (continuing anyway): ${copyErrorMsg}`
           );
         }
       }

@@ -94,6 +94,13 @@ COPY init-firewall.sh /usr/local/bin/
 USER root
 RUN chmod +x /usr/local/bin/init-firewall.sh
 
+# Install git wrapper to restrict dangerous commands (checkout, branch -D, reset, etc.)
+# Move real git binary and replace with wrapper
+COPY git-wrapper.sh /usr/bin/git-wrapper.sh
+RUN mv /usr/bin/git /usr/bin/git.real && \
+  mv /usr/bin/git-wrapper.sh /usr/bin/git && \
+  chmod +x /usr/bin/git
+
 # Copy tmux configuration for proper terminal behavior
 COPY tmux.conf /home/node/.tmux.conf
 RUN chown node:node /home/node/.tmux.conf
