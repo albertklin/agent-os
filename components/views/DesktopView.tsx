@@ -55,6 +55,7 @@ export function DesktopView({
   handleNewSessionInProject,
   handleOpenTerminal,
   handleSessionCreated,
+  handleOpenQuickRespond,
   renderPane,
 }: ViewProps) {
   return (
@@ -205,6 +206,7 @@ export function DesktopView({
                 const session = sessions.find((s) => s.id === id);
                 if (session) attachToSession(session);
               }}
+              onOpenQuickRespond={handleOpenQuickRespond}
             />
             <Button size="sm" onClick={() => setShowNewSessionDialog(true)}>
               <Plus className="mr-1 h-4 w-4" />

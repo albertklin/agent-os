@@ -17,6 +17,7 @@ import {
   FolderOpen,
   GitBranch,
   Home,
+  Zap,
 } from "lucide-react";
 import {
   Tooltip,
@@ -36,6 +37,7 @@ type ViewMode = "terminal" | "files" | "git";
 interface Tab {
   id: string;
   sessionId: string | null;
+  isQuickRespond?: boolean;
 }
 
 interface DesktopTabBarProps {
@@ -44,6 +46,7 @@ interface DesktopTabBarProps {
   activeTabId: string;
   session: Session | null | undefined;
   sessions: Session[];
+  sessionStatuses?: Record<string, { status: string }>;
   viewMode: ViewMode;
   isFocused: boolean;
   canSplit: boolean;
@@ -68,6 +71,7 @@ interface SortableTabProps {
   isActive: boolean;
   tabName: string;
   canClose: boolean;
+  waitingCount?: number;
   onSwitch: () => void;
   onClose: () => void;
 }
@@ -78,6 +82,7 @@ function SortableTab({
   isActive,
   tabName,
   canClose,
+  waitingCount,
   onSwitch,
   onClose,
 }: SortableTabProps) {
@@ -114,6 +119,15 @@ function SortableTab({
           : "text-muted-foreground hover:text-foreground/80 hover:bg-accent/50"
       )}
     >
+      {/* Quick respond indicator */}
+      {tab.isQuickRespond && (
+        <span className="flex items-center gap-1 text-yellow-500">
+          <Zap className="h-3 w-3" />
+          {waitingCount !== undefined && waitingCount > 0 && (
+            <span className="text-xs font-medium">{waitingCount}</span>
+          )}
+        </span>
+      )}
       <span className="max-w-[120px] truncate">{tabName}</span>
       {canClose && (
         <button
@@ -136,6 +150,7 @@ export function DesktopTabBar({
   activeTabId,
   session,
   sessions,
+  sessionStatuses = {},
   viewMode,
   isFocused,
   canSplit,
@@ -161,8 +176,16 @@ export function DesktopTabBar({
     id: createDropzoneId(paneId),
   });
 
+  // Calculate waiting count for quick respond tabs
+  const waitingCount = sessions.filter(
+    (s) => sessionStatuses[s.id]?.status === "waiting"
+  ).length;
+
   const getTabName = useCallback(
     (tab: Tab) => {
+      if (tab.isQuickRespond) {
+        return "Quick Respond";
+      }
       if (tab.sessionId) {
         const s = sessions.find((sess) => sess.id === tab.sessionId);
         return s?.name || "Session";
@@ -200,6 +223,7 @@ export function DesktopTabBar({
               isActive={tab.id === activeTabId}
               tabName={getTabName(tab)}
               canClose={true}
+              waitingCount={tab.isQuickRespond ? waitingCount : undefined}
               onSwitch={() => onTabSwitch(tab.id)}
               onClose={() => onTabClose(tab.id)}
             />

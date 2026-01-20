@@ -53,6 +53,8 @@ interface PaneContextValue {
   clearSessionFromTabs: (sessionId: string) => void;
   getPaneData: (paneId: string) => PaneData;
   getActiveTab: (paneId: string) => TabData | null;
+  // Quick respond tab management
+  openQuickRespondTab: (paneId: string, sessionId: string) => void;
 }
 
 const PaneContext = createContext<PaneContextValue | null>(null);
@@ -416,6 +418,56 @@ export function PaneProvider({ children }: { children: ReactNode }) {
     [state.panes]
   );
 
+  // Open or switch to a quick respond tab
+  const openQuickRespondTab = useCallback(
+    (paneId: string, sessionId: string) => {
+      setState((prev) => {
+        const pane = prev.panes[paneId];
+        if (!pane) return prev;
+
+        // Check if there's already a quick respond tab in this pane
+        const existingQrTab = pane.tabs.find((t) => t.isQuickRespond);
+        if (existingQrTab) {
+          // Update the existing quick respond tab to the new session and switch to it
+          const newTabs = pane.tabs.map((tab) =>
+            tab.id === existingQrTab.id ? { ...tab, sessionId } : tab
+          );
+          return {
+            ...prev,
+            panes: {
+              ...prev.panes,
+              [paneId]: {
+                ...pane,
+                tabs: newTabs,
+                activeTabId: existingQrTab.id,
+              },
+            },
+          };
+        }
+
+        // Create a new quick respond tab
+        const newTab: TabData = {
+          id: `tab-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          sessionId,
+          isQuickRespond: true,
+        };
+
+        return {
+          ...prev,
+          panes: {
+            ...prev.panes,
+            [paneId]: {
+              ...pane,
+              tabs: [...pane.tabs, newTab],
+              activeTabId: newTab.id,
+            },
+          },
+        };
+      });
+    },
+    []
+  );
+
   // On mobile: disable splits (single pane only)
   const canSplit = !isMobile && countPanes(state.layout) < MAX_PANES;
   const canClose = !isMobile && countPanes(state.layout) > 1;
@@ -442,6 +494,7 @@ export function PaneProvider({ children }: { children: ReactNode }) {
       clearSessionFromTabs,
       getPaneData,
       getActiveTab,
+      openQuickRespondTab,
     }),
     [
       state,
@@ -462,6 +515,7 @@ export function PaneProvider({ children }: { children: ReactNode }) {
       clearSessionFromTabs,
       getPaneData,
       getActiveTab,
+      openQuickRespondTab,
     ]
   );
 
