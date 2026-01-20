@@ -249,14 +249,16 @@ function TerminalShortcutsBar({
   const [showPasteModal, setShowPasteModal] = useState(false);
 
   const shortcuts = [
-    { label: "Esc", key: SPECIAL_KEYS.ESC },
-    { label: "^C", key: SPECIAL_KEYS.CTRL_C, highlight: true },
+    { label: "←", key: SPECIAL_KEYS.LEFT },
+    { label: "→", key: SPECIAL_KEYS.RIGHT },
+    { label: "↑", key: SPECIAL_KEYS.UP },
+    { label: "↓", key: SPECIAL_KEYS.DOWN },
     { label: "Tab", key: SPECIAL_KEYS.TAB },
+    { label: "^C", key: SPECIAL_KEYS.CTRL_C, highlight: true },
+    { label: "Esc", key: SPECIAL_KEYS.ESC },
     { label: "^D", key: SPECIAL_KEYS.CTRL_D },
     { label: "^Z", key: SPECIAL_KEYS.CTRL_Z },
     { label: "^L", key: SPECIAL_KEYS.CTRL_L },
-    { label: "↑", key: SPECIAL_KEYS.UP },
-    { label: "↓", key: SPECIAL_KEYS.DOWN },
   ];
 
   // Handle paste - try clipboard API first, fall back to modal
@@ -296,6 +298,21 @@ function TerminalShortcutsBar({
         onPaste={handleModalPaste}
       />
       <div className="scrollbar-none flex items-center gap-1.5 overflow-x-auto px-2 py-1.5">
+        {shortcuts.map((shortcut) => (
+          <FastButton
+            key={shortcut.label}
+            onPress={() => onKeyPress(shortcut.key)}
+            className={cn(
+              "flex-shrink-0 touch-manipulation rounded-md px-3 py-1.5 text-xs font-medium select-none",
+              "active:bg-primary active:text-primary-foreground",
+              shortcut.highlight
+                ? "bg-red-500/20 text-red-500"
+                : "bg-secondary text-secondary-foreground"
+            )}
+          >
+            {shortcut.label}
+          </FastButton>
+        ))}
         {/* Paste button */}
         <FastButton
           onPress={handlePaste}
@@ -321,21 +338,6 @@ function TerminalShortcutsBar({
             )}
           </FastButton>
         )}
-        {shortcuts.map((shortcut) => (
-          <FastButton
-            key={shortcut.label}
-            onPress={() => onKeyPress(shortcut.key)}
-            className={cn(
-              "flex-shrink-0 touch-manipulation rounded-md px-3 py-1.5 text-xs font-medium select-none",
-              "active:bg-primary active:text-primary-foreground",
-              shortcut.highlight
-                ? "bg-red-500/20 text-red-500"
-                : "bg-secondary text-secondary-foreground"
-            )}
-          >
-            {shortcut.label}
-          </FastButton>
-        ))}
       </div>
     </>
   );
