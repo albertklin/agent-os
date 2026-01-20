@@ -82,6 +82,11 @@ export const claudeProvider: AgentProvider = {
       flags.push(def.autoApproveFlag);
     }
 
+    // Model flag
+    if (options.model && def.modelFlag) {
+      flags.push(`${def.modelFlag} ${options.model}`);
+    }
+
     // Resume/fork/new session
     if (options.sessionId && def.resumeFlag) {
       // Resuming an existing session
