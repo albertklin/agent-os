@@ -356,15 +356,18 @@ export function TerminalToolbar({
 
   if (!visible) return null;
 
-  const buttons = [
-    { label: "Esc", key: SPECIAL_KEYS.ESC },
-    { label: "^C", key: SPECIAL_KEYS.CTRL_C, highlight: true },
-    { label: "Tab", key: SPECIAL_KEYS.TAB },
-    { label: "^D", key: SPECIAL_KEYS.CTRL_D },
+  const navButtons = [
     { label: "←", key: SPECIAL_KEYS.LEFT },
     { label: "→", key: SPECIAL_KEYS.RIGHT },
     { label: "↑", key: SPECIAL_KEYS.UP },
     { label: "↓", key: SPECIAL_KEYS.DOWN },
+    { label: "Tab", key: SPECIAL_KEYS.TAB },
+  ];
+
+  const controlButtons = [
+    { label: "^C", key: SPECIAL_KEYS.CTRL_C, highlight: true },
+    { label: "Esc", key: SPECIAL_KEYS.ESC },
+    { label: "^D", key: SPECIAL_KEYS.CTRL_D },
   ];
 
   return (
@@ -383,43 +386,78 @@ export function TerminalToolbar({
         className="bg-background/95 border-border scrollbar-none flex items-center gap-1 overflow-x-auto border-t px-2 py-1.5 backdrop-blur"
         onTouchEnd={(e) => e.stopPropagation()}
       >
-        {/* Mic button */}
-        {isMicSupported && (
+        {/* Navigation keys: arrows + tab */}
+        {navButtons.map((btn) => (
           <button
             type="button"
+            key={btn.label}
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
-              e.preventDefault();
               e.stopPropagation();
-              toggleMic();
+              onKeyPress(btn.key);
             }}
-            className={cn(
-              "flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium",
-              isListening
-                ? "animate-pulse bg-red-500 text-white"
-                : "bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground"
-            )}
+            className="bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium"
           >
-            {isListening ? (
-              <MicOff className="h-4 w-4" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )}
+            {btn.label}
           </button>
-        )}
+        ))}
 
-        {/* Paste button */}
+        {/* Enter key - sends \n if shift active, \r otherwise */}
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation();
-            handlePaste();
+            onKeyPress(shiftActive ? "\n" : "\r");
+            setShiftActive(false);
           }}
           className="bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium"
         >
-          <Clipboard className="h-4 w-4" />
+          ↵
         </button>
+
+        {/* Shift toggle */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShiftActive(!shiftActive);
+          }}
+          className={cn(
+            "flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium",
+            shiftActive
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground"
+          )}
+        >
+          ⇧
+        </button>
+
+        {/* Control keys: ^C, Esc, ^D */}
+        {controlButtons.map((btn) => (
+          <button
+            type="button"
+            key={btn.label}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onKeyPress(btn.key);
+            }}
+            className={cn(
+              "flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium",
+              "active:bg-primary active:text-primary-foreground",
+              btn.highlight
+                ? "bg-red-500/20 text-red-500"
+                : "bg-secondary text-secondary-foreground"
+            )}
+          >
+            {btn.label}
+          </button>
+        ))}
+
+        {/* Divider */}
+        <div className="bg-border mx-1 h-6 w-px" />
 
         {/* Select mode toggle */}
         {onSelectModeChange && (
@@ -489,62 +527,43 @@ export function TerminalToolbar({
           <FileText className="h-4 w-4" />
         </button>
 
-        {/* Divider */}
-        <div className="bg-border mx-1 h-6 w-px" />
-
-        {/* Shift toggle */}
+        {/* Paste button */}
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation();
-            setShiftActive(!shiftActive);
-          }}
-          className={cn(
-            "flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium",
-            shiftActive
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground"
-          )}
-        >
-          ⇧
-        </button>
-
-        {/* Enter key - sends \n if shift active, \r otherwise */}
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onKeyPress(shiftActive ? "\n" : "\r");
-            setShiftActive(false);
+            handlePaste();
           }}
           className="bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium"
         >
-          ↵
+          <Clipboard className="h-4 w-4" />
         </button>
 
-        {/* Special keys */}
-        {buttons.map((btn) => (
+        {/* Mic button */}
+        {isMicSupported && (
           <button
             type="button"
-            key={btn.label}
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
-              onKeyPress(btn.key);
+              toggleMic();
             }}
             className={cn(
               "flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium",
-              "active:bg-primary active:text-primary-foreground",
-              btn.highlight
-                ? "bg-red-500/20 text-red-500"
-                : "bg-secondary text-secondary-foreground"
+              isListening
+                ? "animate-pulse bg-red-500 text-white"
+                : "bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground"
             )}
           >
-            {btn.label}
+            {isListening ? (
+              <MicOff className="h-4 w-4" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
           </button>
-        ))}
+        )}
       </div>
     </>
   );
