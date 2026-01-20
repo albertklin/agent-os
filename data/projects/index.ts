@@ -6,4 +6,6 @@ export {
   useDeleteProject,
   useRenameProject,
   useUpdateProject,
+  useReorderProjects,
+  type ProjectOrderUpdate,
 } from "./queries";

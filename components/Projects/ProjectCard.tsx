@@ -12,6 +12,7 @@ import {
   Pencil,
   FolderOpen,
   Terminal,
+  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +35,8 @@ interface ProjectCardProps {
   project: Project;
   sessionCount: number;
   isDropTarget?: boolean;
+  isDragging?: boolean;
+  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
   onClick?: () => void;
   onToggleExpanded?: (expanded: boolean) => void;
   onEdit?: () => void;
@@ -48,6 +51,8 @@ export function ProjectCard({
   project,
   sessionCount,
   isDropTarget = false,
+  isDragging = false,
+  dragHandleProps,
   onClick,
   onToggleExpanded,
   onEdit,
@@ -161,9 +166,20 @@ export function ProjectCard({
         "group flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5",
         "min-h-[36px] md:min-h-[28px]",
         "hover:bg-accent/50",
-        isDropTarget && "bg-accent ring-primary/50 ring-2"
+        isDropTarget && "bg-accent ring-primary/50 ring-2",
+        isDragging && "opacity-50"
       )}
     >
+      {/* Drag handle - only show for non-uncategorized projects */}
+      {!project.is_uncategorized && dragHandleProps && (
+        <button
+          {...dragHandleProps}
+          onClick={(e) => e.stopPropagation()}
+          className="flex-shrink-0 cursor-grab p-0.5 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+        >
+          <GripVertical className="text-muted-foreground h-3.5 w-3.5" />
+        </button>
+      )}
       {/* Expand/collapse toggle */}
       <button className="flex-shrink-0 p-0.5">
         {project.expanded ? (

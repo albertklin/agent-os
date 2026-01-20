@@ -22,7 +22,11 @@ import { usePanes } from "@/contexts/PaneContext";
 
 // Data hooks
 import { useSessionsQuery, useReorderSessions } from "@/data/sessions";
-import { useProjectsQuery, useCreateProject } from "@/data/projects";
+import {
+  useProjectsQuery,
+  useCreateProject,
+  useReorderProjects,
+} from "@/data/projects";
 
 import type { SessionListProps } from "./SessionList.types";
 import type { ForkOptions } from "@/components/ForkSessionDialog";
@@ -88,6 +92,9 @@ export function SessionList({
 
   // Session reorder mutation for drag and drop
   const reorderSessions = useReorderSessions();
+
+  // Project reorder mutation for drag and drop
+  const reorderProjects = useReorderProjects();
 
   // Local UI state
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
@@ -199,6 +206,7 @@ export function SessionList({
               onSelectSession={onSelect}
               onOpenSessionInTab={onOpenInTab}
               onReorderSessions={(updates) => reorderSessions.mutate(updates)}
+              onReorderProjects={(updates) => reorderProjects.mutate(updates)}
               onForkSession={handleForkSession}
               onDeleteSession={mutations.handleDeleteSession}
               onRenameSession={mutations.handleRenameSession}

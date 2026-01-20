@@ -128,3 +128,18 @@ export function validateWorkingDirectory(dir: string): boolean {
     return false;
   }
 }
+
+export interface ProjectOrderUpdate {
+  projectId: string;
+  sortOrder: number;
+}
+
+/**
+ * Reorder projects by updating their sort_order values
+ */
+export function reorderProjects(updates: ProjectOrderUpdate[]): void {
+  const updateStmt = queries.updateProjectOrder(db);
+  for (const update of updates) {
+    updateStmt.run(update.sortOrder, update.projectId);
+  }
+}
