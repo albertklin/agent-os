@@ -37,9 +37,24 @@ interface HooksSection {
   UserPromptSubmit?: HookDefinition[];
 }
 
+interface PermissionsSection {
+  additionalDirectories?: string[];
+  allow?: string[];
+  deny?: string[];
+  ask?: string[];
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface ClaudeSettings extends Record<string, any> {
   hooks?: HooksSection;
+  permissions?: PermissionsSection;
+}
+
+/**
+ * Get the worktrees directory path (where isolated worktrees are created)
+ */
+export function getWorktreesDir(): string {
+  return path.join(os.homedir(), ".agent-os", "worktrees");
 }
 
 /**
@@ -281,6 +296,19 @@ export function writeGlobalHooksConfig(port: number = 3011): {
     // Initialize hooks section if it doesn't exist
     if (!settings.hooks) {
       settings.hooks = {};
+    }
+
+    // Configure permissions.additionalDirectories to trust the worktrees directory
+    // This prevents Claude from prompting for permission when starting in a new worktree
+    const worktreesDir = getWorktreesDir();
+    if (!settings.permissions) {
+      settings.permissions = {};
+    }
+    if (!settings.permissions.additionalDirectories) {
+      settings.permissions.additionalDirectories = [];
+    }
+    if (!settings.permissions.additionalDirectories.includes(worktreesDir)) {
+      settings.permissions.additionalDirectories.push(worktreesDir);
     }
 
     const generatedHooks = generateHooksSection(port);
