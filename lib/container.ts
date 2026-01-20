@@ -232,7 +232,12 @@ async function imageExists(): Promise<boolean> {
 function computeDockerConfigHash(): string {
   const hash = crypto.createHash("sha256");
 
-  const files = ["Dockerfile", "init-firewall.sh", "tmux.conf"];
+  const files = [
+    "Dockerfile",
+    "init-firewall.sh",
+    "tmux.conf",
+    "git-wrapper.sh",
+  ];
   for (const file of files) {
     const filePath = path.join(DOCKER_DIR, file);
     if (fs.existsSync(filePath)) {
