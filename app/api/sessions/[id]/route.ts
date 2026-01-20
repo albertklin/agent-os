@@ -233,43 +233,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       lifecycleStatus: "deleting",
     });
 
-    // Kill the tmux session if it exists
-    if (existing.tmux_name) {
-      try {
-        await execAsync(
-          `tmux kill-session -t "${existing.tmux_name}" 2>/dev/null || true`
-        );
-      } catch {
-        // Ignore errors - session might already be dead
-      }
-    }
-
-    // Clean up container if this session had one (synchronous with logging)
-    if (existing.container_id) {
-      try {
-        await destroyContainer(existing.container_id);
-        logSecurityEvent({
-          type: "container_destroyed",
-          sessionId: id,
-          containerId: existing.container_id,
-          success: true,
-        });
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : "Unknown error";
-        logSecurityEvent({
-          type: "container_destroyed",
-          sessionId: id,
-          containerId: existing.container_id,
-          success: false,
-          error: errorMsg,
-        });
-        console.error(
-          `[session] WARNING: Orphaned container ${existing.container_id} - manual cleanup required:`,
-          err
-        );
-        // Don't fail the deletion, but log the orphaned container
-      }
-    }
+    // NOTE: We intentionally delay killing tmux and destroying the container until AFTER
+    // the merge check succeeds. This way, if a merge conflict occurs:
+    // - The session is restored to "ready" status
+    // - The tmux session remains running (user can ask Claude to resolve conflicts)
+    // - The container remains intact (files are preserved)
 
     // Check if branch has changes before deleting (for user feedback)
     let branchDeleted = false;
@@ -345,8 +313,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
               {
                 success: false,
                 error: "merge_conflict",
-                message: mergeResult.error || "Merge failed",
+                message:
+                  "Merge aborted due to conflicts. Resolve conflicts in session branch before retrying.",
                 conflictFiles: mergeResult.conflictFiles,
+                branchStatus: "clean", // Branch is not in a conflict state - merge was aborted
               },
               { status: 409 }
             );
@@ -360,6 +330,47 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
           shouldDeleteBranch = !hasChanges;
         }
         branchDeleted = shouldDeleteBranch;
+      }
+    }
+
+    // At this point, all merge checks have passed (or no merge was needed).
+    // Now we can safely clean up the tmux session and container.
+
+    // Kill the tmux session if it exists
+    if (existing.tmux_name) {
+      try {
+        await execAsync(
+          `tmux kill-session -t "${existing.tmux_name}" 2>/dev/null || true`
+        );
+      } catch {
+        // Ignore errors - session might already be dead
+      }
+    }
+
+    // Clean up container if this session had one (synchronous with logging)
+    if (existing.container_id) {
+      try {
+        await destroyContainer(existing.container_id);
+        logSecurityEvent({
+          type: "container_destroyed",
+          sessionId: id,
+          containerId: existing.container_id,
+          success: true,
+        });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Unknown error";
+        logSecurityEvent({
+          type: "container_destroyed",
+          sessionId: id,
+          containerId: existing.container_id,
+          success: false,
+          error: errorMsg,
+        });
+        console.error(
+          `[session] WARNING: Orphaned container ${existing.container_id} - manual cleanup required:`,
+          err
+        );
+        // Don't fail the deletion, but log the orphaned container
       }
     }
 

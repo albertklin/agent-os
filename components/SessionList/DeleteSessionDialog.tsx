@@ -48,7 +48,7 @@ export function DeleteSessionDialog({
   const [error, setError] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [mergeOption, setMergeOption] = useState<"keep" | "merge">("keep");
+  const [mergeOption, setMergeOption] = useState<"keep" | "merge">("merge");
   const [mergeBranch, setMergeBranch] = useState<string>("");
   const [discardChanges, setDiscardChanges] = useState(false);
 
@@ -59,7 +59,7 @@ export function DeleteSessionDialog({
       setDeleting(false);
       setLoading(true);
       setError(null);
-      setMergeOption("keep");
+      setMergeOption("merge");
       setMergeBranch("");
       setDiscardChanges(false);
 
@@ -200,16 +200,6 @@ export function DeleteSessionDialog({
                   <input
                     type="radio"
                     name="mergeOption"
-                    checked={mergeOption === "keep"}
-                    onChange={() => setMergeOption("keep")}
-                    className="h-4 w-4"
-                  />
-                  <span className="text-sm">Just delete (keep branch)</span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="radio"
-                    name="mergeOption"
                     checked={mergeOption === "merge"}
                     onChange={() => setMergeOption("merge")}
                     className="h-4 w-4"
@@ -237,6 +227,16 @@ export function DeleteSessionDialog({
                     </SelectContent>
                   </Select>
                   <span className="text-sm">then delete branch</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    name="mergeOption"
+                    checked={mergeOption === "keep"}
+                    onChange={() => setMergeOption("keep")}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-sm">Just delete (keep branch)</span>
                 </label>
               </div>
               {mergeOption === "merge" && (
