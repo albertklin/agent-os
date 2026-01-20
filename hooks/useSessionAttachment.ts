@@ -18,7 +18,7 @@ import type { Session } from "@/lib/db";
  * 3. Update the pane's sessionId via PaneContext
  */
 export function useSessionAttachment() {
-  const { setSession, getActiveTab } = usePanes();
+  const { setSession, getActiveTab, addTab } = usePanes();
 
   /**
    * Fetch fresh session data from the API.
@@ -79,11 +79,17 @@ export function useSessionAttachment() {
         return false;
       }
 
-      // Update the pane's sessionId - Terminal will reconnect automatically
-      setSession(paneId, sessionId);
+      // If the active tab is a Quick Respond tab, open in a new tab instead
+      // to preserve the Quick Respond workflow
+      if (activeTab?.isQuickRespond) {
+        addTab(paneId, sessionId);
+      } else {
+        // Update the pane's sessionId - Terminal will reconnect automatically
+        setSession(paneId, sessionId);
+      }
       return true;
     },
-    [fetchSession, getActiveTab, setSession]
+    [fetchSession, getActiveTab, setSession, addTab]
   );
 
   return {
