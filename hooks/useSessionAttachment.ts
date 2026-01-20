@@ -60,18 +60,21 @@ export function useSessionAttachment() {
         return false;
       }
 
-      // Block selection if session isn't ready yet
-      if (session.lifecycle_status !== "ready") {
+      // Block selection for failed/deleting sessions, but allow "creating"
+      // sessions to navigate - Terminal will show the loading splash
+      if (
+        session.lifecycle_status === "failed" ||
+        session.lifecycle_status === "deleting"
+      ) {
         const statusMessages: Record<string, string> = {
-          creating: "Session is being created...",
           failed: "Session failed to start",
           deleting: "Session is being deleted",
         };
-        const message =
-          statusMessages[session.lifecycle_status] ||
-          "Session is not ready yet";
-        toast.info(message, {
-          description: "Please wait for the session to be ready",
+        toast.info(statusMessages[session.lifecycle_status], {
+          description:
+            session.lifecycle_status === "failed"
+              ? "Please delete this session and create a new one"
+              : "Please wait for deletion to complete",
         });
         return false;
       }
