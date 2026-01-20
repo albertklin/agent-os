@@ -434,6 +434,30 @@ export async function createContainer(
         );
       }
 
+      // Copy ~/.claude.json (onboarding state, theme, etc.) into the CLAUDE_CONFIG_DIR
+      // Since CLAUDE_CONFIG_DIR=/home/node/.claude, Claude looks for .claude.json inside that directory
+      const claudeJsonFile = path.join(os.homedir(), ".claude.json");
+      if (fs.existsSync(claudeJsonFile)) {
+        console.log(`[container] Copying .claude.json into container...`);
+        try {
+          await execAsync(
+            `docker cp "${claudeJsonFile}" "${containerId}:/home/node/.claude/.claude.json"`,
+            { timeout: 10000 }
+          );
+          await execAsync(
+            `docker exec -u root "${containerId}" chown node:node /home/node/.claude/.claude.json`,
+            { timeout: 5000 }
+          );
+          console.log(`[container] .claude.json copied successfully`);
+        } catch (copyError) {
+          const copyErrorMsg =
+            copyError instanceof Error ? copyError.message : "Unknown error";
+          console.warn(
+            `[container] Failed to copy .claude.json (continuing anyway): ${copyErrorMsg}`
+          );
+        }
+      }
+
       // Initialize firewall inside the container (run as root via -u flag)
       // This avoids needing sudo inside the container, so no-new-privileges can stay enabled
       console.log(`[container] Initializing firewall...`);

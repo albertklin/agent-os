@@ -12,7 +12,6 @@ import {
   Pencil,
   FolderOpen,
   Terminal,
-  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +35,6 @@ interface ProjectCardProps {
   sessionCount: number;
   isDropTarget?: boolean;
   isDragging?: boolean;
-  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
   onClick?: () => void;
   onToggleExpanded?: (expanded: boolean) => void;
   onEdit?: () => void;
@@ -52,7 +50,6 @@ export function ProjectCard({
   sessionCount,
   isDropTarget = false,
   isDragging = false,
-  dragHandleProps,
   onClick,
   onToggleExpanded,
   onEdit,
@@ -170,16 +167,6 @@ export function ProjectCard({
         isDragging && "opacity-50"
       )}
     >
-      {/* Drag handle - only show for non-uncategorized projects */}
-      {!project.is_uncategorized && dragHandleProps && (
-        <button
-          {...dragHandleProps}
-          onClick={(e) => e.stopPropagation()}
-          className="flex-shrink-0 cursor-grab p-0.5 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
-        >
-          <GripVertical className="text-muted-foreground h-3.5 w-3.5" />
-        </button>
-      )}
       {/* Expand/collapse toggle */}
       <button className="flex-shrink-0 p-0.5">
         {project.expanded ? (

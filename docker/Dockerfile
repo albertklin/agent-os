@@ -26,7 +26,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   nano \
   vim \
   tmux \
+  locales \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Configure UTF-8 locale for proper Unicode rendering
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
 
 # Ensure default node user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global && \

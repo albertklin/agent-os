@@ -168,6 +168,9 @@ export async function createWorktree(
     throw new Error(`Failed to create worktree: ${lastError.message}`);
   }
 
+  // Add project entry to ~/.claude.json to skip trust dialog
+  addWorktreeProjectEntry(worktreePath);
+
   // Note: Submodule initialization is now handled by session-setup.ts
   // to avoid blocking the API response
 
@@ -255,6 +258,9 @@ export async function deleteWorktree(
       );
     }
   }
+
+  // Remove project entry from ~/.claude.json
+  removeWorktreeProjectEntry(resolvedWorktreePath);
 }
 
 /**
@@ -388,4 +394,114 @@ export function isAgentOSWorktree(worktreePath: string): boolean {
  */
 export function getWorktreesDir(): string {
   return WORKTREES_DIR;
+}
+
+// Path to ~/.claude.json
+const CLAUDE_CONFIG_PATH = path.join(os.homedir(), ".claude.json");
+
+/**
+ * Default project entry structure for trusted worktrees
+ */
+function getDefaultProjectEntry() {
+  return {
+    allowedTools: [],
+    mcpContextUris: [],
+    mcpServers: {},
+    enabledMcpjsonServers: [],
+    disabledMcpjsonServers: [],
+    hasTrustDialogAccepted: true,
+    projectOnboardingSeenCount: 0,
+    hasClaudeMdExternalIncludesApproved: false,
+    hasClaudeMdExternalIncludesWarningShown: false,
+    exampleFiles: [],
+    exampleFilesGeneratedAt: null,
+    reactVulnerabilityCache: {
+      detected: false,
+      package: null,
+      packageName: null,
+      version: null,
+      packageManager: null,
+    },
+    lastCost: 0,
+    lastAPIDuration: 0,
+    lastAPIDurationWithoutRetries: 0,
+    lastToolDuration: 0,
+    lastDuration: 0,
+    lastLinesAdded: 0,
+    lastLinesRemoved: 0,
+    lastTotalInputTokens: 0,
+    lastTotalOutputTokens: 0,
+    lastTotalCacheCreationInputTokens: 0,
+    lastTotalCacheReadInputTokens: 0,
+    lastTotalWebSearchRequests: 0,
+    lastModelUsage: {},
+    lastSessionId: null,
+    hasCompletedProjectOnboarding: false,
+  };
+}
+
+/**
+ * Add a project entry to ~/.claude.json for a worktree path.
+ * This marks the worktree as trusted, preventing Claude from prompting
+ * for permission when starting a session in that directory.
+ */
+export function addWorktreeProjectEntry(worktreePath: string): void {
+  try {
+    // Read existing config or create empty object
+    let config: Record<string, unknown> = {};
+    if (fs.existsSync(CLAUDE_CONFIG_PATH)) {
+      const content = fs.readFileSync(CLAUDE_CONFIG_PATH, "utf-8");
+      config = JSON.parse(content);
+    }
+
+    // Initialize projects object if it doesn't exist
+    if (!config.projects || typeof config.projects !== "object") {
+      config.projects = {};
+    }
+
+    const projects = config.projects as Record<string, unknown>;
+
+    // Add entry for this worktree path if it doesn't exist
+    if (!projects[worktreePath]) {
+      projects[worktreePath] = getDefaultProjectEntry();
+      fs.writeFileSync(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2));
+      console.log(`[worktrees] Added project entry for ${worktreePath}`);
+    }
+  } catch (error) {
+    console.warn(
+      `[worktrees] Failed to add project entry for ${worktreePath}:`,
+      error instanceof Error ? error.message : "Unknown error"
+    );
+  }
+}
+
+/**
+ * Remove a project entry from ~/.claude.json for a worktree path.
+ */
+export function removeWorktreeProjectEntry(worktreePath: string): void {
+  try {
+    if (!fs.existsSync(CLAUDE_CONFIG_PATH)) {
+      return;
+    }
+
+    const content = fs.readFileSync(CLAUDE_CONFIG_PATH, "utf-8");
+    const config = JSON.parse(content) as Record<string, unknown>;
+
+    if (!config.projects || typeof config.projects !== "object") {
+      return;
+    }
+
+    const projects = config.projects as Record<string, unknown>;
+
+    if (projects[worktreePath]) {
+      delete projects[worktreePath];
+      fs.writeFileSync(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2));
+      console.log(`[worktrees] Removed project entry for ${worktreePath}`);
+    }
+  } catch (error) {
+    console.warn(
+      `[worktrees] Failed to remove project entry for ${worktreePath}:`,
+      error instanceof Error ? error.message : "Unknown error"
+    );
+  }
 }

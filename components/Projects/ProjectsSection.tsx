@@ -109,20 +109,16 @@ function SortableSessionCard({
   );
 }
 
-// Sortable wrapper for ProjectCard
-interface SortableProjectCardProps {
+// Sortable wrapper for entire project block (card + sessions)
+interface SortableProjectBlockProps {
   project: Project;
-  sessionCount: number;
-  isDropTarget: boolean;
-  onToggleExpanded?: (expanded: boolean) => void;
-  onEdit?: () => void;
-  onNewSession?: () => void;
-  onOpenTerminal?: () => void;
-  onDelete?: () => void;
-  onRename?: (newName: string) => void;
+  children: (isDragging: boolean) => React.ReactNode;
 }
 
-function SortableProjectCard({ project, ...props }: SortableProjectCardProps) {
+function SortableProjectBlock({
+  project,
+  children,
+}: SortableProjectBlockProps) {
   const {
     attributes,
     listeners,
@@ -138,17 +134,13 @@ function SortableProjectCard({ project, ...props }: SortableProjectCardProps) {
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    zIndex: isDragging ? 1 : undefined,
+    // Hide while dragging - the DragOverlay shows the dragged item
+    opacity: isDragging ? 0 : 1,
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
-      <ProjectCard
-        project={project}
-        isDragging={isDragging}
-        dragHandleProps={listeners}
-        {...props}
-      />
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children(isDragging)}
     </div>
   );
 }
@@ -157,20 +149,25 @@ function SortableProjectCard({ project, ...props }: SortableProjectCardProps) {
 function ProjectDropZone({
   projectId,
   variant = "empty",
+  isDraggingProject = false,
 }: {
   projectId: string;
   variant?: "empty" | "end";
+  isDraggingProject?: boolean;
 }) {
   const { setNodeRef, isOver } = useSortable({
     id: `project-drop-${projectId}`,
   });
+
+  // Only show hover effect when dragging a session, not a project
+  const showHover = isOver && !isDraggingProject;
 
   if (variant === "end") {
     // Subtle drop zone at the end of a non-empty project
     return (
       <div
         ref={setNodeRef}
-        className={`h-2 transition-colors ${isOver ? "bg-accent/50 rounded" : ""}`}
+        className={`h-2 transition-colors ${showHover ? "bg-accent/50 rounded" : ""}`}
       />
     );
   }
@@ -179,10 +176,10 @@ function ProjectDropZone({
     <div
       ref={setNodeRef}
       className={`text-muted-foreground px-2 py-2 text-xs transition-colors ${
-        isOver ? "bg-accent/50 text-foreground rounded" : ""
+        showHover ? "bg-accent/50 text-foreground rounded" : ""
       }`}
     >
-      {isOver ? "Drop here" : "No sessions yet"}
+      {showHover ? "Drop here" : "No sessions yet"}
     </div>
   );
 }
@@ -191,18 +188,23 @@ function ProjectDropZone({
 function DroppableProjectHeader({
   projectId,
   children,
+  isDraggingProject = false,
 }: {
   projectId: string;
   children: React.ReactNode;
+  isDraggingProject?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `project-header-${projectId}`,
   });
 
+  // Only show hover effect when dragging a session, not a project
+  const showHover = isOver && !isDraggingProject;
+
   return (
     <div
       ref={setNodeRef}
-      className={isOver ? "ring-primary/50 rounded ring-2" : ""}
+      className={showHover ? "ring-primary/50 rounded ring-2" : ""}
     >
       {children}
     </div>
@@ -560,17 +562,28 @@ function ProjectsSectionComponent({
                 : undefined,
             };
 
-            return (
-              <div key={project.id} className="space-y-0.5">
-                {/* Project header - use sortable for non-uncategorized, wrap with droppable when collapsed */}
-                {project.is_uncategorized ? (
-                  <ProjectCard {...projectCardProps} />
-                ) : !project.expanded ? (
-                  <DroppableProjectHeader projectId={project.id}>
-                    <SortableProjectCard {...projectCardProps} />
+            // Render function for project contents (used by both sortable and non-sortable paths)
+            const renderProjectContent = (isDraggingThis: boolean) => (
+              <div className="space-y-0.5">
+                {/* Project header - wrap with droppable when collapsed AND dragging a session */}
+                {/* Don't use DroppableProjectHeader when dragging a project - it interferes with sortable */}
+                {!project.expanded &&
+                !project.is_uncategorized &&
+                !isDraggingProject ? (
+                  <DroppableProjectHeader
+                    projectId={project.id}
+                    isDraggingProject={isDraggingProject}
+                  >
+                    <ProjectCard
+                      {...projectCardProps}
+                      isDragging={isDraggingThis}
+                    />
                   </DroppableProjectHeader>
                 ) : (
-                  <SortableProjectCard {...projectCardProps} />
+                  <ProjectCard
+                    {...projectCardProps}
+                    isDragging={isDraggingThis}
+                  />
                 )}
 
                 {/* Project contents when expanded */}
@@ -583,10 +596,13 @@ function ProjectsSectionComponent({
                     {/* Project sessions with sortable context */}
                     {(() => {
                       // Calculate if this is an inter-project drag targeting this project
+                      // Only applies when dragging a session (not a project)
                       const activeSessionProjectId =
                         activeSession?.project_id || "uncategorized";
                       const isInterProjectDrag =
-                        activeId && activeSessionProjectId !== project.id;
+                        activeId &&
+                        !isDraggingProject &&
+                        activeSessionProjectId !== project.id;
                       const isInterProjectDragToThisProject =
                         isInterProjectDrag && overProjectId === project.id;
 
@@ -605,7 +621,10 @@ function ProjectsSectionComponent({
                             items={[`project-drop-${project.id}`]}
                             strategy={verticalListSortingStrategy}
                           >
-                            <ProjectDropZone projectId={project.id} />
+                            <ProjectDropZone
+                              projectId={project.id}
+                              isDraggingProject={isDraggingProject}
+                            />
                           </SortableContext>
                         );
                       }
@@ -694,6 +713,7 @@ function ProjectsSectionComponent({
                             <ProjectDropZone
                               projectId={project.id}
                               variant="end"
+                              isDraggingProject={isDraggingProject}
                             />
                           )}
                           {/* Show indicator at the end when dropping on project drop zone */}
@@ -708,6 +728,15 @@ function ProjectsSectionComponent({
                 )}
               </div>
             );
+
+            // Wrap non-uncategorized projects with SortableProjectBlock
+            return project.is_uncategorized ? (
+              <div key={project.id}>{renderProjectContent(false)}</div>
+            ) : (
+              <SortableProjectBlock key={project.id} project={project}>
+                {renderProjectContent}
+              </SortableProjectBlock>
+            );
           })}
         </div>
       </SortableContext>
@@ -716,10 +745,35 @@ function ProjectsSectionComponent({
       <DragOverlay dropAnimation={null}>
         {activeProject ? (
           <div className="bg-background rounded border opacity-90 shadow-lg">
-            <ProjectCard
-              project={activeProject}
-              sessionCount={sessionsByProject[activeProject.id]?.length || 0}
-            />
+            <div className="space-y-0.5">
+              <ProjectCard
+                project={activeProject}
+                sessionCount={sessionsByProject[activeProject.id]?.length || 0}
+              />
+              {activeProject.expanded && (
+                <div className="border-border/30 ml-3 space-y-px border-l pl-1.5">
+                  {(sessionsByProject[activeProject.id] || []).map(
+                    (session) => (
+                      <SessionCard
+                        key={session.id}
+                        session={session}
+                        isActive={session.id === activeSessionId}
+                        groups={groups}
+                        isSelected={false}
+                        isInSelectMode={false}
+                        onToggleSelect={() => {}}
+                        onClick={() => {}}
+                      />
+                    )
+                  )}
+                  {(sessionsByProject[activeProject.id] || []).length === 0 && (
+                    <div className="text-muted-foreground px-2 py-2 text-xs">
+                      No sessions yet
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ) : activeSession ? (
           <div className="bg-background rounded border opacity-90 shadow-lg">

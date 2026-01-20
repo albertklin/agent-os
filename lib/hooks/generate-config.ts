@@ -51,13 +51,6 @@ interface ClaudeSettings extends Record<string, any> {
 }
 
 /**
- * Get the worktrees directory path (where isolated worktrees are created)
- */
-export function getWorktreesDir(): string {
-  return path.join(os.homedir(), ".agent-os", "worktrees");
-}
-
-/**
  * Get the URL for the status-update endpoint
  */
 export function getStatusUpdateUrl(port: number = 3011): string {
@@ -296,19 +289,6 @@ export function writeGlobalHooksConfig(port: number = 3011): {
     // Initialize hooks section if it doesn't exist
     if (!settings.hooks) {
       settings.hooks = {};
-    }
-
-    // Configure permissions.additionalDirectories to trust the worktrees directory
-    // This prevents Claude from prompting for permission when starting in a new worktree
-    const worktreesDir = getWorktreesDir();
-    if (!settings.permissions) {
-      settings.permissions = {};
-    }
-    if (!settings.permissions.additionalDirectories) {
-      settings.permissions.additionalDirectories = [];
-    }
-    if (!settings.permissions.additionalDirectories.includes(worktreesDir)) {
-      settings.permissions.additionalDirectories.push(worktreesDir);
     }
 
     const generatedHooks = generateHooksSection(port);
