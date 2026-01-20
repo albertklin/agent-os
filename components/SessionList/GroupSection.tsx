@@ -211,6 +211,7 @@ export function GroupSection({
                 setupStatus={sessionStatuses?.[session.id]?.setupStatus}
                 setupError={sessionStatuses?.[session.id]?.setupError}
                 lifecycleStatus={sessionStatuses?.[session.id]?.lifecycleStatus}
+                stale={sessionStatuses?.[session.id]?.stale}
                 groups={groups}
                 onClick={() => onSelectSession(session.id)}
                 onFork={async (options) => onForkSession(session.id, options)}

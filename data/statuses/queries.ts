@@ -55,6 +55,7 @@ function toSessionStatus(
     setupStatus: data.setupStatus,
     setupError: data.setupError,
     lifecycleStatus: data.lifecycleStatus,
+    stale: data.stale,
   };
 }
 

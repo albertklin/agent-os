@@ -21,6 +21,7 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
+  Clock,
 } from "lucide-react";
 import type {
   SetupStatusType,
@@ -65,6 +66,8 @@ interface SessionCardProps {
   setupStatus?: SetupStatusType;
   setupError?: string;
   lifecycleStatus?: LifecycleStatusType;
+  /** True if no status update received within the stale threshold */
+  stale?: boolean;
   groups?: Group[];
   // Selection props
   isSelected?: boolean;
@@ -153,6 +156,7 @@ function SessionCardComponent({
   setupStatus,
   setupError,
   lifecycleStatus,
+  stale,
   groups = [],
   isSelected,
   isInSelectMode,
@@ -383,13 +387,17 @@ function SessionCardComponent({
                   ? "text-blue-500"
                   : setupFailed
                     ? "text-red-500"
-                    : config.color
+                    : stale && status === "running"
+                      ? "text-orange-500"
+                      : config.color
               )}
             >
               {isSettingUp ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : setupFailed ? (
                 <XCircle className="h-3 w-3" />
+              ) : stale && status === "running" ? (
+                <Clock className="h-3 w-3" />
               ) : (
                 config.icon
               )}
@@ -416,6 +424,11 @@ function SessionCardComponent({
                 {toolDetail && status === "running" && (
                   <span className="text-muted-foreground max-w-[300px] truncate font-mono text-xs">
                     {toolDetail}
+                  </span>
+                )}
+                {stale && status === "running" && (
+                  <span className="text-xs text-orange-400">
+                    No updates received recently
                   </span>
                 )}
               </div>
@@ -669,6 +682,7 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
   if (prev.setupStatus !== next.setupStatus) return false;
   if (prev.setupError !== next.setupError) return false;
   if (prev.lifecycleStatus !== next.lifecycleStatus) return false;
+  if (prev.stale !== next.stale) return false;
   if (prev.isActive !== next.isActive) return false;
   if (prev.isSelected !== next.isSelected) return false;
   if (prev.isInSelectMode !== next.isInSelectMode) return false;

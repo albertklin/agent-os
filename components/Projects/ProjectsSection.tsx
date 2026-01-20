@@ -65,6 +65,7 @@ interface SortableSessionCardProps {
   setupStatus?: SessionStatus["setupStatus"];
   setupError?: string;
   lifecycleStatus?: SessionStatus["lifecycleStatus"];
+  stale?: boolean;
   groups: Group[];
   isSelected: boolean;
   isInSelectMode: boolean;
@@ -534,6 +535,7 @@ function ProjectsSectionComponent({
                                 lifecycleStatus={
                                   sessionStatuses?.[session.id]?.lifecycleStatus
                                 }
+                                stale={sessionStatuses?.[session.id]?.stale}
                                 groups={groups}
                                 isSelected={selectedIds.has(session.id)}
                                 isInSelectMode={isInSelectMode}

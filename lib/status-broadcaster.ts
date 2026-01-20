@@ -25,6 +25,8 @@ export interface StatusData {
   setupStatus?: SetupStatus;
   setupError?: string;
   lifecycleStatus?: LifecycleStatus;
+  /** True if no status update received within the stale threshold */
+  stale?: boolean;
 }
 
 export interface StatusUpdate {
@@ -38,6 +40,8 @@ export interface StatusUpdate {
   setupStatus?: SetupStatus;
   setupError?: string;
   lifecycleStatus?: LifecycleStatus;
+  /** True if no status update received within the stale threshold */
+  stale?: boolean;
 }
 
 type SSECallback = (data: StatusUpdate) => void;
@@ -74,7 +78,7 @@ class StatusBroadcaster {
     // Get existing data to preserve fields not in this update
     const existing = this.statusStore.get(sessionId);
 
-    // Update in-memory store
+    // Update in-memory store (fresh update clears stale flag)
     this.statusStore.set(sessionId, {
       status,
       lastLine,
@@ -85,6 +89,7 @@ class StatusBroadcaster {
       setupStatus: setupStatus ?? existing?.setupStatus,
       setupError: setupError ?? existing?.setupError,
       lifecycleStatus: lifecycleStatus ?? existing?.lifecycleStatus,
+      stale: false,
     });
 
     // Update DB timestamp for running/waiting states
@@ -233,7 +238,7 @@ class StatusBroadcaster {
 
   /**
    * Clean up stale and orphaned statuses:
-   * - Sessions not updated in 10 minutes become unknown
+   * - Sessions not updated in 10 minutes are marked as stale
    * - Sessions deleted from DB are removed from the store
    */
   cleanupStale(): void {
@@ -260,13 +265,14 @@ class StatusBroadcaster {
         continue;
       }
 
-      // Mark stale sessions as unknown
+      // Mark sessions as stale (but preserve their status)
       if (now - data.updatedAt > staleThreshold && data.status !== "dead") {
-        this.statusStore.set(id, {
-          ...data,
-          status: "unknown",
-          updatedAt: now,
-        });
+        if (!data.stale) {
+          this.statusStore.set(id, {
+            ...data,
+            stale: true,
+          });
+        }
       }
     }
   }
@@ -332,6 +338,7 @@ class StatusBroadcaster {
           setupStatus: session.setup_status ?? undefined,
           setupError: session.setup_error ?? undefined,
           lifecycleStatus: session.lifecycle_status ?? undefined,
+          stale: false,
         });
 
         synced++;
@@ -365,6 +372,7 @@ class StatusBroadcaster {
             setupStatus: session.setup_status ?? undefined,
             setupError: session.setup_error ?? undefined,
             lifecycleStatus: session.lifecycle_status ?? undefined,
+            stale: false,
           });
           synced++;
           dead++;

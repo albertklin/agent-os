@@ -35,6 +35,8 @@ export interface StatusData {
   setupStatus?: SetupStatusType;
   setupError?: string;
   lifecycleStatus?: LifecycleStatusType;
+  /** True if no status update received within the stale threshold */
+  stale?: boolean;
 }
 
 interface StatusUpdate {
@@ -47,6 +49,8 @@ interface StatusUpdate {
   setupStatus?: SetupStatusType;
   setupError?: string;
   lifecycleStatus?: LifecycleStatusType;
+  /** True if no status update received within the stale threshold */
+  stale?: boolean;
 }
 
 interface InitEvent {
@@ -120,6 +124,7 @@ export function useStatusStream(): UseStatusStreamResult {
             setupError: update.setupError ?? existing?.setupError,
             lifecycleStatus:
               update.lifecycleStatus ?? existing?.lifecycleStatus,
+            stale: update.stale,
           },
         };
       });

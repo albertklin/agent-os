@@ -16,6 +16,8 @@ export interface SessionStatus {
   setupStatus?: SetupStatusType;
   setupError?: string;
   lifecycleStatus?: LifecycleStatusType;
+  /** True if no status update received within the stale threshold */
+  stale?: boolean;
 }
 
 export interface SessionListProps {
