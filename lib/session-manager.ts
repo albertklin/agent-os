@@ -64,7 +64,7 @@ class SessionManager {
       session.container_id && session.container_status === "ready";
 
     if (isSandboxed) {
-      // Docker exec to attach to tmux inside the container
+      // Docker exec to attach to tmux inside the container (use agentos socket)
       return {
         command: "docker",
         args: [
@@ -72,6 +72,8 @@ class SessionManager {
           "-it",
           session.container_id!,
           "tmux",
+          "-L",
+          tmux.TMUX_SOCKET,
           "attach",
           "-t",
           tmuxName,
@@ -79,10 +81,10 @@ class SessionManager {
       };
     }
 
-    // Standard tmux attach
+    // Standard tmux attach (use agentos socket)
     return {
       command: "tmux",
-      args: ["attach", "-t", tmuxName],
+      args: ["-L", tmux.TMUX_SOCKET, "attach", "-t", tmuxName],
     };
   }
 
@@ -121,21 +123,23 @@ class SessionManager {
 
     // Build the tmux command
     // Use escapeShellArg to properly handle quotes in session names and commands
+    // IMPORTANT: Always use -L agentos socket for consistency with hooks (see generate-config.ts)
     let tmuxCmd: string;
     if (isSandboxed) {
-      // Create tmux session inside the container
+      // Create tmux session inside the container using the agentos socket
       // Container has .tmux.conf with mouse/resize settings
+      // The -L agentos is critical: hooks query this socket to get the session name
       if (agentCommand) {
-        tmuxCmd = `docker exec -d ${session.container_id} tmux new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)} ${escapeShellArg(agentCommand)}`;
+        tmuxCmd = `docker exec -d ${session.container_id} tmux -L ${tmux.TMUX_SOCKET} new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)} ${escapeShellArg(agentCommand)}`;
       } else {
-        tmuxCmd = `docker exec -d ${session.container_id} tmux new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)}`;
+        tmuxCmd = `docker exec -d ${session.container_id} tmux -L ${tmux.TMUX_SOCKET} new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)}`;
       }
     } else {
-      // Create tmux session on the host
+      // Create tmux session on the host (use agentos socket for consistency with hooks)
       if (agentCommand) {
-        tmuxCmd = `tmux new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)} ${escapeShellArg(agentCommand)}`;
+        tmuxCmd = `tmux -L ${tmux.TMUX_SOCKET} new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)} ${escapeShellArg(agentCommand)}`;
       } else {
-        tmuxCmd = `tmux new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)}`;
+        tmuxCmd = `tmux -L ${tmux.TMUX_SOCKET} new-session -d -s ${escapeShellArg(tmuxName)} -c ${escapeShellArg(cwd)}`;
       }
     }
 
@@ -202,15 +206,15 @@ class SessionManager {
     // Kill tmux session
     try {
       if (isSandboxed) {
-        // Kill tmux inside the container
+        // Kill tmux inside the container (use agentos socket for consistency)
         await execAsync(
-          `docker exec ${session.container_id} tmux kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
+          `docker exec ${session.container_id} tmux -L ${tmux.TMUX_SOCKET} kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
           { timeout: 10000 }
         );
       } else {
-        // Kill tmux on the host
+        // Kill tmux on the host (use agentos socket)
         await execAsync(
-          `tmux kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
+          `tmux -L ${tmux.TMUX_SOCKET} kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
           { timeout: 5000 }
         );
       }
@@ -291,10 +295,10 @@ class SessionManager {
         return false;
       }
 
-      // Then check if tmux session exists inside the container
+      // Then check if tmux session exists inside the container (use agentos socket)
       try {
         await execAsync(
-          `docker exec ${session.container_id} tmux has-session -t ${escapeShellArg(tmuxName)} 2>/dev/null`,
+          `docker exec ${session.container_id} tmux -L ${tmux.TMUX_SOCKET} has-session -t ${escapeShellArg(tmuxName)} 2>/dev/null`,
           { timeout: 5000 }
         );
         return true;
