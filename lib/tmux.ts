@@ -2,12 +2,20 @@
  * Tmux Utilities
  *
  * Utilities for managing tmux sessions, both local and inside containers.
+ * Uses a dedicated tmux server socket to avoid cluttering the user's default tmux.
  */
 
 import { exec as execCallback } from "child_process";
 import { promisify } from "util";
 
 const exec = promisify(execCallback);
+
+/**
+ * The tmux socket name for AgentOS sessions.
+ * Using a separate socket avoids cluttering the user's default tmux server.
+ * List sessions with: tmux -L agentos list-sessions
+ */
+export const TMUX_SOCKET = "agentos";
 
 /**
  * Escape a string for safe use in shell commands.
@@ -33,12 +41,12 @@ export async function createTmuxSession(options: {
     // For sandboxed sessions, the container typically runs tmux as entrypoint.
     // This function can create a new tmux session inside the container if needed.
     await exec(
-      `docker exec ${insideContainer} tmux new-session -d -s ${escapeShellArg(name)} -c ${escapeShellArg(cwd)} ${escapeShellArg(command)}`
+      `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} new-session -d -s ${escapeShellArg(name)} -c ${escapeShellArg(cwd)} ${escapeShellArg(command)}`
     );
   } else {
-    // Create a local tmux session
+    // Create a local tmux session using dedicated socket
     await exec(
-      `tmux new-session -d -s ${escapeShellArg(name)} -c ${escapeShellArg(cwd)} ${escapeShellArg(command)}`
+      `tmux -L ${TMUX_SOCKET} new-session -d -s ${escapeShellArg(name)} -c ${escapeShellArg(cwd)} ${escapeShellArg(command)}`
     );
   }
 }
@@ -53,10 +61,12 @@ export async function isTmuxSessionAlive(
   try {
     if (insideContainer) {
       await exec(
-        `docker exec ${insideContainer} tmux has-session -t ${escapeShellArg(name)}`
+        `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} has-session -t ${escapeShellArg(name)}`
       );
     } else {
-      await exec(`tmux has-session -t ${escapeShellArg(name)}`);
+      await exec(
+        `tmux -L ${TMUX_SOCKET} has-session -t ${escapeShellArg(name)}`
+      );
     }
     return true;
   } catch {
@@ -75,10 +85,12 @@ export async function killTmuxSession(
   try {
     if (insideContainer) {
       await exec(
-        `docker exec ${insideContainer} tmux kill-session -t ${escapeShellArg(name)}`
+        `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} kill-session -t ${escapeShellArg(name)}`
       );
     } else {
-      await exec(`tmux kill-session -t ${escapeShellArg(name)}`);
+      await exec(
+        `tmux -L ${TMUX_SOCKET} kill-session -t ${escapeShellArg(name)}`
+      );
     }
   } catch (error) {
     // Log at debug level - session may not exist which is expected
@@ -104,12 +116,22 @@ export function getTmuxAttachCommand(
   if (insideContainer) {
     return {
       command: "docker",
-      args: ["exec", "-it", insideContainer, "tmux", "attach", "-t", name],
+      args: [
+        "exec",
+        "-it",
+        insideContainer,
+        "tmux",
+        "-L",
+        TMUX_SOCKET,
+        "attach",
+        "-t",
+        name,
+      ],
     };
   } else {
     return {
       command: "tmux",
-      args: ["attach", "-t", name],
+      args: ["-L", TMUX_SOCKET, "attach", "-t", name],
     };
   }
 }
@@ -124,10 +146,12 @@ export async function listTmuxSessions(
     let result;
     if (insideContainer) {
       result = await exec(
-        `docker exec ${insideContainer} tmux list-sessions -F '#{session_name}'`
+        `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} list-sessions -F '#{session_name}'`
       );
     } else {
-      result = await exec(`tmux list-sessions -F '#{session_name}'`);
+      result = await exec(
+        `tmux -L ${TMUX_SOCKET} list-sessions -F '#{session_name}'`
+      );
     }
 
     const sessions = result.stdout
@@ -166,11 +190,11 @@ export async function captureTmuxPane(
     let result;
     if (insideContainer) {
       result = await exec(
-        `docker exec ${insideContainer} tmux capture-pane -t ${escapedName} -p -S -${lines}`
+        `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} capture-pane -t ${escapedName} -p -S -${lines}`
       );
     } else {
       result = await exec(
-        `tmux capture-pane -t ${escapedName} -p -S -${lines} 2>/dev/null || echo ""`
+        `tmux -L ${TMUX_SOCKET} capture-pane -t ${escapedName} -p -S -${lines} 2>/dev/null || echo ""`
       );
     }
     return result.stdout.trim();
@@ -191,11 +215,11 @@ export async function getTmuxSessionCwd(
     let result;
     if (insideContainer) {
       result = await exec(
-        `docker exec ${insideContainer} tmux display-message -t ${escapedName} -p "#{pane_current_path}"`
+        `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} display-message -t ${escapedName} -p "#{pane_current_path}"`
       );
     } else {
       result = await exec(
-        `tmux display-message -t ${escapedName} -p "#{pane_current_path}" 2>/dev/null || echo ""`
+        `tmux -L ${TMUX_SOCKET} display-message -t ${escapedName} -p "#{pane_current_path}" 2>/dev/null || echo ""`
       );
     }
     const cwd = result.stdout.trim();

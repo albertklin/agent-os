@@ -82,6 +82,7 @@ case "${1:-}" in
     disable)          cmd_disable ;;
     uninstall)        cmd_uninstall ;;
     start-foreground) cmd_start_foreground ;;
+    tmux)             shift; cmd_tmux "$@" ;;
     help|--help|-h)   cmd_help ;;
     *)
         if [[ -n "${1:-}" ]]; then
