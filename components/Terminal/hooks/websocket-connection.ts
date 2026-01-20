@@ -49,6 +49,9 @@ export function createWebSocketConnection(
     }
   };
 
+  // Track whether we've sent the initial resize after tmux attaches
+  let hasSentInitialResize = false;
+
   // Force reconnect - kills any existing connection and creates fresh one
   // Note: savedHandlers is populated after handlers are defined below
   let savedHandlers: {
@@ -60,6 +63,9 @@ export function createWebSocketConnection(
 
   const forceReconnect = () => {
     if (intentionalCloseRef.current) return;
+
+    // Reset initial resize flag for the new connection
+    hasSentInitialResize = false;
 
     // Clear any pending reconnect
     if (reconnectTimeoutRef.current) {
@@ -117,6 +123,12 @@ export function createWebSocketConnection(
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === "output") {
+        // Send resize on first output - this is when tmux has actually attached and is rendering
+        if (!hasSentInitialResize) {
+          hasSentInitialResize = true;
+          sendResize(term.cols, term.rows);
+        }
+
         const buffer = term.buffer.active;
         const scrollYBefore = buffer.viewportY;
         const wasAtTop = scrollYBefore <= 0;
