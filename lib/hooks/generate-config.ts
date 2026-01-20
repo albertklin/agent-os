@@ -97,17 +97,14 @@ exit 0
 /**
  * Generate the hook command that sends ntfy.sh push notifications
  *
- * Notifications are disabled if either:
- * - ~/.claude-notify-disabled exists (system-wide disable)
- * - ~/.agent-os/notify-disabled exists (agent-os specific disable)
- *
+ * Notifications are disabled if ~/.agent-os/notify-disabled exists.
  * Extracts the message from the hook payload and sends it to ntfy.sh.
  */
 export function generateNtfyHookCommand(
   ntfyUrl: string = DEFAULT_NTFY_URL
 ): string {
   return `bash -c '
-if [ -f "$HOME/.claude-notify-disabled" ] || [ -f "$HOME/.agent-os/notify-disabled" ]; then
+if [ -f "$HOME/.agent-os/notify-disabled" ]; then
   exit 0
 fi
 HOOK_INPUT=$(cat)

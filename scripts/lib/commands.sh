@@ -501,21 +501,12 @@ cmd_start_foreground() {
 
 cmd_notify_on() {
     local disable_file="$AGENT_OS_HOME/notify-disabled"
-    local global_disable="$HOME/.claude-notify-disabled"
 
     if [[ -f "$disable_file" ]]; then
         rm -f "$disable_file"
-        if [[ -f "$global_disable" ]]; then
-            log_warn "AgentOS notifications enabled, but ~/.claude-notify-disabled exists (system-wide disable)"
-        else
-            log_success "Push notifications enabled"
-        fi
+        log_success "Push notifications enabled"
     else
-        if [[ -f "$global_disable" ]]; then
-            log_info "AgentOS notifications already enabled, but ~/.claude-notify-disabled exists (system-wide disable)"
-        else
-            log_info "Push notifications are already enabled"
-        fi
+        log_info "Push notifications are already enabled"
     fi
 }
 
