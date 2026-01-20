@@ -225,3 +225,208 @@ export async function getGitStatus(dirPath: string): Promise<{
 
   return { staged, unstaged, untracked, ahead, behind };
 }
+
+/**
+ * Get the count of commits ahead of a base branch
+ */
+export async function getCommitCount(
+  dirPath: string,
+  baseBranch: string
+): Promise<number> {
+  const resolvedPath = dirPath.replace(/^~/, process.env.HOME || "");
+  try {
+    const { stdout } = await execAsync(
+      `git -C "${resolvedPath}" rev-list --count ${baseBranch}..HEAD`,
+      { timeout: 5000 }
+    );
+    return parseInt(stdout.trim(), 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export interface MergeResult {
+  success: boolean;
+  error?: string;
+  conflictFiles?: string[];
+}
+
+/**
+ * Merge sourceBranch into targetBranch from the main repo
+ * Works from a worktree by finding the main repo and operating there
+ */
+export async function mergeBranch(
+  repoPath: string,
+  sourceBranch: string,
+  targetBranch: string
+): Promise<MergeResult> {
+  const resolvedPath = repoPath.replace(/^~/, process.env.HOME || "");
+
+  try {
+    // Save original branch to return to
+    const { stdout: originalBranch } = await execAsync(
+      `git -C "${resolvedPath}" rev-parse --abbrev-ref HEAD`,
+      { timeout: 5000 }
+    );
+    const originalBranchName = originalBranch.trim();
+
+    // Stash any uncommitted changes in main repo
+    let hasStash = false;
+    try {
+      const { stdout: stashResult } = await execAsync(
+        `git -C "${resolvedPath}" stash push -m "agentos-merge-temp"`,
+        { timeout: 10000 }
+      );
+      hasStash = !stashResult.includes("No local changes to save");
+    } catch {
+      // Ignore stash errors
+    }
+
+    // Checkout target branch
+    try {
+      await execAsync(`git -C "${resolvedPath}" checkout "${targetBranch}"`, {
+        timeout: 10000,
+      });
+    } catch (error) {
+      // Restore stash if we had one
+      if (hasStash) {
+        await execAsync(`git -C "${resolvedPath}" stash pop`, {
+          timeout: 10000,
+        }).catch(() => {});
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `Failed to checkout ${targetBranch}: ${message}`,
+      };
+    }
+
+    // Attempt the merge
+    try {
+      await execAsync(
+        `git -C "${resolvedPath}" merge "${sourceBranch}" --no-edit`,
+        { timeout: 30000 }
+      );
+    } catch (error) {
+      // Merge failed - check for conflicts
+      try {
+        const { stdout: conflictOutput } = await execAsync(
+          `git -C "${resolvedPath}" diff --name-only --diff-filter=U`,
+          { timeout: 5000 }
+        );
+        const conflictFiles = conflictOutput
+          .trim()
+          .split("\n")
+          .filter((f: string) => f);
+
+        // Abort the merge
+        await execAsync(`git -C "${resolvedPath}" merge --abort`, {
+          timeout: 10000,
+        }).catch(() => {});
+
+        // Return to original branch
+        await execAsync(
+          `git -C "${resolvedPath}" checkout "${originalBranchName}"`,
+          { timeout: 10000 }
+        ).catch(() => {});
+
+        // Restore stash if we had one
+        if (hasStash) {
+          await execAsync(`git -C "${resolvedPath}" stash pop`, {
+            timeout: 10000,
+          }).catch(() => {});
+        }
+
+        return {
+          success: false,
+          error: "Merge conflict",
+          conflictFiles: conflictFiles.length > 0 ? conflictFiles : undefined,
+        };
+      } catch {
+        // Couldn't get conflict info, just return error
+        await execAsync(`git -C "${resolvedPath}" merge --abort`, {
+          timeout: 10000,
+        }).catch(() => {});
+        await execAsync(
+          `git -C "${resolvedPath}" checkout "${originalBranchName}"`,
+          { timeout: 10000 }
+        ).catch(() => {});
+        if (hasStash) {
+          await execAsync(`git -C "${resolvedPath}" stash pop`, {
+            timeout: 10000,
+          }).catch(() => {});
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Merge failed: ${message}` };
+      }
+    }
+
+    // Merge succeeded - return to original branch
+    await execAsync(
+      `git -C "${resolvedPath}" checkout "${originalBranchName}"`,
+      { timeout: 10000 }
+    ).catch(() => {});
+
+    // Restore stash if we had one
+    if (hasStash) {
+      await execAsync(`git -C "${resolvedPath}" stash pop`, {
+        timeout: 10000,
+      }).catch(() => {});
+    }
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Delete a branch (local and optionally remote)
+ */
+export async function deleteBranch(
+  repoPath: string,
+  branchName: string,
+  deleteRemote = false
+): Promise<{ deleted: boolean; remoteDeleted: boolean }> {
+  const resolvedPath = repoPath.replace(/^~/, process.env.HOME || "");
+  let deleted = false;
+  let remoteDeleted = false;
+
+  // Don't delete protected branches
+  if (branchName === "main" || branchName === "master") {
+    throw new Error(`Cannot delete protected branch: ${branchName}`);
+  }
+
+  // Delete local branch
+  try {
+    await execAsync(`git -C "${resolvedPath}" branch -D "${branchName}"`, {
+      timeout: 10000,
+    });
+    deleted = true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to delete local branch: ${message}`);
+  }
+
+  // Delete remote branch if requested
+  if (deleteRemote) {
+    const hasRemote = await remoteBranchExists(resolvedPath, branchName);
+    if (hasRemote) {
+      try {
+        await execAsync(
+          `git -C "${resolvedPath}" push origin --delete "${branchName}"`,
+          { timeout: 30000 }
+        );
+        remoteDeleted = true;
+      } catch {
+        // Remote delete failed but local succeeded - that's okay
+        console.warn(
+          `[git] Local branch deleted but remote delete failed for ${branchName}`
+        );
+      }
+    }
+  }
+
+  return { deleted, remoteDeleted };
+}

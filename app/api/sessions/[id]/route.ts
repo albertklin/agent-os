@@ -7,7 +7,18 @@ import {
   isAgentOSWorktree,
   branchHasChanges,
 } from "@/lib/worktrees";
-import { generateBranchName, getCurrentBranch, renameBranch } from "@/lib/git";
+import {
+  generateBranchName,
+  getCurrentBranch,
+  renameBranch,
+  mergeBranch,
+  deleteBranch,
+  remoteBranchExists,
+} from "@/lib/git";
+import {
+  getMainRepoFromWorktree,
+  hasUncommittedChanges,
+} from "@/lib/worktrees";
 import { runInBackground } from "@/lib/async-operations";
 import { destroyContainer, logSecurityEvent } from "@/lib/container";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
@@ -173,11 +184,26 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 }
 
+interface DeleteRequestBody {
+  mergeInto?: string; // target branch name, or null to skip merge
+}
+
 // DELETE /api/sessions/[id] - Delete session
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const db = getDb();
+
+    // Parse optional body for merge options
+    let body: DeleteRequestBody = {};
+    try {
+      const text = await request.text();
+      if (text) {
+        body = JSON.parse(text);
+      }
+    } catch {
+      // No body or invalid JSON - that's fine, use defaults
+    }
 
     const existing = queries.getSession(db).get(id) as Session | undefined;
     if (!existing) {
@@ -245,14 +271,19 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     // Check if branch has changes before deleting (for user feedback)
     let branchDeleted = false;
+    let branchMerged = false;
     let branchName: string | undefined;
     let shouldDeleteBranch = false;
     let shouldDeleteWorktree = true;
+    let mainRepoPath: string | null = null;
 
     if (existing.worktree_path && isAgentOSWorktree(existing.worktree_path)) {
       const worktreePath = existing.worktree_path;
       const baseBranch = existing.base_branch || "main";
       branchName = existing.branch_name || undefined;
+
+      // Get main repo path for merge operations
+      mainRepoPath = await getMainRepoFromWorktree(worktreePath);
 
       // Check if other ACTIVE sessions share this worktree
       // (excludes failed/deleting sessions that shouldn't prevent cleanup)
@@ -265,7 +296,62 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       } else {
         // Check synchronously so we can report the outcome to the user
         const hasChanges = await branchHasChanges(worktreePath, baseBranch);
-        shouldDeleteBranch = !hasChanges;
+
+        // Handle merge request if provided
+        if (body.mergeInto && branchName && hasChanges && mainRepoPath) {
+          // Verify no uncommitted changes before merge
+          const hasUncommitted = await hasUncommittedChanges(worktreePath);
+          if (hasUncommitted) {
+            // Restore lifecycle status since we're not deleting
+            queries.updateSessionLifecycleStatus(db).run("ready", id);
+            statusBroadcaster.updateStatus({
+              sessionId: id,
+              status: "idle",
+              lifecycleStatus: "ready",
+            });
+            return NextResponse.json(
+              {
+                success: false,
+                error: "uncommitted_changes",
+                message: "Cannot merge: session has uncommitted changes",
+              },
+              { status: 400 }
+            );
+          }
+
+          // Attempt the merge
+          const mergeResult = await mergeBranch(
+            mainRepoPath,
+            branchName,
+            body.mergeInto
+          );
+
+          if (!mergeResult.success) {
+            // Restore lifecycle status since we're not deleting
+            queries.updateSessionLifecycleStatus(db).run("ready", id);
+            statusBroadcaster.updateStatus({
+              sessionId: id,
+              status: "idle",
+              lifecycleStatus: "ready",
+            });
+            return NextResponse.json(
+              {
+                success: false,
+                error: "merge_conflict",
+                message: mergeResult.error || "Merge failed",
+                conflictFiles: mergeResult.conflictFiles,
+              },
+              { status: 409 }
+            );
+          }
+
+          // Merge succeeded - mark branch for deletion
+          branchMerged = true;
+          shouldDeleteBranch = true;
+        } else {
+          // No merge requested - only delete branch if it has no commits
+          shouldDeleteBranch = !hasChanges;
+        }
         branchDeleted = shouldDeleteBranch;
       }
     }
@@ -284,7 +370,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       isAgentOSWorktree(existing.worktree_path)
     ) {
       const worktreePath = existing.worktree_path; // Capture for closure
-      const deleteBranch = shouldDeleteBranch; // Capture the pre-computed value
+      const branchToDelete = shouldDeleteBranch ? branchName : undefined;
+      const wasMerged = branchMerged; // Capture for closure
       runInBackground(async () => {
         const { exec } = await import("child_process");
         const { promisify } = await import("util");
@@ -297,12 +384,30 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         const gitCommonDir = stdout.trim().replace(/\/.git$/, "");
 
         if (gitCommonDir) {
-          await deleteWorktree(worktreePath, gitCommonDir, deleteBranch);
+          // Delete worktree first (without deleting branch - we'll handle that separately)
+          await deleteWorktree(worktreePath, gitCommonDir, false);
+
+          // Then delete branch if needed (including remote if it was merged)
+          if (branchToDelete) {
+            try {
+              await deleteBranch(gitCommonDir, branchToDelete, wasMerged);
+            } catch (error) {
+              console.warn(
+                `[session] Branch deletion failed for ${branchToDelete}:`,
+                error instanceof Error ? error.message : "Unknown error"
+              );
+            }
+          }
         }
       }, `cleanup-worktree-${id}`);
     }
 
-    return NextResponse.json({ success: true, branchDeleted, branchName });
+    return NextResponse.json({
+      success: true,
+      branchDeleted,
+      branchMerged,
+      branchName,
+    });
   } catch (error) {
     console.error("Error deleting session:", error);
     return NextResponse.json(
