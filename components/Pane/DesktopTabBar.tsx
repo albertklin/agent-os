@@ -18,6 +18,7 @@ import {
   GitBranch,
   Home,
   Zap,
+  SkipForward,
 } from "lucide-react";
 import {
   Tooltip,
@@ -62,6 +63,7 @@ interface DesktopTabBarProps {
   onSplitHorizontal: () => void;
   onSplitVertical: () => void;
   onClose: () => void;
+  onDeferSession?: (sessionId: string) => Promise<void>;
 }
 
 // Sortable tab component
@@ -74,6 +76,7 @@ interface SortableTabProps {
   waitingCount?: number;
   onSwitch: () => void;
   onClose: () => void;
+  onDefer?: () => void;
 }
 
 function SortableTab({
@@ -85,6 +88,7 @@ function SortableTab({
   waitingCount,
   onSwitch,
   onClose,
+  onDefer,
 }: SortableTabProps) {
   const draggableId = createDraggableId(paneId, tab.id);
   const {
@@ -129,6 +133,23 @@ function SortableTab({
         </span>
       )}
       <span className="max-w-[120px] truncate">{tabName}</span>
+      {/* Defer button for quick respond tabs */}
+      {tab.isQuickRespond && onDefer && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDefer();
+              }}
+              className="text-muted-foreground hover:text-foreground ml-1"
+            >
+              <SkipForward className="h-3 w-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Skip (handle later)</TooltipContent>
+        </Tooltip>
+      )}
       {canClose && (
         <button
           onClick={(e) => {
@@ -166,6 +187,7 @@ export function DesktopTabBar({
   onSplitHorizontal,
   onSplitVertical,
   onClose,
+  onDeferSession,
 }: DesktopTabBarProps) {
   const { dragState } = useTabDnd();
   const isDraggingOverThis =
@@ -226,6 +248,11 @@ export function DesktopTabBar({
               waitingCount={tab.isQuickRespond ? waitingCount : undefined}
               onSwitch={() => onTabSwitch(tab.id)}
               onClose={() => onTabClose(tab.id)}
+              onDefer={
+                tab.isQuickRespond && tab.sessionId && onDeferSession
+                  ? () => onDeferSession(tab.sessionId!)
+                  : undefined
+              }
             />
           ))}
         </SortableContext>

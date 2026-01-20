@@ -53,6 +53,7 @@ interface PaneProps {
   sessionStatuses?: Record<string, { status: SessionStatusType }>;
   onMenuClick?: () => void;
   onSelectSession?: (sessionId: string) => void;
+  onDeferSession?: (sessionId: string) => Promise<void>;
 }
 
 type ViewMode = "terminal" | "files" | "git";
@@ -64,6 +65,7 @@ export const Pane = memo(function Pane({
   sessionStatuses = {},
   onMenuClick,
   onSelectSession,
+  onDeferSession,
 }: PaneProps) {
   const { isMobile } = useViewport();
   const {
@@ -234,6 +236,7 @@ export const Pane = memo(function Pane({
           onSplitHorizontal={() => splitHorizontal(paneId)}
           onSplitVertical={() => splitVertical(paneId)}
           onClose={() => close(paneId)}
+          onDeferSession={onDeferSession}
         />
       )}
 

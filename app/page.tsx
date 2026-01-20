@@ -132,6 +132,41 @@ function HomeContent() {
     onSelectSession: handleSelectSession,
   });
 
+  // Open quick respond tab handler
+  const handleOpenQuickRespond = useCallback(() => {
+    // Find the oldest waiting session
+    const oldestWaiting = getOldestWaitingSession(sessions, sessionStatuses);
+    if (!oldestWaiting) return;
+
+    // Open a quick respond tab with the oldest waiting session
+    openQuickRespondTab(focusedPaneIdRef.current, oldestWaiting.id);
+  }, [sessions, sessionStatuses, openQuickRespondTab]);
+
+  // Defer session handler - refreshes staleness and moves to next waiting session
+  const handleDeferSession = useCallback(
+    async (sessionId: string) => {
+      // Call API to update the session's timestamp
+      await fetch(`/api/sessions/${sessionId}/defer`, { method: "POST" });
+
+      // Refresh sessions to get updated timestamps
+      await fetchSessions();
+
+      // Find next waiting session (excluding the deferred one since it's now "newest")
+      const nextWaiting = getOldestWaitingSession(
+        sessions,
+        sessionStatuses,
+        sessionId
+      );
+
+      if (nextWaiting) {
+        // Switch to next waiting session in focused pane
+        openQuickRespondTab(focusedPaneIdRef.current, nextWaiting.id);
+      }
+      // If no more waiting sessions, stay on current (now deferred) session
+    },
+    [sessions, sessionStatuses, fetchSessions, openQuickRespondTab]
+  );
+
   // Pane renderer
   const renderPane = useCallback(
     (paneId: string) => (
@@ -143,9 +178,17 @@ function HomeContent() {
         sessionStatuses={sessionStatuses}
         onMenuClick={isMobile ? () => setSidebarOpen(true) : undefined}
         onSelectSession={handleSelectSession}
+        onDeferSession={handleDeferSession}
       />
     ),
-    [sessions, projects, sessionStatuses, isMobile, handleSelectSession]
+    [
+      sessions,
+      projects,
+      sessionStatuses,
+      isMobile,
+      handleSelectSession,
+      handleDeferSession,
+    ]
   );
 
   // New session in project handler
@@ -223,16 +266,6 @@ function HomeContent() {
     [projects, fetchSessions, attachToSession]
   );
 
-  // Open quick respond tab handler
-  const handleOpenQuickRespond = useCallback(() => {
-    // Find the oldest waiting session
-    const oldestWaiting = getOldestWaitingSession(sessions, sessionStatuses);
-    if (!oldestWaiting) return;
-
-    // Open a quick respond tab with the oldest waiting session
-    openQuickRespondTab(focusedPaneIdRef.current, oldestWaiting.id);
-  }, [sessions, sessionStatuses, openQuickRespondTab]);
-
   // Active session
   const activeSession = sessions.find(
     (s) => s.id === focusedActiveTab?.sessionId
@@ -268,6 +301,7 @@ function HomeContent() {
     handleSessionCreated,
     handleCreateProject,
     handleOpenQuickRespond,
+    handleDeferSession,
     renderPane,
   };
 
