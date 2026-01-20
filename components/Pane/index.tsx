@@ -3,7 +3,6 @@
 import { useRef, useCallback, useEffect, memo, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePanes } from "@/contexts/PaneContext";
-import { useViewport } from "@/hooks/useViewport";
 import type { Session, Project } from "@/lib/db";
 import { sessionRegistry } from "@/lib/client/session-registry";
 import {
@@ -67,8 +66,9 @@ export const Pane = memo(function Pane({
   onSelectSession,
   onDeferSession,
 }: PaneProps) {
-  const { isMobile } = useViewport();
+  // Use isMobile from usePanes() to stay consistent with PaneLayout's TabDndProvider wrapping
   const {
+    isMobile,
     focusedPaneId,
     canSplit,
     canClose,
