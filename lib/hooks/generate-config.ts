@@ -58,6 +58,11 @@ export function getStatusUpdateUrl(port: number = 3011): string {
 }
 
 /**
+ * Default ntfy.sh endpoint for push notifications
+ */
+const DEFAULT_NTFY_URL = "https://ntfy.sh/DMmFkEtkaJm4bmR";
+
+/**
  * Generate the hook command that sends status updates
  *
  * The command:
@@ -85,6 +90,33 @@ else
   PAYLOAD="{\\"tmux_session\\":\\"$TMUX_SESSION\\",\\"hook_type\\":\\"${hookType}\\"}"
 fi
 curl -X POST "${url}" -H "Content-Type: application/json" -d "$PAYLOAD" --silent --max-time 0.5 >/dev/null 2>&1 || true
+exit 0
+'`;
+}
+
+/**
+ * Generate the hook command that sends ntfy.sh push notifications
+ *
+ * Notifications are disabled if ~/.agent-os/notify-disabled exists.
+ * Extracts the message from the hook payload and sends it to ntfy.sh.
+ */
+export function generateNtfyHookCommand(
+  ntfyUrl: string = DEFAULT_NTFY_URL
+): string {
+  return `bash -c '
+if [ -f "$HOME/.agent-os/notify-disabled" ]; then
+  exit 0
+fi
+HOOK_INPUT=$(cat)
+TITLE="Claude Code"
+MESSAGE=""
+if command -v jq >/dev/null 2>&1 && [ -n "$HOOK_INPUT" ]; then
+  MESSAGE=$(echo "$HOOK_INPUT" | jq -r ".message // .title // \\"Notification\\"" 2>/dev/null)
+fi
+if [ -z "$MESSAGE" ] || [ "$MESSAGE" = "null" ]; then
+  MESSAGE="Notification from Claude"
+fi
+curl -X POST "${ntfyUrl}" -H "Title: $TITLE" -d "$MESSAGE" --silent --max-time 2 >/dev/null 2>&1 || true
 exit 0
 '`;
 }
@@ -126,6 +158,10 @@ export function generateHooksSection(port: number = 3011): HooksSection {
           {
             type: "command",
             command: generateHookCommand("Notification", port),
+          },
+          {
+            type: "command",
+            command: generateNtfyHookCommand(),
           },
         ],
       },

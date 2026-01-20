@@ -80,6 +80,8 @@ case "${1:-}" in
     update)           cmd_update "${2:-}" ;;
     enable)           cmd_enable ;;
     disable)          cmd_disable ;;
+    notify-on)        cmd_notify_on ;;
+    notify-off)       cmd_notify_off ;;
     uninstall)        cmd_uninstall ;;
     start-foreground) cmd_start_foreground ;;
     help|--help|-h)   cmd_help ;;
