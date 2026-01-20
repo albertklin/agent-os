@@ -387,6 +387,7 @@ export async function createContainer(
         `docker run -d \
         --name "${containerName}" \
         --cap-add=NET_ADMIN --cap-add=NET_RAW \
+        --add-host=host.docker.internal:host-gateway \
         --memory=4g \
         --memory-swap=4g \
         --cpus=2 \
@@ -419,6 +420,13 @@ export async function createContainer(
             `docker exec -u root "${containerId}" chown -R node:node /home/node/.claude`,
             { timeout: 10000 }
           );
+          // Replace localhost with host.docker.internal in settings.json so hooks can reach host
+          await execAsync(
+            `docker exec "${containerId}" sed -i 's/localhost:3011/host.docker.internal:3011/g' /home/node/.claude/settings.json`,
+            { timeout: 5000 }
+          ).catch(() => {
+            // settings.json might not exist yet, that's okay
+          });
           console.log(`[container] Claude config copied successfully`);
         } catch (copyError) {
           const copyErrorMsg =
