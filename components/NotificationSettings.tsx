@@ -1,6 +1,14 @@
 "use client";
 
-import { Bell, Volume2, VolumeX, AlertCircle, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Bell,
+  Volume2,
+  VolumeX,
+  AlertCircle,
+  Zap,
+  Smartphone,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -42,6 +50,31 @@ export function NotificationSettings({
   onOpenQuickRespond,
 }: NotificationSettingsProps) {
   const waitingCount = waitingSessions.length;
+  const [pushEnabled, setPushEnabled] = useState<boolean | null>(null);
+
+  // Fetch push notification status
+  useEffect(() => {
+    fetch("/api/notifications/push")
+      .then((res) => res.json())
+      .then((data) => setPushEnabled(data.enabled))
+      .catch(() => setPushEnabled(null));
+  }, []);
+
+  const togglePushNotifications = async () => {
+    if (pushEnabled === null) return;
+    const newState = !pushEnabled;
+    setPushEnabled(newState);
+    try {
+      await fetch("/api/notifications/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: newState }),
+      });
+    } catch {
+      // Revert on error
+      setPushEnabled(!newState);
+    }
+  };
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -124,6 +157,37 @@ export function NotificationSettings({
             />
           </span>
         </DropdownMenuItem>
+
+        {/* Push notifications toggle */}
+        {pushEnabled !== null && (
+          <DropdownMenuItem
+            onClick={togglePushNotifications}
+            className="flex items-center justify-between"
+          >
+            <span className="flex items-center gap-2">
+              <Smartphone
+                className={cn(
+                  "h-3 w-3",
+                  !pushEnabled && "text-muted-foreground"
+                )}
+              />
+              Push
+            </span>
+            <span
+              className={cn(
+                "relative h-4 w-8 rounded-full transition-colors",
+                pushEnabled ? "bg-primary" : "bg-muted"
+              )}
+            >
+              <span
+                className={cn(
+                  "bg-background absolute top-0.5 h-3 w-3 rounded-full transition-transform",
+                  pushEnabled ? "translate-x-4" : "translate-x-0.5"
+                )}
+              />
+            </span>
+          </DropdownMenuItem>
+        )}
 
         {/* Browser notifications - only show if not granted */}
         {!permissionGranted && (
