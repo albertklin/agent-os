@@ -388,7 +388,8 @@ export async function createContainer(
   const createPromise = (async (): Promise<CreateContainerResult> => {
     try {
       // Start container with resource limits and security options
-      // Note: ~/.claude is NOT mounted - we copy it after start so container has writable copy
+      // ~/.claude is mounted read-only at .claude-host, then symlinked to .claude
+      // This keeps OAuth tokens fresh while allowing settings.json to be modified
       // SSH agent socket is mounted if available for git authentication
       const sshAgentMount = sshAuthSock
         ? `-v "${sshAuthSock}:/ssh-agent" -e SSH_AUTH_SOCK=/ssh-agent`
@@ -436,6 +437,11 @@ export async function createContainer(
         fs.mkdirSync(screenshotsTempDir, { recursive: true });
       }
 
+      // Mount ~/.claude read-only so OAuth token refreshes on host are visible in container
+      const claudeConfigMount = fs.existsSync(claudeConfigDir)
+        ? `-v "${claudeConfigDir}:/home/node/.claude-host:ro"`
+        : "";
+
       const { stdout } = await execAsync(
         `docker run -d \
         --name "${containerName}" \
@@ -451,6 +457,7 @@ export async function createContainer(
         -v "${screenshotsTempDir}:${screenshotsTempDir}:ro" \
         ${gitDirMount} \
         ${sshAgentMount} \
+        ${claudeConfigMount} \
         -e NODE_OPTIONS="--max-old-space-size=4096" \
         -e CLAUDE_CONFIG_DIR="/home/node/.claude" \
         ${SANDBOX_IMAGE} \
@@ -461,20 +468,28 @@ export async function createContainer(
       const containerId = stdout.trim().substring(0, 12);
       console.log(`[container] Container ${containerId} started`);
 
-      // Copy host's ~/.claude directory into container (gives container a writable copy)
-      // This preserves auth credentials, settings, etc. while allowing container to write session state
+      // Set up ~/.claude directory with symlinks to the read-only host mount
+      // This allows OAuth token refreshes on the host to be visible in the container
+      // while still allowing settings.json to be modified for localhost→host.docker.internal
       if (fs.existsSync(claudeConfigDir)) {
-        console.log(`[container] Copying Claude config into container...`);
+        console.log(`[container] Setting up Claude config with symlinks...`);
         try {
-          // Copy contents of .claude directory
+          // Create .claude directory and symlink all files from the read-only mount
+          // except settings.json which we copy so we can modify it
           await execAsync(
-            `docker cp "${claudeConfigDir}/." "${containerId}:/home/node/.claude/"`,
+            `docker exec "${containerId}" sh -c '
+              mkdir -p /home/node/.claude &&
+              for f in /home/node/.claude-host/*; do
+                [ -e "$f" ] || continue
+                name=$(basename "$f")
+                if [ "$name" = "settings.json" ]; then
+                  cp "$f" /home/node/.claude/
+                else
+                  ln -sf "$f" /home/node/.claude/
+                fi
+              done
+            '`,
             { timeout: 30000 }
-          );
-          // Fix ownership since docker cp preserves host UID/GID
-          await execAsync(
-            `docker exec -u root "${containerId}" chown -R node:node /home/node/.claude`,
-            { timeout: 10000 }
           );
           // Replace localhost with host.docker.internal in settings.json so hooks can reach host
           await execAsync(
@@ -483,18 +498,20 @@ export async function createContainer(
           ).catch(() => {
             // settings.json might not exist yet, that's okay
           });
-          console.log(`[container] Claude config copied successfully`);
-        } catch (copyError) {
-          const copyErrorMsg =
-            copyError instanceof Error ? copyError.message : "Unknown error";
+          console.log(
+            `[container] Claude config set up with symlinks successfully`
+          );
+        } catch (setupError) {
+          const setupErrorMsg =
+            setupError instanceof Error ? setupError.message : "Unknown error";
           console.warn(
-            `[container] Failed to copy Claude config (continuing anyway): ${copyErrorMsg}`
+            `[container] Failed to set up Claude config (continuing anyway): ${setupErrorMsg}`
           );
           // Don't fail the container creation - claude might still work with defaults
         }
       } else {
         console.log(
-          `[container] No Claude config directory found at ${claudeConfigDir}, skipping copy`
+          `[container] No Claude config directory found at ${claudeConfigDir}, skipping setup`
         );
       }
 
