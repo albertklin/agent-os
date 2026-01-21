@@ -176,6 +176,7 @@ export function DesktopView({
                 {isMac ? "⌘⇧" : "Ctrl+Shift+"}
                 <span className="font-mono">←→</span> tabs/panes
               </span>
+              <span>{isMac ? "⌘⇧R" : "Ctrl+Shift+R"} resize</span>
             </div>
             <Tooltip>
               <TooltipTrigger asChild>

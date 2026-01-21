@@ -113,7 +113,8 @@ export function createWebSocketConnection(
     callbacks.onConnectionStateChange("connected");
     reconnectDelayRef.current = WS_RECONNECT_BASE_DELAY;
     callbacks.onConnected?.();
-    sendResize(term.cols, term.rows);
+    // Don't send resize here - it's too early, PTY/tmux may not be attached yet.
+    // We send resize on first output message when tmux is actually rendering.
     term.focus();
   };
 
@@ -123,10 +124,16 @@ export function createWebSocketConnection(
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === "output") {
-        // Send resize on first output - this is when tmux has actually attached and is rendering
+        // Send resize on first output - this is when tmux has actually attached and is rendering.
+        // Use staggered retries to handle containerized sessions where docker exec adds latency.
         if (!hasSentInitialResize) {
           hasSentInitialResize = true;
+          // Immediate resize
           sendResize(term.cols, term.rows);
+          // Retry after 100ms - handles most container latency
+          setTimeout(() => sendResize(term.cols, term.rows), 100);
+          // Final retry after 300ms - handles slow container startup
+          setTimeout(() => sendResize(term.cols, term.rows), 300);
         }
 
         const buffer = term.buffer.active;

@@ -268,6 +268,37 @@ export function useTerminalConnection({
     }
   }, [theme]);
 
+  // Listen for manual resize hotkey (Ctrl+Shift+R)
+  useEffect(() => {
+    const handleForceResize = () => {
+      const fitAddon = fitAddonRef.current;
+      const term = xtermRef.current;
+      if (!fitAddon || !term) return;
+
+      // Do multiple resize passes to ensure tmux picks up the change
+      fitAddon.fit();
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
+        );
+      }
+
+      // Additional pass after 100ms for containerized sessions
+      setTimeout(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN && term) {
+          fitAddon.fit();
+          wsRef.current.send(
+            JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
+          );
+        }
+      }, 100);
+    };
+
+    window.addEventListener("terminal-force-resize", handleForceResize);
+    return () =>
+      window.removeEventListener("terminal-force-resize", handleForceResize);
+  }, []);
+
   return {
     connected,
     connectionState,
