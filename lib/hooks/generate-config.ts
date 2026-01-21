@@ -82,9 +82,19 @@ export function generateHookCommand(
   // Using jq to add the tmux_session field if available, otherwise just the hook_type
   // Falls back to basic curl if jq isn't available
   // Note: Uses -L agentos to connect to the AgentOS tmux server
+  //
+  // IMPORTANT: We try multiple methods to get the tmux session name because:
+  // 1. display-message with TMUX env var (when running inside tmux)
+  // 2. list-sessions fallback (for containers where TMUX may not be inherited)
   return `bash -c '
 HOOK_INPUT=$(cat)
+# Try to get session name from TMUX environment (works when running inside tmux)
 TMUX_SESSION=$(tmux -L agentos display-message -p "#{session_name}" 2>/dev/null || echo "")
+# Fallback: if TMUX env not available, list sessions and find our managed session
+if [ -z "$TMUX_SESSION" ]; then
+  # In containers, there should be exactly one claude-* or shell-* session
+  TMUX_SESSION=$(tmux -L agentos list-sessions -F "#{session_name}" 2>/dev/null | grep -E "^(claude|shell|codex)-" | head -1 || echo "")
+fi
 if command -v jq >/dev/null 2>&1 && [ -n "$HOOK_INPUT" ]; then
   PAYLOAD=$(echo "$HOOK_INPUT" | jq -c --arg ts "$TMUX_SESSION" --arg ht "${hookType}" ". + {tmux_session: \\$ts, hook_type: \\$ht}")
 else

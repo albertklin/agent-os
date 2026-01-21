@@ -492,12 +492,31 @@ export async function createContainer(
             { timeout: 30000 }
           );
           // Replace localhost with host.docker.internal in settings.json so hooks can reach host
-          await execAsync(
-            `docker exec "${containerId}" sed -i 's/localhost:3011/host.docker.internal:3011/g' /home/node/.claude/settings.json`,
-            { timeout: 5000 }
-          ).catch(() => {
+          try {
+            await execAsync(
+              `docker exec "${containerId}" sed -i 's/localhost:3011/host.docker.internal:3011/g' /home/node/.claude/settings.json`,
+              { timeout: 5000 }
+            );
+            // Debug: Verify the replacement worked
+            const { stdout: settingsContent } = await execAsync(
+              `docker exec "${containerId}" grep -o "host.docker.internal:3011" /home/node/.claude/settings.json | head -1`,
+              { timeout: 5000 }
+            ).catch(() => ({ stdout: "" }));
+            if (settingsContent.trim()) {
+              console.log(
+                `[container] Successfully replaced localhost:3011 with host.docker.internal:3011 in settings.json`
+              );
+            } else {
+              console.warn(
+                `[container] WARNING: sed replacement may have failed - host.docker.internal:3011 not found in settings.json`
+              );
+            }
+          } catch {
             // settings.json might not exist yet, that's okay
-          });
+            console.log(
+              `[container] settings.json not found, skipping localhost replacement (hooks may not work)`
+            );
+          }
           console.log(
             `[container] Claude config set up with symlinks successfully`
           );
