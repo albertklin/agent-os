@@ -26,10 +26,10 @@ export async function GET(): Promise<Response> {
         }
       };
 
-      // Sync from tmux if status store is empty (e.g., after hot reload)
+      // Sync from database if status store is empty (e.g., after hot reload)
       let currentStatuses = statusBroadcaster.getAllStatuses();
       if (Object.keys(currentStatuses).length === 0) {
-        statusBroadcaster.syncFromTmux();
+        statusBroadcaster.syncFromDatabase();
         currentStatuses = statusBroadcaster.getAllStatuses();
       }
 

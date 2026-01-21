@@ -298,7 +298,7 @@ export async function GET(request: NextRequest) {
 
   // Trigger sync if requested
   if (sync === "true") {
-    const syncResult = statusBroadcaster.syncFromTmux();
+    const syncResult = statusBroadcaster.syncFromDatabase();
     return NextResponse.json({
       description: "Sync completed",
       syncResult,
