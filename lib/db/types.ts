@@ -1,5 +1,15 @@
 import type { AgentType } from "../providers";
 
+/**
+ * Configuration for mounting additional directories into Docker containers.
+ * Mounts are fixed at container creation time and cannot be changed afterwards.
+ */
+export interface MountConfig {
+  hostPath: string; // Absolute path on host
+  containerPath: string; // Path inside container
+  mode: "ro" | "rw"; // Read-only or read-write
+}
+
 export type SetupStatus =
   | "pending"
   | "creating_worktree"
@@ -63,6 +73,8 @@ export interface Session {
   // Container health tracking
   container_health_last_check: string | null;
   container_health_status: "healthy" | "unhealthy" | null;
+  // Extra mounts for sandboxed sessions (JSON-encoded MountConfig[])
+  extra_mounts: string | null;
 }
 
 export interface Group {

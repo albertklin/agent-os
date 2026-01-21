@@ -268,6 +268,14 @@ const migrations: Migration[] = [
       );
     },
   },
+  {
+    id: 19,
+    name: "add_extra_mounts_to_sessions",
+    up: (db) => {
+      // JSON array: [{"hostPath": "/path", "containerPath": "/mount", "mode": "ro"}]
+      db.exec(`ALTER TABLE sessions ADD COLUMN extra_mounts TEXT`);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

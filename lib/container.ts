@@ -24,6 +24,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { ContainerError } from "./errors";
+import type { MountConfig } from "./db/types";
 
 const execAsync = promisify(exec);
 
@@ -339,6 +340,7 @@ export async function ensureSandboxImage(): Promise<boolean> {
 export interface CreateContainerOptions {
   sessionId: string;
   worktreePath: string;
+  extraMounts?: MountConfig[];
 }
 
 export interface CreateContainerResult {
@@ -364,7 +366,7 @@ const CONTAINER_CREATION_TIMEOUT = 180000;
 export async function createContainer(
   opts: CreateContainerOptions
 ): Promise<CreateContainerResult> {
-  const { sessionId, worktreePath } = opts;
+  const { sessionId, worktreePath, extraMounts } = opts;
   const containerName = `agentos-${sessionId}`;
   const claudeConfigDir = path.join(os.homedir(), ".claude");
   const sshAuthSock = process.env.SSH_AUTH_SOCK;
@@ -442,6 +444,21 @@ export async function createContainer(
         ? `-v "${claudeConfigDir}:/home/node/.claude-host:ro"`
         : "";
 
+      // Build extra mount flags from user-specified mounts
+      let extraMountFlags = "";
+      if (extraMounts?.length) {
+        for (const mount of extraMounts) {
+          // Resolve ~ to home directory and make path absolute
+          const resolved = path.resolve(
+            mount.hostPath.replace(/^~/, os.homedir())
+          );
+          extraMountFlags += ` -v "${resolved}:${mount.containerPath}:${mount.mode}"`;
+        }
+        console.log(
+          `[container] Adding ${extraMounts.length} extra mount(s) for session ${sessionId}`
+        );
+      }
+
       const { stdout } = await execAsync(
         `docker run -d \
         --name "${containerName}" \
@@ -458,6 +475,7 @@ export async function createContainer(
         ${gitDirMount} \
         ${sshAgentMount} \
         ${claudeConfigMount} \
+        ${extraMountFlags} \
         -e NODE_OPTIONS="--max-old-space-size=4096" \
         -e CLAUDE_CONFIG_DIR="/home/node/.claude" \
         ${SANDBOX_IMAGE} \
