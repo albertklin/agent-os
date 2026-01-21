@@ -94,6 +94,14 @@ app.prepare().then(async () => {
   // Track active PTY processes for proper cleanup on shutdown
   const activePtyProcesses = new Map<WebSocket, pty.IPty>();
 
+  // Track pending resize operations per connection for debouncing
+  // This prevents race conditions when multiple resize events fire rapidly
+  const pendingResizes = new Map<
+    WebSocket,
+    { timeout: NodeJS.Timeout; cols: number; rows: number }
+  >();
+  const RESIZE_DEBOUNCE_MS = 100; // Coalesce resize events within this window
+
   // Helper to clean up connection tracking
   function removeConnection(sessionId: string, ws: WebSocket): void {
     const conns = activeConnections.get(sessionId);
@@ -311,10 +319,37 @@ app.prepare().then(async () => {
               ptyProcess?.write(msg.data);
               break;
             case "resize":
+              // Resize the PTY immediately (synchronous, sends SIGWINCH)
               ptyProcess?.resize(msg.cols, msg.rows);
-              // Also refresh tmux client to ensure it adopts the new dimensions
+
+              // Debounce the tmux refresh-client call to prevent race conditions
+              // when multiple resize events fire rapidly (e.g., during window drag)
               if (tmuxName) {
-                refreshTmuxClient(tmuxName, msg.cols, msg.rows, containerId);
+                // Clear any pending resize for this connection
+                const pending = pendingResizes.get(ws);
+                if (pending) {
+                  clearTimeout(pending.timeout);
+                }
+
+                // Schedule a new debounced resize
+                const timeout = setTimeout(async () => {
+                  pendingResizes.delete(ws);
+                  // Only refresh if connection is still open
+                  if (ws.readyState === WebSocket.OPEN) {
+                    await refreshTmuxClient(
+                      tmuxName!,
+                      msg.cols,
+                      msg.rows,
+                      containerId
+                    );
+                  }
+                }, RESIZE_DEBOUNCE_MS);
+
+                pendingResizes.set(ws, {
+                  timeout,
+                  cols: msg.cols,
+                  rows: msg.rows,
+                });
               }
               break;
             // Note: "command" message type removed - client no longer sends commands
@@ -332,6 +367,12 @@ app.prepare().then(async () => {
         }
         // Remove from PTY tracking map
         activePtyProcesses.delete(ws);
+        // Clean up pending resize timeout
+        const pendingResize = pendingResizes.get(ws);
+        if (pendingResize) {
+          clearTimeout(pendingResize.timeout);
+          pendingResizes.delete(ws);
+        }
         // Use captured sessionId instead of re-parsing URL
         if (sessionId) removeConnection(sessionId, ws);
       });
@@ -345,6 +386,12 @@ app.prepare().then(async () => {
         }
         // Remove from PTY tracking map
         activePtyProcesses.delete(ws);
+        // Clean up pending resize timeout
+        const pendingResize = pendingResizes.get(ws);
+        if (pendingResize) {
+          clearTimeout(pendingResize.timeout);
+          pendingResizes.delete(ws);
+        }
         // Clean up connection tracking on error
         if (sessionId) removeConnection(sessionId, ws);
       });
