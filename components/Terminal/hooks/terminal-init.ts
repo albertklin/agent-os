@@ -80,14 +80,6 @@ export function createTerminal(
       return;
     }
 
-    // Cmd/Ctrl + Shift + R for manual terminal resize (useful when tmux gets out of sync)
-    if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "r") {
-      event.preventDefault();
-      event.stopPropagation();
-      window.dispatchEvent(new CustomEvent("terminal-force-resize"));
-      return;
-    }
-
     // Cmd+A (macOS) / Ctrl+A for select all
     if ((event.metaKey || event.ctrlKey) && key === "a") {
       event.preventDefault();
