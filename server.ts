@@ -14,19 +14,21 @@ import {
 } from "./lib/db/validation";
 import { sessionManager } from "./lib/session-manager";
 import { getTailscaleIP } from "./lib/tailscale";
+import {
+  createIpFilterMiddleware,
+  describeTrustedNetworks,
+} from "./lib/ip-filter";
 
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT || "3011", 10);
 
-// Require Tailscale - server only binds to Tailscale interface
+// Require Tailscale for remote access (but bind to all interfaces with IP filtering)
 const tailscaleIP = getTailscaleIP();
 if (!tailscaleIP) {
   console.error("");
   console.error("ERROR: Tailscale is required but not available.");
   console.error("");
-  console.error(
-    "Agent-OS only accepts connections from your Tailscale network."
-  );
+  console.error("Agent-OS requires Tailscale for secure remote access.");
   console.error("Please ensure Tailscale is installed and connected:");
   console.error("  - Install Tailscale: https://tailscale.com/download");
   console.error("  - Run: tailscale up");
@@ -35,7 +37,11 @@ if (!tailscaleIP) {
   process.exit(1);
 }
 
-const hostname = tailscaleIP;
+// Bind to all interfaces, but use IP filtering middleware for security
+// This allows hooks from localhost and Docker containers while still
+// requiring Tailscale for remote web UI access
+const hostname = "0.0.0.0";
+const ipFilter = createIpFilterMiddleware();
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
@@ -74,14 +80,17 @@ app.prepare().then(async () => {
     process.exit(1);
   }
   const server = createServer(async (req, res) => {
-    try {
-      const parsedUrl = parse(req.url!, true);
-      await handle(req, res, parsedUrl);
-    } catch (err) {
-      console.error("Error occurred handling", req.url, err);
-      res.statusCode = 500;
-      res.end("internal server error");
-    }
+    // Apply IP filtering - only allow trusted sources
+    ipFilter(req, res, async () => {
+      try {
+        const parsedUrl = parse(req.url!, true);
+        await handle(req, res, parsedUrl);
+      } catch (err) {
+        console.error("Error occurred handling", req.url, err);
+        res.statusCode = 500;
+        res.end("internal server error");
+      }
+    });
   });
 
   // Terminal WebSocket server
@@ -415,9 +424,9 @@ app.prepare().then(async () => {
   }
 
   server.listen(port, hostname, () => {
-    console.log(
-      `> Agent-OS ready on http://${hostname}:${port} (Tailscale only)`
-    );
+    console.log(`> Agent-OS ready on http://localhost:${port}`);
+    console.log(`> Remote access via Tailscale: http://${tailscaleIP}:${port}`);
+    console.log(`> Accepting connections from: ${describeTrustedNetworks()}`);
   });
 
   // Graceful shutdown handler
