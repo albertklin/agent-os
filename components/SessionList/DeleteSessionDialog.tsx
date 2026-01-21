@@ -59,7 +59,7 @@ export function DeleteSessionDialog({
       setDeleting(false);
       setLoading(true);
       setError(null);
-      setMergeOption("merge");
+      setMergeOption("merge"); // Will be corrected after status loads if merge unavailable
       setMergeBranch("");
       setDiscardChanges(false);
 
@@ -79,6 +79,14 @@ export function DeleteSessionDialog({
           // Default merge branch to baseBranch
           if (data.baseBranch) {
             setMergeBranch(data.baseBranch);
+          }
+          // If merge is not available, default to "keep" mode so the
+          // uncommitted changes acknowledgment checkbox is shown
+          const hasSiblings = (data.siblingSessionNames?.length ?? 0) > 0;
+          const canMerge =
+            data.hasWorktree && data.commitCount > 0 && !hasSiblings;
+          if (!canMerge) {
+            setMergeOption("keep");
           }
         })
         .catch((err) => {

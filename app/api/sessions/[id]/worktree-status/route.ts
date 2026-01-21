@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as fs from "fs";
+import * as os from "os";
 import { getDb, queries, type Session } from "@/lib/db";
 import {
   isAgentOSWorktree,
@@ -25,6 +27,25 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     // If not a worktree session, no warnings needed
     if (!session.worktree_path || !isAgentOSWorktree(session.worktree_path)) {
+      return NextResponse.json({
+        hasWorktree: false,
+        hasUncommittedChanges: false,
+        branchWillBeDeleted: false,
+        branchName: null,
+        siblingSessionNames: [],
+        baseBranch: null,
+        commitCount: 0,
+        branches: [],
+      });
+    }
+
+    // If worktree path is set but directory doesn't exist (e.g., session failed to start),
+    // treat as no worktree - safe to delete without warnings
+    const resolvedWorktreePath = session.worktree_path.replace(
+      /^~/,
+      os.homedir()
+    );
+    if (!fs.existsSync(resolvedWorktreePath)) {
       return NextResponse.json({
         hasWorktree: false,
         hasUncommittedChanges: false,
