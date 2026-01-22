@@ -14,6 +14,7 @@ import {
   mergeBranch,
   deleteBranch,
   remoteBranchExists,
+  slugify,
 } from "@/lib/git";
 import {
   getMainRepoFromWorktree,
@@ -92,6 +93,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     // Handle name change - also rename tmux session and git branch (for worktrees)
     if (body.name !== undefined && body.name !== existing.name) {
+      // Reject names that don't contain at least one alphanumeric character
+      const newSlug = slugify(body.name);
+      if (!newSlug) {
+        return NextResponse.json(
+          {
+            error:
+              "Session name must contain at least one alphanumeric character",
+          },
+          { status: 400 }
+        );
+      }
+
       const newTmuxName = sanitizeTmuxName(body.name);
       const oldTmuxName = existing.tmux_name;
 
@@ -127,6 +140,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
               `Renamed branch ${currentBranch} → ${newBranchName}`,
               result.remoteRenamed ? "(also on remote)" : "(local only)"
             );
+            // Update branch_name in database to stay in sync
+            updates.push("branch_name = ?");
+            values.push(newBranchName);
           }
         } catch (error) {
           console.error("Failed to rename git branch:", error);
