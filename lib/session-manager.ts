@@ -349,6 +349,29 @@ class SessionManager {
         `[session-manager] Session ${session.id} (${session.name}) stuck in 'deleting', completing deletion`
       );
 
+      // Kill tmux session first (for non-sandboxed sessions, or if container kill fails)
+      const tmuxName = getTmuxSessionName(session);
+      try {
+        if (session.container_id) {
+          // Try to kill tmux inside container
+          await execAsync(
+            `docker exec ${session.container_id} tmux -L ${tmux.TMUX_SOCKET} kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
+            { timeout: 5000 }
+          );
+        } else {
+          // Kill tmux on host
+          await execAsync(
+            `tmux -L ${tmux.TMUX_SOCKET} kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
+            { timeout: 5000 }
+          );
+        }
+        console.log(
+          `[session-manager] Killed orphaned tmux session ${tmuxName} for deleting session ${session.id}`
+        );
+      } catch {
+        // Ignore - session might already be dead
+      }
+
       // Clean up container if present
       if (session.container_id) {
         try {
