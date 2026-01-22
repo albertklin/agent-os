@@ -3,6 +3,12 @@ import type { Project } from "@/lib/db";
 import { projectKeys } from "./keys";
 import { sessionKeys } from "../sessions/keys";
 
+export interface MountConfig {
+  hostPath: string;
+  containerPath: string;
+  mode: "ro" | "rw";
+}
+
 async function fetchProjects(): Promise<Project[]> {
   const res = await fetch("/api/projects");
   if (!res.ok) throw new Error("Failed to fetch projects");
@@ -104,10 +110,14 @@ export function useUpdateProject() {
       projectId,
       name,
       workingDirectory,
+      defaultExtraMounts,
+      defaultAllowedDomains,
     }: {
       projectId: string;
       name?: string;
       workingDirectory?: string;
+      defaultExtraMounts?: MountConfig[];
+      defaultAllowedDomains?: string[];
     }) => {
       const res = await fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
@@ -115,9 +125,14 @@ export function useUpdateProject() {
         body: JSON.stringify({
           name,
           workingDirectory,
+          defaultExtraMounts,
+          defaultAllowedDomains,
         }),
       });
-      if (!res.ok) throw new Error("Failed to update project");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to update project");
+      }
       return res.json();
     },
     onSuccess: () => {

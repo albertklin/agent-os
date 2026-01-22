@@ -3,7 +3,7 @@ import type { AgentType } from "@/lib/providers";
 import { getProviderDefinition } from "@/lib/providers";
 import type { Project } from "@/lib/db";
 import { setPendingPrompt } from "@/stores/initialPrompt";
-import { useCreateSession } from "@/data/sessions";
+import { useCreateSession, type MountConfig } from "@/data/sessions";
 import {
   type GitInfo,
   SKIP_PERMISSIONS_KEY,
@@ -15,6 +15,9 @@ import {
   AGENT_OPTIONS,
   generateFeatureName,
 } from "../NewSessionDialog.types";
+
+// Re-export MountConfig for consumers
+export type { MountConfig };
 
 // Get the localStorage key for a model setting per agent
 function getModelKey(agentType: AgentType): string {
@@ -77,6 +80,10 @@ export function useNewSessionForm({
   const [baseBranch, setBaseBranch] = useState("main");
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [checkingGit, setCheckingGit] = useState(false);
+
+  // Container settings state
+  const [extraMounts, setExtraMounts] = useState<MountConfig[]>([]);
+  const [allowedDomains, setAllowedDomains] = useState<string[]>([]);
 
   // UI state
   const [showDirectoryPicker, setShowDirectoryPicker] = useState(false);
@@ -269,6 +276,8 @@ export function useNewSessionForm({
         baseBranch: useWorktree ? baseBranch : null,
         autoApprove: skipPermissions,
         initialPrompt: initialPrompt.trim() || null,
+        extraMounts: extraMounts.length > 0 ? extraMounts : undefined,
+        allowedDomains: allowedDomains.length > 0 ? allowedDomains : undefined,
       },
       {
         onSuccess: (data) => {
@@ -297,6 +306,8 @@ export function useNewSessionForm({
     setFeatureNameDirty(false);
     setBaseBranch("main");
     setInitialPrompt("");
+    setExtraMounts([]);
+    setAllowedDomains([]);
     setCreationStep("creating");
     createSession.reset();
   };
@@ -327,6 +338,11 @@ export function useNewSessionForm({
     setBaseBranch,
     gitInfo,
     checkingGit,
+    // Container settings
+    extraMounts,
+    setExtraMounts,
+    allowedDomains,
+    setAllowedDomains,
     // UI
     showDirectoryPicker,
     setShowDirectoryPicker,
