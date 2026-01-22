@@ -188,6 +188,15 @@ export async function POST(request: NextRequest) {
   try {
     const payload: HookPayload = await request.json();
 
+    // Debug: Log incoming requests to diagnose container sync issues
+    const clientIp = request.headers.get("x-forwarded-for") || "unknown";
+    console.log(`[status-update] Received request from ${clientIp}:`, {
+      tmux_session: payload.tmux_session,
+      agentos_session_id: payload.agentos_session_id,
+      session_id: payload.session_id,
+      hook_type: payload.hook_type,
+    });
+
     // Extract session ID from various possible fields
     // IMPORTANT: Check tmux_session BEFORE session_id because Claude's hook payload
     // includes its own internal session_id which is different from our AgentOS session ID
