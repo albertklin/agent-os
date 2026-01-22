@@ -97,6 +97,25 @@ export async function isContainerRunning(
 }
 
 /**
+ * Count the number of active AgentOS containers.
+ * Used to enforce resource limits and prevent container exhaustion.
+ */
+export async function countActiveContainers(): Promise<number> {
+  try {
+    // Count containers that match the agentos- naming pattern
+    const { stdout } = await execAsync(
+      `docker ps --filter "name=agentos-" --format "{{.Names}}" | wc -l`,
+      { timeout: 10000 }
+    );
+    return parseInt(stdout.trim(), 10) || 0;
+  } catch {
+    // If docker command fails, return 0 to allow operation to proceed
+    // (better to allow with risk than block all containers)
+    return 0;
+  }
+}
+
+/**
  * Verify comprehensive container health.
  *
  * Checks:
@@ -750,6 +769,64 @@ export async function destroyContainer(containerId: string): Promise<void> {
 // ============================================================================
 // Container Status
 // ============================================================================
+
+/**
+ * Clean up orphan AgentOS containers that are no longer associated with valid sessions.
+ * This handles containers left behind from server crashes or failed cleanups.
+ *
+ * @param validSessionIds - Set of session IDs that have valid, active sessions
+ * @returns Object with counts of containers found and removed
+ */
+export async function cleanupOrphanContainers(
+  validSessionIds: Set<string>
+): Promise<{ found: number; removed: number }> {
+  let found = 0;
+  let removed = 0;
+
+  try {
+    // List all agentos-* containers (running or stopped)
+    const { stdout } = await execAsync(
+      `docker ps -a --filter "name=agentos-" --format "{{.Names}}"`,
+      { timeout: 10000 }
+    );
+
+    const containerNames = stdout
+      .trim()
+      .split("\n")
+      .filter((name) => name.length > 0);
+    found = containerNames.length;
+
+    for (const containerName of containerNames) {
+      // Extract session ID from container name (agentos-{sessionId})
+      const sessionId = containerName.replace("agentos-", "");
+
+      // If session ID is not in the valid set, remove the container
+      if (!validSessionIds.has(sessionId)) {
+        console.log(
+          `[container] Removing orphan container ${containerName} (session ${sessionId} not found)`
+        );
+        try {
+          await execAsync(`docker rm -f "${containerName}"`, {
+            timeout: 15000,
+          });
+          removed++;
+        } catch (err) {
+          console.error(
+            `[container] Failed to remove orphan container ${containerName}:`,
+            err instanceof Error ? err.message : "Unknown error"
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error(
+      "[container] Error during orphan container cleanup:",
+      err instanceof Error ? err.message : "Unknown error"
+    );
+  }
+
+  return { found, removed };
+}
 
 /**
  * Get the status of a container.

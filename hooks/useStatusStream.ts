@@ -67,6 +67,9 @@ interface UseStatusStreamResult {
 const INITIAL_RETRY_DELAY = 1000; // 1 second
 const MAX_RETRY_DELAY = 30000; // 30 seconds
 const BACKOFF_MULTIPLIER = 2;
+// Maximum retry attempts before giving up (prevents infinite retry loops)
+// After 20 retries with exponential backoff, ~10 minutes have passed
+const MAX_RETRY_COUNT = 20;
 // Connection timeout - if not connected within this time, reconnect
 // 15 seconds balances fast failure detection with network latency tolerance
 const CONNECTION_TIMEOUT_MS = 15000; // 15 seconds
@@ -92,6 +95,7 @@ export function useStatusStream(): UseStatusStreamResult {
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryDelayRef = useRef(INITIAL_RETRY_DELAY);
+  const retryCountRef = useRef(0);
   const mountedRef = useRef(true);
   const isConnectingRef = useRef(false);
 
@@ -187,7 +191,16 @@ export function useStatusStream(): UseStatusStreamResult {
         isConnectingRef.current = false;
         setConnectionStatus("disconnected");
 
+        // Check if we've exceeded max retries
+        if (retryCountRef.current >= MAX_RETRY_COUNT) {
+          console.error(
+            `[useStatusStream] Max retry count (${MAX_RETRY_COUNT}) reached, giving up`
+          );
+          return;
+        }
+
         // Schedule reconnection with current backoff
+        retryCountRef.current++;
         retryTimeoutRef.current = setTimeout(() => {
           if (mountedRef.current) {
             connect();
@@ -213,7 +226,9 @@ export function useStatusStream(): UseStatusStreamResult {
 
       isConnectingRef.current = false;
       setConnectionStatus("connected");
-      retryDelayRef.current = INITIAL_RETRY_DELAY; // Reset retry delay on successful connect
+      // Reset retry state on successful connect
+      retryDelayRef.current = INITIAL_RETRY_DELAY;
+      retryCountRef.current = 0;
     };
 
     eventSource.addEventListener("init", (event) => {
@@ -253,11 +268,20 @@ export function useStatusStream(): UseStatusStreamResult {
       eventSourceRef.current = null;
       setConnectionStatus("disconnected");
 
+      // Check if we've exceeded max retries
+      if (retryCountRef.current >= MAX_RETRY_COUNT) {
+        console.error(
+          `[useStatusStream] Max retry count (${MAX_RETRY_COUNT}) reached, giving up`
+        );
+        return; // Don't schedule another retry
+      }
+
       // Schedule reconnection with exponential backoff
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
       }
 
+      retryCountRef.current++;
       retryTimeoutRef.current = setTimeout(() => {
         if (mountedRef.current) {
           connect();

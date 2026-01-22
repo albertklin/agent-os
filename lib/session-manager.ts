@@ -19,6 +19,7 @@ import {
   createContainer,
   destroyContainer,
   isContainerRunning,
+  cleanupOrphanContainers,
 } from "./container";
 import { deleteWorktree, getMainRepoFromWorktree } from "./worktrees";
 import { statusBroadcaster } from "./status-broadcaster";
@@ -330,6 +331,7 @@ class SessionManager {
     dead: number;
     stuckRecovered: number;
     deletingCleaned: number;
+    orphanContainersRemoved: number;
   }> {
     const db = getDb();
 
@@ -564,16 +566,29 @@ class SessionManager {
       }
     }
 
+    // Step 3: Clean up any orphan containers not associated with any session
+    // This catches containers left behind from crashes or incomplete deletions
+    const allSessions = queries.getAllSessions(db).all() as Session[];
+    const validSessionIds = new Set(allSessions.map((s) => s.id));
+    const orphanCleanup = await cleanupOrphanContainers(validSessionIds);
+
+    if (orphanCleanup.removed > 0) {
+      console.log(
+        `[session-manager] Cleaned up ${orphanCleanup.removed} orphan container(s) out of ${orphanCleanup.found} total`
+      );
+    }
+
     const stats = {
       synced: readySessions.length,
       alive,
       dead,
       stuckRecovered,
       deletingCleaned,
+      orphanContainersRemoved: orphanCleanup.removed,
     };
 
     console.log(
-      `[session-manager] Recovery complete: ${stats.synced} ready sessions checked, ${stats.alive} alive, ${stats.dead} dead, ${stats.stuckRecovered} stuck sessions recovered, ${stats.deletingCleaned} deleting sessions cleaned`
+      `[session-manager] Recovery complete: ${stats.synced} ready sessions checked, ${stats.alive} alive, ${stats.dead} dead, ${stats.stuckRecovered} stuck sessions recovered, ${stats.deletingCleaned} deleting sessions cleaned, ${stats.orphanContainersRemoved} orphan containers removed`
     );
 
     return stats;

@@ -3,12 +3,23 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
+// Maximum file size: 10MB (base64 is ~33% larger than binary)
+const MAX_BASE64_LENGTH = 10 * 1024 * 1024 * 1.34; // ~13.4MB base64 for 10MB file
+
 export async function POST(request: Request) {
   try {
     const { filename, base64, mimeType } = await request.json();
 
     if (!base64) {
       return NextResponse.json({ error: "No image data" }, { status: 400 });
+    }
+
+    // Validate base64 length before decoding to prevent memory exhaustion
+    if (typeof base64 !== "string" || base64.length > MAX_BASE64_LENGTH) {
+      return NextResponse.json(
+        { error: `File too large. Maximum size is 10MB.` },
+        { status: 413 }
+      );
     }
 
     // Create temp directory for screenshots if it doesn't exist
