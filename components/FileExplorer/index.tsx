@@ -318,6 +318,7 @@ function DesktopFileExplorer({
               content={activeFile.currentContent}
               language={activeFile.language}
               isBinary={activeFile.isBinary}
+              filePath={activeFile.path}
               onChange={(content) => updateContent(activeFile.path, content)}
               onSave={onSave}
             />
@@ -414,6 +415,7 @@ function MobileFileExplorer({
               content={activeFile.currentContent}
               language={activeFile.language}
               isBinary={activeFile.isBinary}
+              filePath={activeFile.path}
               onChange={(content) => updateContent(activeFile.path, content)}
               onSave={onSave}
             />

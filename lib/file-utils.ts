@@ -12,6 +12,37 @@ export interface FileNode {
 }
 
 /**
+ * Media file type detection
+ */
+const IMAGE_EXTENSIONS = [
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "svg",
+  "bmp",
+  "ico",
+  "avif",
+];
+const VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "avi", "mkv"];
+const AUDIO_EXTENSIONS = ["mp3", "wav", "ogg", "m4a", "flac", "aac"];
+
+export type MediaType = "image" | "video" | "audio" | null;
+
+export function getMediaType(filePath: string): MediaType {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  if (IMAGE_EXTENSIONS.includes(ext)) return "image";
+  if (VIDEO_EXTENSIONS.includes(ext)) return "video";
+  if (AUDIO_EXTENSIONS.includes(ext)) return "audio";
+  return null;
+}
+
+export function isMediaFile(filePath: string): boolean {
+  return getMediaType(filePath) !== null;
+}
+
+/**
  * Get file extension for syntax highlighting
  */
 export function getLanguageFromExtension(ext: string): string {

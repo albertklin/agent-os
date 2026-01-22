@@ -12,12 +12,14 @@ import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { markdown } from "@codemirror/lang-markdown";
 import type { Extension } from "@codemirror/state";
-import { FileCode } from "lucide-react";
+import { FileCode, Music } from "lucide-react";
+import { getMediaType } from "@/lib/file-utils";
 
 interface FileEditorProps {
   content: string;
   language: string;
   isBinary: boolean;
+  filePath: string;
   readOnly?: boolean;
   onChange: (content: string) => void;
   onSave?: () => void;
@@ -164,11 +166,13 @@ export function FileEditor({
   content,
   language,
   isBinary,
+  filePath,
   readOnly = false,
   onChange,
   onSave,
 }: FileEditorProps) {
   const [extensions, setExtensions] = useState<Extension[]>([]);
+  const mediaType = isBinary ? getMediaType(filePath) : null;
 
   useEffect(() => {
     const langExt = getLanguageExtension(language);
@@ -200,6 +204,52 @@ export function FileEditor({
   }, [language, onSave]);
 
   if (isBinary) {
+    // Show media preview for supported media files
+    if (mediaType === "image") {
+      return (
+        <div className="flex h-full w-full items-center justify-center overflow-auto bg-[#1a1a1a] p-4">
+          <img
+            src={`/api/files/raw?path=${encodeURIComponent(filePath)}`}
+            alt={filePath.split("/").pop() || "Image"}
+            className="max-h-full max-w-full object-contain"
+          />
+        </div>
+      );
+    }
+
+    if (mediaType === "video") {
+      return (
+        <div className="flex h-full w-full items-center justify-center overflow-auto bg-[#1a1a1a] p-4">
+          <video
+            src={`/api/files/raw?path=${encodeURIComponent(filePath)}`}
+            controls
+            className="max-h-full max-w-full"
+          >
+            Your browser does not support video playback.
+          </video>
+        </div>
+      );
+    }
+
+    if (mediaType === "audio") {
+      return (
+        <div className="text-muted-foreground flex h-full flex-col items-center justify-center p-8">
+          <Music className="mb-4 h-12 w-12 opacity-50" />
+          <p className="mb-4 text-center text-sm">
+            {filePath.split("/").pop()}
+          </p>
+          <audio
+            src={`/api/files/raw?path=${encodeURIComponent(filePath)}`}
+            controls
+            className="w-full max-w-md"
+          >
+            Your browser does not support audio playback.
+          </audio>
+        </div>
+      );
+    }
+
+    // Generic binary file
     return (
       <div className="text-muted-foreground flex h-full flex-col items-center justify-center p-8">
         <FileCode className="mb-4 h-12 w-12 opacity-50" />
