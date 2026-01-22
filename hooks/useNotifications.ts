@@ -43,7 +43,12 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
   const previousStates = useRef<Map<string, SessionStatus>>(new Map());
   const waitingCount = useRef(0);
   // Track which sessions have been notified to prevent duplicates
-  const notifiedSessions = useRef<Set<string>>(new Set());
+  // Map from notify key to timestamp when it was added
+  const notifiedSessions = useRef<Map<string, number>>(new Map());
+  // Max age for notification dedup entries (5 minutes)
+  const NOTIFICATION_DEDUP_MAX_AGE_MS = 5 * 60 * 1000;
+  // Max size for notification dedup map
+  const NOTIFICATION_DEDUP_MAX_SIZE = 500;
 
   // Load settings on mount
   useEffect(() => {
@@ -143,12 +148,46 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     [settings, permissionGranted, onSessionClick]
   );
 
+  // Clean up old notification dedup entries
+  const cleanupNotificationDedup = useCallback(() => {
+    const now = Date.now();
+    const toDelete: string[] = [];
+
+    for (const [key, timestamp] of notifiedSessions.current) {
+      if (now - timestamp > NOTIFICATION_DEDUP_MAX_AGE_MS) {
+        toDelete.push(key);
+      }
+    }
+
+    for (const key of toDelete) {
+      notifiedSessions.current.delete(key);
+    }
+
+    // Also enforce max size by removing oldest entries
+    if (notifiedSessions.current.size > NOTIFICATION_DEDUP_MAX_SIZE) {
+      const entries = Array.from(notifiedSessions.current.entries()).sort(
+        (a, b) => a[1] - b[1]
+      ); // Sort by timestamp ascending
+      const toRemove = entries.slice(
+        0,
+        entries.length - NOTIFICATION_DEDUP_MAX_SIZE
+      );
+      for (const [key] of toRemove) {
+        notifiedSessions.current.delete(key);
+      }
+    }
+  }, []);
+
   // Check for state changes and notify
   const checkStateChanges = useCallback(
     (sessions: SessionState[], activeSessionId?: string | null) => {
       if (!settings.enabled) return;
 
+      // Periodically clean up old dedup entries
+      cleanupNotificationDedup();
+
       let newWaitingCount = 0;
+      const now = Date.now();
 
       sessions.forEach((session) => {
         const prevStatus = previousStates.current.get(session.id);
@@ -179,12 +218,12 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
 
         if (currentStatus === "waiting" && prevStatus !== "waiting") {
           if (!notifiedSessions.current.has(notifyKey)) {
-            notifiedSessions.current.add(notifyKey);
+            notifiedSessions.current.set(notifyKey, now);
             notify("waiting", session.id, session.name);
           }
         } else if (currentStatus === "error" && prevStatus !== "error") {
           if (!notifiedSessions.current.has(notifyKey)) {
-            notifiedSessions.current.add(notifyKey);
+            notifiedSessions.current.set(notifyKey, now);
             notify("error", session.id, session.name);
           }
         } else if (
@@ -193,7 +232,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         ) {
           const completedKey = `${session.id}-completed`;
           if (!notifiedSessions.current.has(completedKey)) {
-            notifiedSessions.current.add(completedKey);
+            notifiedSessions.current.set(completedKey, now);
             notify("completed", session.id, session.name);
           }
         }
@@ -215,8 +254,20 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         setTabNotificationCount(newWaitingCount);
       }
     },
-    [settings.enabled, notify]
+    [settings.enabled, notify, cleanupNotificationDedup]
   );
+
+  // Periodic cleanup of notification dedup map to prevent memory leaks
+  // This ensures cleanup happens even when there are no status updates
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      cleanupNotificationDedup();
+    }, 60000); // Run cleanup every minute
+
+    return () => {
+      clearInterval(cleanupInterval);
+    };
+  }, [cleanupNotificationDedup]);
 
   // Clear notifications when focused
   useEffect(() => {
@@ -237,6 +288,9 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearTabNotifications();
+      // Clear notification dedup tracking on unmount to prevent memory leaks
+      notifiedSessions.current.clear();
+      previousStates.current.clear();
     };
   }, []);
 
