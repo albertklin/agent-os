@@ -4,7 +4,15 @@ import {
   updateProject,
   deleteProject,
   toggleProjectExpanded,
+  updateProjectDefaults,
 } from "@/lib/projects";
+import { validateMounts, serializeMounts } from "@/lib/mounts";
+import {
+  validateDomains,
+  serializeDomains,
+  normalizeDomains,
+} from "@/lib/domains";
+import type { MountConfig } from "@/lib/db/types";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -35,7 +43,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, workingDirectory, expanded } = body;
+    const {
+      name,
+      workingDirectory,
+      expanded,
+      defaultExtraMounts,
+      defaultAllowedDomains,
+    } = body;
 
     // Handle expanded toggle separately
     if (typeof expanded === "boolean") {
@@ -50,6 +64,53 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       });
 
       if (!project) {
+        return NextResponse.json(
+          { error: "Project not found or cannot be modified" },
+          { status: 404 }
+        );
+      }
+    }
+
+    // Update session defaults if provided
+    if (
+      defaultExtraMounts !== undefined ||
+      defaultAllowedDomains !== undefined
+    ) {
+      // Validate extra mounts if provided
+      if (defaultExtraMounts && defaultExtraMounts.length > 0) {
+        const typedMounts: MountConfig[] = defaultExtraMounts;
+        const mountsValidation = validateMounts(typedMounts);
+        if (!mountsValidation.valid) {
+          return NextResponse.json(
+            { error: `Invalid mount configuration: ${mountsValidation.error}` },
+            { status: 400 }
+          );
+        }
+      }
+
+      // Validate allowed domains if provided
+      if (defaultAllowedDomains && defaultAllowedDomains.length > 0) {
+        const domainsValidation = validateDomains(defaultAllowedDomains);
+        if (!domainsValidation.valid) {
+          return NextResponse.json(
+            {
+              error: `Invalid domain configuration: ${domainsValidation.error}`,
+            },
+            { status: 400 }
+          );
+        }
+      }
+
+      const result = updateProjectDefaults(id, {
+        default_extra_mounts: defaultExtraMounts
+          ? serializeMounts(defaultExtraMounts)
+          : null,
+        default_allowed_domains: defaultAllowedDomains
+          ? serializeDomains(normalizeDomains(defaultAllowedDomains))
+          : null,
+      });
+
+      if (!result) {
         return NextResponse.json(
           { error: "Project not found or cannot be modified" },
           { status: 404 }

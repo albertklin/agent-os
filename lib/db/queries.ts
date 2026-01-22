@@ -18,8 +18,8 @@ export const queries = {
   createSession: (db: Database.Database) =>
     getStmt(
       db,
-      `INSERT INTO sessions (id, name, tmux_name, working_directory, parent_session_id, model, system_prompt, group_path, agent_type, auto_approve, project_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sessions (id, name, tmux_name, working_directory, parent_session_id, model, system_prompt, group_path, agent_type, auto_approve, project_id, extra_mounts, allowed_domains)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ),
 
   getSession: (db: Database.Database) =>
@@ -348,6 +348,12 @@ export const queries = {
 
   updateProjectOrder: (db: Database.Database) =>
     getStmt(db, `UPDATE projects SET sort_order = ? WHERE id = ?`),
+
+  updateProjectDefaults: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE projects SET default_extra_mounts = ?, default_allowed_domains = ?, updated_at = datetime('now') WHERE id = ?`
+    ),
 
   deleteProject: (db: Database.Database) =>
     getStmt(db, `DELETE FROM projects WHERE id = ? AND is_uncategorized = 0`),

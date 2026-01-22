@@ -3,6 +3,13 @@ import { randomUUID } from "crypto";
 import { getDb, queries, type Session, type Group } from "@/lib/db";
 import { isValidAgentType, type AgentType, getProvider } from "@/lib/providers";
 import { runSessionSetup } from "@/lib/session-setup";
+import { validateMounts, serializeMounts } from "@/lib/mounts";
+import {
+  validateDomains,
+  serializeDomains,
+  normalizeDomains,
+} from "@/lib/domains";
+import type { MountConfig } from "@/lib/db/types";
 // Note: Global Claude hooks are configured at server startup (see server.ts)
 import { isGitRepo } from "@/lib/git";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
@@ -71,6 +78,10 @@ export async function POST(request: NextRequest) {
       baseBranch = "main",
       // Initial prompt to send when session starts
       initialPrompt = null,
+      // Extra mounts for sandboxed sessions
+      extraMounts = [],
+      // Extra allowed network domains for sandboxed sessions
+      allowedDomains = [],
     } = body;
 
     // Validate agent type
@@ -108,6 +119,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Validate extra mounts if provided
+    const typedExtraMounts: MountConfig[] = extraMounts || [];
+    if (typedExtraMounts.length > 0) {
+      const mountsValidation = validateMounts(typedExtraMounts);
+      if (!mountsValidation.valid) {
+        return NextResponse.json(
+          { error: `Invalid mount configuration: ${mountsValidation.error}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate extra allowed domains if provided
+    const typedAllowedDomains: string[] = allowedDomains || [];
+    if (typedAllowedDomains.length > 0) {
+      const domainsValidation = validateDomains(typedAllowedDomains);
+      if (!domainsValidation.valid) {
+        return NextResponse.json(
+          { error: `Invalid domain configuration: ${domainsValidation.error}` },
+          { status: 400 }
+        );
+      }
+    }
+
     // Auto-generate name if not provided
     const name =
       providedName?.trim() ||
@@ -131,7 +166,9 @@ export async function POST(request: NextRequest) {
       groupPath,
       agentType,
       autoApprove ? 1 : 0, // SQLite stores booleans as integers
-      projectId
+      projectId,
+      serializeMounts(typedExtraMounts),
+      serializeDomains(normalizeDomains(typedAllowedDomains))
     );
 
     // For worktree sessions, set setup_status to pending and lifecycle_status to creating

@@ -268,6 +268,32 @@ const migrations: Migration[] = [
       );
     },
   },
+  {
+    id: 19,
+    name: "add_extra_mounts_to_sessions",
+    up: (db) => {
+      // JSON array: [{"hostPath": "/path", "containerPath": "/mount", "mode": "ro"}]
+      db.exec(`ALTER TABLE sessions ADD COLUMN extra_mounts TEXT`);
+    },
+  },
+  {
+    id: 20,
+    name: "add_allowed_domains_to_sessions",
+    up: (db) => {
+      // JSON array of domain strings: ["*.googleapis.com", "storage.cloud.google.com"]
+      db.exec(`ALTER TABLE sessions ADD COLUMN allowed_domains TEXT`);
+    },
+  },
+  {
+    id: 21,
+    name: "add_session_defaults_to_projects",
+    up: (db) => {
+      // Default extra mounts for new sessions in this project
+      db.exec(`ALTER TABLE projects ADD COLUMN default_extra_mounts TEXT`);
+      // Default allowed domains for new sessions in this project
+      db.exec(`ALTER TABLE projects ADD COLUMN default_allowed_domains TEXT`);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

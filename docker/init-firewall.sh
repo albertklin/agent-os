@@ -100,6 +100,42 @@ for domain in \
     done < <(echo "$ips")
 done
 
+# Process extra allowed domains from environment variable (comma-separated)
+if [ -n "${EXTRA_ALLOWED_DOMAINS:-}" ]; then
+    echo "Processing extra allowed domains from EXTRA_ALLOWED_DOMAINS..."
+    IFS=',' read -ra EXTRA_DOMAINS <<< "$EXTRA_ALLOWED_DOMAINS"
+    for domain in "${EXTRA_DOMAINS[@]}"; do
+        # Trim whitespace
+        domain=$(echo "$domain" | xargs)
+        if [ -z "$domain" ]; then
+            continue
+        fi
+
+        # Handle wildcard domains (*.example.com) - resolve the base domain
+        resolve_domain="$domain"
+        if [[ "$domain" == \*.* ]]; then
+            resolve_domain="${domain#\*.}"
+            echo "Wildcard domain $domain - resolving base domain $resolve_domain"
+        fi
+
+        echo "Resolving extra domain $resolve_domain..."
+        ips=$(dig +noall +answer A "$resolve_domain" | awk '$4 == "A" {print $5}')
+        if [ -z "$ips" ]; then
+            echo "WARNING: Failed to resolve extra domain $resolve_domain - skipping"
+            continue
+        fi
+
+        while read -r ip; do
+            if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                echo "WARNING: Invalid IP from DNS for $resolve_domain: $ip - skipping"
+                continue
+            fi
+            echo "Adding $ip for extra domain $domain"
+            ipset add allowed-domains "$ip" 2>/dev/null || true
+        done < <(echo "$ips")
+    done
+fi
+
 # Set default policies to DROP first
 iptables -P INPUT DROP
 iptables -P FORWARD DROP
