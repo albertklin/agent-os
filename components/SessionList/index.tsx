@@ -210,6 +210,7 @@ export function SessionList({
               onForkSession={handleForkSession}
               onDeleteSession={mutations.handleDeleteSession}
               onRenameSession={mutations.handleRenameSession}
+              onSetStatus={mutations.handleSetStatus}
             />
           )}
 

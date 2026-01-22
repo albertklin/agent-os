@@ -81,6 +81,7 @@ interface SessionCardProps {
   onDelete?: () => void;
   onRename?: (newName: string) => void;
   onCreatePR?: () => void;
+  onSetStatus?: (status: "idle" | "running" | "waiting") => void;
 }
 
 const statusConfig: Record<
@@ -168,6 +169,7 @@ function SessionCardComponent({
   onDelete,
   onRename,
   onCreatePR,
+  onSetStatus,
 }: SessionCardProps) {
   const timeAgo = getTimeAgo(session.updated_at);
   const status = tmuxStatus || "dead";
@@ -230,7 +232,13 @@ function SessionCardComponent({
   };
 
   const hasActions =
-    onMove || onFork || onDelete || onRename || onCreatePR || onOpenInTab;
+    onMove ||
+    onFork ||
+    onDelete ||
+    onRename ||
+    onCreatePR ||
+    onOpenInTab ||
+    onSetStatus;
 
   // Handle card click - coordinates selection with navigation
   const handleCardClick = (e: React.MouseEvent) => {
@@ -334,6 +342,28 @@ function SessionCardComponent({
                     {group.name}
                   </MenuItem>
                 ))}
+            </MenuSubContent>
+          </MenuSub>
+        )}
+        {onSetStatus && (
+          <MenuSub>
+            <MenuSubTrigger>
+              <Circle className="mr-2 h-3 w-3" />
+              Set status...
+            </MenuSubTrigger>
+            <MenuSubContent>
+              <MenuItem onClick={() => onSetStatus("idle")}>
+                <Circle className="fill-muted-foreground mr-2 h-2 w-2" />
+                Idle
+              </MenuItem>
+              <MenuItem onClick={() => onSetStatus("running")}>
+                <Loader2 className="mr-2 h-3 w-3 text-blue-500" />
+                Running
+              </MenuItem>
+              <MenuItem onClick={() => onSetStatus("waiting")}>
+                <AlertCircle className="mr-2 h-3 w-3 text-yellow-500" />
+                Waiting
+              </MenuItem>
             </MenuSubContent>
           </MenuSub>
         )}

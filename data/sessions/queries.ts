@@ -252,6 +252,29 @@ export interface SessionOrderUpdate {
   sortOrder: number;
 }
 
+export function useSetSessionStatus() {
+  return useMutation({
+    mutationFn: async ({
+      sessionId,
+      status,
+    }: {
+      sessionId: string;
+      status: "idle" | "running" | "waiting";
+    }) => {
+      const res = await fetch("/api/sessions/status-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentos_session_id: sessionId,
+          status,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to set status");
+      return res.json();
+    },
+  });
+}
+
 export function useReorderSessions() {
   const queryClient = useQueryClient();
 
