@@ -13,6 +13,7 @@ import {
   Trash2,
   MousePointer2,
   Copy,
+  Maximize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
@@ -34,6 +35,7 @@ const SPECIAL_KEYS = {
 interface TerminalToolbarProps {
   onKeyPress: (key: string) => void;
   onImagePicker?: () => void;
+  onResize?: () => void;
   onCopy?: () => boolean; // Returns true if selection was copied
   selectMode?: boolean;
   onSelectModeChange?: (enabled: boolean) => void;
@@ -306,6 +308,7 @@ function PasteModal({
 export function TerminalToolbar({
   onKeyPress,
   onImagePicker,
+  onResize,
   onCopy,
   selectMode = false,
   onSelectModeChange,
@@ -511,6 +514,21 @@ export function TerminalToolbar({
             className="bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium"
           >
             <ImagePlus className="h-4 w-4" />
+          </button>
+        )}
+
+        {/* Resize button */}
+        {onResize && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onResize();
+            }}
+            className="bg-secondary text-secondary-foreground active:bg-primary active:text-primary-foreground flex-shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium"
+          >
+            <Maximize2 className="h-4 w-4" />
           </button>
         )}
 
