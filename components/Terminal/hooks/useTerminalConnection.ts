@@ -27,6 +27,8 @@ export function useTerminalConnection({
   enabled = true,
   onConnected,
   onDisconnected,
+  onKicked,
+  onBusy,
   onBeforeUnmount,
   initialScrollState,
   isMobile = false,
@@ -36,7 +38,12 @@ export function useTerminalConnection({
   const [connected, setConnected] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [connectionState, setConnectionState] = useState<
-    "connecting" | "connected" | "disconnected" | "reconnecting"
+    | "connecting"
+    | "connected"
+    | "disconnected"
+    | "reconnecting"
+    | "kicked"
+    | "busy"
   >("connecting");
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -44,6 +51,7 @@ export function useTerminalConnection({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const reconnectFnRef = useRef<(() => void) | null>(null);
+  const takeoverFnRef = useRef<(() => void) | null>(null);
 
   // Reconnection tracking
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -51,8 +59,20 @@ export function useTerminalConnection({
   const intentionalCloseRef = useRef<boolean>(false);
 
   // Store callbacks and state in refs
-  const callbacksRef = useRef({ onConnected, onDisconnected, onBeforeUnmount });
-  callbacksRef.current = { onConnected, onDisconnected, onBeforeUnmount };
+  const callbacksRef = useRef({
+    onConnected,
+    onDisconnected,
+    onKicked,
+    onBusy,
+    onBeforeUnmount,
+  });
+  callbacksRef.current = {
+    onConnected,
+    onDisconnected,
+    onKicked,
+    onBusy,
+    onBeforeUnmount,
+  };
   const initialScrollStateRef = useRef(initialScrollState);
   const selectModeRef = useRef(selectMode);
   selectModeRef.current = selectMode;
@@ -123,6 +143,10 @@ export function useTerminalConnection({
     reconnectFnRef.current?.();
   }, []);
 
+  const takeover = useCallback(() => {
+    takeoverFnRef.current?.();
+  }, []);
+
   // Main setup effect
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -179,6 +203,8 @@ export function useTerminalConnection({
           }
         },
         onDisconnected: () => callbacksRef.current.onDisconnected?.(),
+        onKicked: (message) => callbacksRef.current.onKicked?.(message),
+        onBusy: (message) => callbacksRef.current.onBusy?.(message),
         onConnectionStateChange: setConnectionState,
         onSetConnected: setConnected,
       },
@@ -190,6 +216,7 @@ export function useTerminalConnection({
     );
     cleanupWebSocket = wsManager.cleanup;
     reconnectFnRef.current = wsManager.reconnect;
+    takeoverFnRef.current = wsManager.takeover;
 
     // Setup resize handlers
     cleanupResizeHandlers = setupResizeHandlers({
@@ -275,5 +302,6 @@ export function useTerminalConnection({
     restoreScrollState,
     triggerResize,
     reconnect,
+    takeover,
   };
 }

@@ -96,9 +96,9 @@ app.prepare().then(async () => {
   // Terminal WebSocket server
   const terminalWss = new WebSocketServer({ noServer: true });
 
-  // Track active connections per session to limit concurrent connections
+  // Track active connections per session (exclusive - only one client at a time)
   const activeConnections = new Map<string, Set<WebSocket>>();
-  const MAX_CONNECTIONS_PER_SESSION = 3;
+  const MAX_CONNECTIONS_PER_SESSION = 1;
 
   // Track active PTY processes for proper cleanup on shutdown
   const activePtyProcesses = new Map<WebSocket, pty.IPty>();
@@ -149,6 +149,8 @@ app.prepare().then(async () => {
         `http://${request.headers.host}`
       );
       const sessionId = requestUrl.searchParams.get("sessionId");
+      // Parse takeover flag (kicks existing client if true)
+      const takeover = requestUrl.searchParams.get("takeover") === "true";
       // Parse initial terminal dimensions (to avoid resize flash on connect)
       const initialCols = Math.max(
         1,
@@ -204,20 +206,44 @@ app.prepare().then(async () => {
           return;
         }
 
-        // 6. Check connection limit for this session
+        // 6. Check connection limit for this session (exclusive - only one client at a time)
         const sessionConns = activeConnections.get(sessionId) || new Set();
         if (sessionConns.size >= MAX_CONNECTIONS_PER_SESSION) {
-          console.warn(
-            `[terminal] Session ${sessionId} has too many connections (${sessionConns.size})`
-          );
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: `Too many connections to this session. Maximum ${MAX_CONNECTIONS_PER_SESSION} allowed.`,
-            })
-          );
-          ws.close();
-          return;
+          if (takeover) {
+            // Kick existing client(s) to allow this connection
+            console.log(
+              `[terminal] Session ${sessionId}: takeover requested, kicking ${sessionConns.size} existing connection(s)`
+            );
+            for (const existingWs of sessionConns) {
+              try {
+                existingWs.send(
+                  JSON.stringify({
+                    type: "kicked",
+                    message: "Another client connected to this session",
+                  })
+                );
+                existingWs.close(1000, "Kicked by new connection");
+              } catch {
+                // Ignore errors when closing existing connections
+              }
+            }
+            // Clear the connections (they'll be cleaned up by their close handlers)
+            sessionConns.clear();
+          } else {
+            // Reject new connection - another client is already connected
+            console.warn(
+              `[terminal] Session ${sessionId} already has a connection, rejecting new client`
+            );
+            ws.send(
+              JSON.stringify({
+                type: "busy",
+                message:
+                  "Another client is already connected to this session. Close that tab or click 'Take over' to disconnect them.",
+              })
+            );
+            ws.close();
+            return;
+          }
         }
 
         // 7. Re-fetch session to prevent TOCTOU race (session could be deleted between check and use)
@@ -276,7 +302,7 @@ app.prepare().then(async () => {
           : undefined;
 
         console.log(
-          `[terminal] Attaching to session ${sessionId} with command: ${command} ${args.join(" ")} (connection ${activeConnections.get(sessionId)!.size}/${MAX_CONNECTIONS_PER_SESSION})`
+          `[terminal] Attaching to session ${sessionId} with command: ${command} ${args.join(" ")}`
         );
 
         // 10. Spawn PTY with the attach command (this attaches to the existing tmux session)

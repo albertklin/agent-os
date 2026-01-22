@@ -7,9 +7,19 @@ export interface WebSocketCallbacks {
   onConnected?: () => void;
   onDisconnected?: () => void;
   onConnectionStateChange: (
-    state: "connecting" | "connected" | "disconnected" | "reconnecting"
+    state:
+      | "connecting"
+      | "connected"
+      | "disconnected"
+      | "reconnecting"
+      | "kicked"
+      | "busy"
   ) => void;
   onSetConnected: (connected: boolean) => void;
+  /** Called when kicked by another client - provides message to display */
+  onKicked?: (message: string) => void;
+  /** Called when session is busy (another client connected) - provides message */
+  onBusy?: (message: string) => void;
 }
 
 export interface WebSocketManager {
@@ -17,6 +27,8 @@ export interface WebSocketManager {
   sendInput: (data: string) => void;
   sendResize: (cols: number, rows: number) => void;
   reconnect: () => void;
+  /** Reconnect with takeover flag to kick existing client */
+  takeover: () => void;
   cleanup: () => void;
 }
 
@@ -27,17 +39,19 @@ export function createWebSocketConnection(
   reconnectTimeoutRef: React.MutableRefObject<NodeJS.Timeout | null>,
   reconnectDelayRef: React.MutableRefObject<number>,
   intentionalCloseRef: React.MutableRefObject<boolean>,
-  sessionId?: string
+  sessionId?: string,
+  takeover?: boolean
 ): WebSocketManager {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 
   // Build WebSocket URL with current terminal dimensions
   // (server uses these to spawn PTY at correct size, avoiding resize flash)
-  const buildWsUrl = () => {
+  const buildWsUrl = (forceTakeover?: boolean) => {
     const params = new URLSearchParams();
     if (sessionId) params.set("sessionId", sessionId);
     params.set("cols", String(term.cols));
     params.set("rows", String(term.rows));
+    if (forceTakeover || takeover) params.set("takeover", "true");
     return `${protocol}//${window.location.host}/ws/terminal?${params.toString()}`;
   };
 
@@ -68,7 +82,11 @@ export function createWebSocketConnection(
     onerror: typeof ws.onerror;
   };
 
-  const forceReconnect = () => {
+  const forceReconnect = (forceTakeover?: boolean) => {
+    // Reset intentional close flag to allow reconnection
+    if (forceTakeover) {
+      intentionalCloseRef.current = false;
+    }
     if (intentionalCloseRef.current) return;
 
     // Reset initial resize flag for the new connection
@@ -100,12 +118,17 @@ export function createWebSocketConnection(
     reconnectDelayRef.current = WS_RECONNECT_BASE_DELAY;
 
     // Create fresh connection with saved handlers (use current terminal size)
-    const newWs = new WebSocket(buildWsUrl());
+    const newWs = new WebSocket(buildWsUrl(forceTakeover));
     wsRef.current = newWs;
     newWs.onopen = savedHandlers.onopen;
     newWs.onmessage = savedHandlers.onmessage;
     newWs.onclose = savedHandlers.onclose;
     newWs.onerror = savedHandlers.onerror;
+  };
+
+  // Takeover session - reconnect with takeover flag to kick existing client
+  const takeoverSession = () => {
+    forceReconnect(true);
   };
 
   // Soft reconnect - only if not already connected
@@ -139,8 +162,28 @@ export function createWebSocketConnection(
         term.write(msg.data);
       } else if (msg.type === "exit") {
         term.write("\r\n\x1b[33m[Session ended]\x1b[0m\r\n");
+        // Prevent auto-reconnection when session has ended
+        intentionalCloseRef.current = true;
+      } else if (msg.type === "kicked") {
+        term.write(
+          `\r\n\x1b[33m[${msg.message || "Disconnected by another client"}]\x1b[0m\r\n`
+        );
+        // Prevent auto-reconnection when kicked
+        intentionalCloseRef.current = true;
+        callbacks.onConnectionStateChange("kicked");
+        callbacks.onKicked?.(msg.message || "Another client connected");
+      } else if (msg.type === "busy") {
+        term.write(
+          `\r\n\x1b[33m[${msg.message || "Session is busy"}]\x1b[0m\r\n`
+        );
+        // Prevent auto-reconnection when busy
+        intentionalCloseRef.current = true;
+        callbacks.onConnectionStateChange("busy");
+        callbacks.onBusy?.(msg.message || "Another client is connected");
       } else if (msg.type === "error") {
         term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
+        // Prevent auto-reconnection on server errors (session not found, etc.)
+        intentionalCloseRef.current = true;
       }
     } catch {
       term.write(event.data);
@@ -256,6 +299,7 @@ export function createWebSocketConnection(
     sendInput,
     sendResize,
     reconnect: forceReconnect,
+    takeover: takeoverSession,
     cleanup,
   };
 }

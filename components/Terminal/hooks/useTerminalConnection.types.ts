@@ -17,6 +17,10 @@ export interface UseTerminalConnectionProps {
   enabled?: boolean;
   onConnected?: () => void;
   onDisconnected?: () => void;
+  /** Called when kicked by another client taking over the session */
+  onKicked?: (message: string) => void;
+  /** Called when session is busy (another client connected) */
+  onBusy?: (message: string) => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
   initialScrollState?: TerminalScrollState;
   isMobile?: boolean;
@@ -26,7 +30,13 @@ export interface UseTerminalConnectionProps {
 
 export interface UseTerminalConnectionReturn {
   connected: boolean;
-  connectionState: "connecting" | "connected" | "disconnected" | "reconnecting";
+  connectionState:
+    | "connecting"
+    | "connected"
+    | "disconnected"
+    | "reconnecting"
+    | "kicked"
+    | "busy";
   isAtBottom: boolean;
   xtermRef: RefObject<XTerm | null>;
   searchAddonRef: RefObject<SearchAddon | null>;
@@ -38,4 +48,6 @@ export interface UseTerminalConnectionReturn {
   restoreScrollState: (state: TerminalScrollState) => void;
   triggerResize: () => void;
   reconnect: () => void;
+  /** Reconnect with takeover flag to kick existing client */
+  takeover: () => void;
 }

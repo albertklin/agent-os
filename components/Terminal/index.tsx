@@ -95,6 +95,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       getScrollState,
       restoreScrollState,
       reconnect,
+      takeover,
     } = useTerminalConnection({
       terminalRef,
       sessionId,
@@ -418,6 +419,45 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
               Tap to reconnect
             </span>
           </button>
+        )}
+
+        {/* Kicked overlay - shown when another client took over */}
+        {connectionState === "kicked" && isSessionReady && (
+          <div className="bg-background/80 absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
+            <WifiOff className="h-8 w-8 text-amber-500" />
+            <span className="text-foreground text-sm font-medium">
+              Disconnected
+            </span>
+            <span className="text-muted-foreground text-xs">
+              Another client connected to this session
+            </span>
+            <button
+              onClick={takeover}
+              className="bg-primary text-primary-foreground rounded-full px-4 py-2 text-sm font-medium"
+            >
+              Reconnect
+            </button>
+          </div>
+        )}
+
+        {/* Busy overlay - shown when another client is already connected */}
+        {connectionState === "busy" && isSessionReady && (
+          <div className="bg-background/80 absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
+            <WifiOff className="h-8 w-8 text-amber-500" />
+            <span className="text-foreground text-sm font-medium">
+              Session in use
+            </span>
+            <span className="text-muted-foreground max-w-xs text-center text-xs">
+              Another client is connected to this session. You can take over to
+              disconnect them.
+            </span>
+            <button
+              onClick={takeover}
+              className="bg-primary text-primary-foreground rounded-full px-4 py-2 text-sm font-medium"
+            >
+              Take over
+            </button>
+          </div>
         )}
       </div>
     );
