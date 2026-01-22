@@ -359,6 +359,19 @@ function ProjectsSectionComponent({
         setOverProjectId(currentOverId.replace("project-drop-", ""));
       } else if (currentOverId.startsWith("project-header-")) {
         setOverProjectId(currentOverId.replace("project-header-", ""));
+      } else if (currentOverId.startsWith("project-")) {
+        // Over a project block (SortableProjectBlock) - check if it's a valid project
+        const potentialProjectId = currentOverId.replace("project-", "");
+        const targetProject = projects.find((p) => p.id === potentialProjectId);
+        if (targetProject) {
+          setOverProjectId(potentialProjectId);
+        } else {
+          // Not a valid project, might be a session
+          const overSession = sessions.find((s) => s.id === currentOverId);
+          if (overSession) {
+            setOverProjectId(overSession.project_id || "uncategorized");
+          }
+        }
       } else {
         // We're over a session - find its project
         const overSession = sessions.find((s) => s.id === currentOverId);
@@ -367,7 +380,7 @@ function ProjectsSectionComponent({
         }
       }
     },
-    [sessions]
+    [sessions, projects]
   );
 
   // Handle drag end - reorder sessions or projects
@@ -447,6 +460,24 @@ function ProjectsSectionComponent({
           .replace("project-header-", "");
         const targetSessions = sessionsByProject[targetProjectId] || [];
         targetIndex = targetSessions.length; // Add to end of project
+      } else if (overId.startsWith("project-")) {
+        // Dropped on a project block (SortableProjectBlock) - treat like dropping on header
+        // This can happen due to collision detection picking up the outer sortable wrapper
+        targetProjectId = overId.replace("project-", "");
+        // Verify it's a valid project (not a session with "project-" prefix)
+        const targetProject = projects.find((p) => p.id === targetProjectId);
+        if (!targetProject) {
+          // Not a valid project, fall through to session handling
+          const overSession = sessions.find((s) => s.id === overId);
+          if (!overSession) return;
+          targetProjectId = overSession.project_id || "uncategorized";
+          const targetSessions = sessionsByProject[targetProjectId] || [];
+          targetIndex = targetSessions.findIndex((s) => s.id === overId);
+          if (targetIndex === -1) targetIndex = targetSessions.length;
+        } else {
+          const targetSessions = sessionsByProject[targetProjectId] || [];
+          targetIndex = targetSessions.length; // Add to end of project
+        }
       } else {
         // Dropped on or near a session
         const overSession = sessions.find((s) => s.id === overId);
