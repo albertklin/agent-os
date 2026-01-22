@@ -159,7 +159,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         model: parent.model,
         autoApprove: Boolean(parent.auto_approve),
       });
-      await sessionManager.startTmuxSession(newId, agentCommand);
+      try {
+        await sessionManager.startTmuxSession(newId, agentCommand);
+      } catch (error) {
+        console.error(
+          `[fork] Failed to start tmux session for ${newId}:`,
+          error
+        );
+        queries.updateSessionLifecycleStatus(db).run("failed", newId);
+        statusBroadcaster.updateStatus({
+          sessionId: newId,
+          status: "idle",
+          lifecycleStatus: "failed",
+        });
+        return NextResponse.json(
+          { error: "Failed to start terminal session" },
+          { status: 500 }
+        );
+      }
     } else {
       // No worktree at all - create tmux session with fork command
       const agentCommand = buildAgentCommand(agentType, {
@@ -167,7 +184,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         model: parent.model,
         autoApprove: Boolean(parent.auto_approve),
       });
-      await sessionManager.startTmuxSession(newId, agentCommand);
+      try {
+        await sessionManager.startTmuxSession(newId, agentCommand);
+      } catch (error) {
+        console.error(
+          `[fork] Failed to start tmux session for ${newId}:`,
+          error
+        );
+        queries.updateSessionLifecycleStatus(db).run("failed", newId);
+        statusBroadcaster.updateStatus({
+          sessionId: newId,
+          status: "idle",
+          lifecycleStatus: "failed",
+        });
+        return NextResponse.json(
+          { error: "Failed to start terminal session" },
+          { status: 500 }
+        );
+      }
     }
 
     // NOTE: We do NOT copy claude_session_id here.

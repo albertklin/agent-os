@@ -24,6 +24,7 @@ import { runInBackground } from "@/lib/async-operations";
 import { destroyContainer, logSecurityEvent } from "@/lib/container";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { clearPendingPrompt } from "@/stores/initialPrompt";
+import { TMUX_SOCKET } from "@/lib/tmux";
 
 const execAsync = promisify(exec);
 
@@ -98,7 +99,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       if (oldTmuxName && newTmuxName) {
         try {
           await execAsync(
-            `tmux rename-session -t "${oldTmuxName}" "${newTmuxName}"`
+            `tmux -L ${TMUX_SOCKET} rename-session -t "${oldTmuxName}" "${newTmuxName}"`
           );
           updates.push("tmux_name = ?");
           values.push(newTmuxName);
@@ -340,7 +341,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (existing.tmux_name) {
       try {
         await execAsync(
-          `tmux kill-session -t "${existing.tmux_name}" 2>/dev/null || true`
+          `tmux -L ${TMUX_SOCKET} kill-session -t "${existing.tmux_name}" 2>/dev/null || true`
         );
       } catch {
         // Ignore errors - session might already be dead
