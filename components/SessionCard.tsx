@@ -493,14 +493,15 @@ function SessionCardComponent({
             e.target.select();
           }}
           onKeyDown={(e) => {
+            // Stop propagation for all keys to prevent parent handlers
+            // (like dnd-kit's keyboard listeners) from intercepting input
+            e.stopPropagation();
             if (e.key === "Enter") {
               e.preventDefault();
-              e.stopPropagation();
               handleRename();
             }
             if (e.key === "Escape") {
               e.preventDefault();
-              e.stopPropagation();
               setEditName(session.name);
               setIsEditing(false);
             }
