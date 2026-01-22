@@ -26,18 +26,9 @@ import { destroyContainer, logSecurityEvent } from "@/lib/container";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { clearPendingPrompt } from "@/stores/initialPrompt";
 import { TMUX_SOCKET } from "@/lib/tmux";
+import { getTmuxSessionName } from "@/lib/sessions";
 
 const execAsync = promisify(exec);
-
-// Sanitize a name for use as tmux session name
-function sanitizeTmuxName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-") // Replace non-alphanumeric with dashes
-    .replace(/-+/g, "-") // Collapse multiple dashes
-    .replace(/^-|-$/g, "") // Remove leading/trailing dashes
-    .slice(0, 50); // Limit length
-}
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -91,7 +82,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const updates: string[] = [];
     const values: unknown[] = [];
 
-    // Handle name change - also rename tmux session and git branch (for worktrees)
+    // Handle name change - also rename git branch (for worktrees)
+    // Note: We intentionally do NOT rename the tmux session. The tmux session name
+    // is deterministic ({agent_type}-{session_id}) to prevent desync issues.
+    // The session "name" is purely a UI display name.
     if (body.name !== undefined && body.name !== existing.name) {
       // Reject names that don't contain at least one alphanumeric character
       const newSlug = slugify(body.name);
@@ -103,25 +97,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           },
           { status: 400 }
         );
-      }
-
-      const newTmuxName = sanitizeTmuxName(body.name);
-      const oldTmuxName = existing.tmux_name;
-
-      // Try to rename the tmux session
-      if (oldTmuxName && newTmuxName) {
-        try {
-          await execAsync(
-            `tmux -L ${TMUX_SOCKET} rename-session -t "${oldTmuxName}" "${newTmuxName}"`
-          );
-          updates.push("tmux_name = ?");
-          values.push(newTmuxName);
-        } catch {
-          // tmux session might not exist or rename failed - that's ok, just update the name
-          // Still update tmux_name in DB so future attachments use the new name
-          updates.push("tmux_name = ?");
-          values.push(newTmuxName);
-        }
       }
 
       // If this is a worktree session, also rename the git branch
@@ -354,14 +329,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // Now we can safely clean up the tmux session and container.
 
     // Kill the tmux session if it exists
-    if (existing.tmux_name) {
-      try {
-        await execAsync(
-          `tmux -L ${TMUX_SOCKET} kill-session -t "${existing.tmux_name}" 2>/dev/null || true`
-        );
-      } catch {
-        // Ignore errors - session might already be dead
-      }
+    // Use deterministic tmux name to ensure we kill the correct session
+    const tmuxName = getTmuxSessionName(existing);
+    try {
+      await execAsync(
+        `tmux -L ${TMUX_SOCKET} kill-session -t "${tmuxName}" 2>/dev/null || true`
+      );
+    } catch {
+      // Ignore errors - session might already be dead
     }
 
     // Clean up container if this session had one (synchronous with logging)
