@@ -247,6 +247,46 @@ rm -rf ~/.agent-os/repo/.next
 agent-os install
 ```
 
+### Sandboxed session status not updating
+
+If status updates are not working for sandboxed (Docker) sessions, the host firewall may be blocking connections from Docker containers.
+
+**Symptoms:**
+
+- Session cards show "Unknown" or "Idle" status even when Claude is actively working
+- The server logs show no incoming status update requests from container sessions
+
+**Solution:**
+
+The `agent-os install` command automatically configures the firewall on Linux. If you installed manually or the automatic configuration failed, add the rule manually:
+
+**ufw (Ubuntu/Debian):**
+
+```bash
+sudo ufw allow from 172.17.0.0/16 to any port 3011 proto tcp comment "AgentOS from Docker"
+```
+
+**firewalld (RHEL/CentOS):**
+
+```bash
+sudo firewall-cmd --permanent --add-rich-rule='rule family=ipv4 source address=172.17.0.0/16 port port=3011 protocol=tcp accept'
+sudo firewall-cmd --reload
+```
+
+**iptables:**
+
+```bash
+sudo iptables -I INPUT -s 172.17.0.0/16 -p tcp --dport 3011 -j ACCEPT
+# To persist across reboots (Ubuntu/Debian):
+sudo iptables-save | sudo tee /etc/iptables/rules.v4
+```
+
+**Note:** Replace `172.17.0.0/16` with your Docker bridge network CIDR if different. Check with:
+
+```bash
+docker network inspect bridge -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+```
+
 ## Uninstalling
 
 ```bash

@@ -11,6 +11,10 @@ cmd_install() {
     # Check and install prerequisites
     check_and_install_prerequisites
 
+    # Configure firewall to allow Docker containers to reach AgentOS
+    # This is required for status updates from sandboxed sessions
+    configure_docker_firewall "$PORT"
+
     # Prompt for AI CLI installation
     prompt_ai_cli_install
 
@@ -109,6 +113,9 @@ cmd_start() {
     fi
 
     log_info "Starting AgentOS..."
+
+    # Ensure firewall allows Docker containers (rules may not persist across reboots)
+    configure_docker_firewall "$PORT" 2>/dev/null || true
 
     cd "$REPO_DIR"
 
