@@ -83,11 +83,8 @@ export function createWebSocketConnection(
   };
 
   const forceReconnect = (forceTakeover?: boolean) => {
-    // Reset intentional close flag to allow reconnection
-    if (forceTakeover) {
-      intentionalCloseRef.current = false;
-    }
-    if (intentionalCloseRef.current) return;
+    // Always reset intentional close flag - user explicitly requested reconnect
+    intentionalCloseRef.current = false;
 
     // Reset initial resize flag for the new connection
     hasSentInitialResize = false;
