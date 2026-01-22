@@ -193,19 +193,27 @@ function SessionCardComponent({
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
-      const input = inputRef.current;
       // Mark that we just started editing to ignore immediate blur
       justStartedEditingRef.current = true;
-      // Delay focus to allow Radix dropdown to complete its focus restoration
-      // (dropdown returns focus to trigger button after closing)
-      setTimeout(() => {
-        input.focus();
-        input.select();
-        // Clear the flag after focus is established
-        setTimeout(() => {
-          justStartedEditingRef.current = false;
-        }, 100);
-      }, 50);
+
+      // Use multiple animation frames to ensure we're past Radix's focus restoration
+      // This is more reliable than setTimeout across different browsers/machines
+      const focusInput = () => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (inputRef.current) {
+              inputRef.current.focus();
+              inputRef.current.select();
+            }
+            // Clear the flag after a longer delay to handle edge cases
+            setTimeout(() => {
+              justStartedEditingRef.current = false;
+            }, 200);
+          });
+        });
+      };
+
+      focusInput();
     }
   }, [isEditing]);
 
@@ -448,6 +456,10 @@ function SessionCardComponent({
           value={editName}
           onChange={(e) => setEditName(e.target.value)}
           onBlur={handleRename}
+          onFocus={(e) => {
+            // Re-select text when focus is gained (handles edge cases)
+            e.target.select();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") handleRename();
             if (e.key === "Escape") {
@@ -456,6 +468,7 @@ function SessionCardComponent({
             }
           }}
           onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
           className="border-primary min-w-0 flex-1 border-b bg-transparent text-sm outline-none"
         />
       ) : (
@@ -593,7 +606,7 @@ function SessionCardComponent({
 
       {/* Actions menu (button) */}
       {hasActions && (
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
             <Button
               variant="ghost"
@@ -629,7 +642,7 @@ function SessionCardComponent({
   if (hasActions) {
     return (
       <>
-        <ContextMenu>
+        <ContextMenu modal={false}>
           <ContextMenuTrigger asChild>{cardContent}</ContextMenuTrigger>
           <ContextMenuContent>{renderMenuItems(true)}</ContextMenuContent>
         </ContextMenu>
