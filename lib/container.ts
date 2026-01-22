@@ -437,7 +437,7 @@ export async function createContainer(
         fs.mkdirSync(screenshotsTempDir, { recursive: true });
       }
 
-      // Mount ~/.claude read-only so OAuth token refreshes on host are visible in container
+      // Mount ~/.claude read-only so we can copy and periodically refresh credentials
       const claudeConfigMount = fs.existsSync(claudeConfigDir)
         ? `-v "${claudeConfigDir}:/home/node/.claude-host:ro"`
         : "";
@@ -468,28 +468,19 @@ export async function createContainer(
       const containerId = stdout.trim().substring(0, 12);
       console.log(`[container] Container ${containerId} started`);
 
-      // Set up ~/.claude directory with symlinks to the read-only host mount
-      // This allows OAuth token refreshes on the host to be visible in the container
-      // while still allowing settings.json to be modified for localhost→host.docker.internal
+      // Set up ~/.claude directory by copying from the read-only host mount
+      // OAuth credentials are refreshed periodically by a background process
       if (fs.existsSync(claudeConfigDir)) {
-        console.log(`[container] Setting up Claude config with symlinks...`);
+        console.log(`[container] Setting up Claude config...`);
         try {
-          // Create .claude directory and symlink all files from the read-only mount
-          // except settings.json which we copy so we can modify it
+          // Copy everything from read-only mount for full user experience
+          // Containers are transient so storage overhead is acceptable
           await execAsync(
             `docker exec "${containerId}" sh -c '
               mkdir -p /home/node/.claude &&
-              for f in /home/node/.claude-host/*; do
-                [ -e "$f" ] || continue
-                name=$(basename "$f")
-                if [ "$name" = "settings.json" ]; then
-                  cp "$f" /home/node/.claude/
-                else
-                  ln -sf "$f" /home/node/.claude/
-                fi
-              done
+              cp -r /home/node/.claude-host/. /home/node/.claude/
             '`,
-            { timeout: 30000 }
+            { timeout: 60000 }
           );
           // Replace localhost with host.docker.internal in settings.json so hooks can reach host
           try {
@@ -517,9 +508,23 @@ export async function createContainer(
               `[container] settings.json not found, skipping localhost replacement (hooks may not work)`
             );
           }
-          console.log(
-            `[container] Claude config set up with symlinks successfully`
+          // Start background process to watch and mirror OAuth credentials from host
+          // Uses inotifywait for instant reaction to changes (no polling delay)
+          // Runs as root to ensure read access regardless of host file permissions
+          // Watches directory (not file) to handle file recreation
+          await execAsync(
+            `docker exec -d -u root "${containerId}" sh -c '
+              while true; do
+                inotifywait -qq -e modify,create,moved_to /home/node/.claude-host/ 2>/dev/null
+                if [ -f /home/node/.claude-host/.credentials.json ]; then
+                  cp /home/node/.claude-host/.credentials.json /home/node/.claude/.credentials.json &&
+                  chown node:node /home/node/.claude/.credentials.json
+                fi
+              done 2>/dev/null
+            '`,
+            { timeout: 5000 }
           );
+          console.log(`[container] Claude config set up successfully`);
         } catch (setupError) {
           const setupErrorMsg =
             setupError instanceof Error ? setupError.message : "Unknown error";
