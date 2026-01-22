@@ -83,6 +83,22 @@ const WAITING_TOOLS = new Set([
   "user_input",
 ]);
 
+// Max lengths for string fields to prevent memory bloat
+const MAX_HOOK_EVENT_LENGTH = 50;
+const MAX_TOOL_NAME_LENGTH = 100;
+
+/**
+ * Truncate a string to a maximum length, adding ellipsis if truncated
+ */
+function truncateString(
+  str: string | undefined,
+  maxLength: number
+): string | undefined {
+  if (!str) return str;
+  if (str.length <= maxLength) return str;
+  return str.slice(0, maxLength - 3) + "...";
+}
+
 // Map Claude hook events to our status
 function mapEventToStatus(
   event: string,
@@ -275,14 +291,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Broadcast the update
-    statusBroadcaster.updateStatus({
-      sessionId,
-      status,
-      hookEvent: event,
-      toolName: payload.tool_name,
-      toolDetail,
-    });
+    // Broadcast the update with truncated string fields to prevent memory bloat
+    try {
+      statusBroadcaster.updateStatus({
+        sessionId,
+        status,
+        hookEvent: truncateString(event, MAX_HOOK_EVENT_LENGTH),
+        toolName: truncateString(payload.tool_name, MAX_TOOL_NAME_LENGTH),
+        toolDetail, // Already truncated by extractToolDetail()
+      });
+    } catch (broadcastError) {
+      // Log but don't fail the request - status was valid, broadcast had issues
+      console.error("Error broadcasting status update:", broadcastError);
+      // Still return success since we received and processed the update
+      // The next update will likely succeed
+    }
 
     return NextResponse.json({
       success: true,
@@ -292,10 +315,18 @@ export async function POST(request: NextRequest) {
       toolDetail,
     });
   } catch (error) {
+    // Distinguish between JSON parse errors and other issues
+    if (error instanceof SyntaxError) {
+      console.error("Invalid JSON in status update request:", error);
+      return NextResponse.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      );
+    }
     console.error("Error processing status update:", error);
     return NextResponse.json(
-      { error: "Invalid request body" },
-      { status: 400 }
+      { error: "Internal error processing status update" },
+      { status: 500 }
     );
   }
 }

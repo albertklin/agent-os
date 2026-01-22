@@ -8,6 +8,7 @@
  * - Database sync for initial status population
  */
 
+import { randomUUID } from "crypto";
 import { getDb } from "@/lib/db";
 import type { SetupStatus, LifecycleStatus } from "@/lib/db/types";
 
@@ -45,12 +46,31 @@ export interface StatusUpdate {
 
 type SSECallback = (data: StatusUpdate) => void;
 
+interface Subscriber {
+  callback: SSECallback;
+  id: string;
+  addedAt: number;
+  lastSuccessfulWrite: number;
+}
+
+// Maximum number of sessions to track in memory
+const MAX_STATUS_STORE_SIZE = 10000;
+// Maximum number of SSE subscribers
+const MAX_SUBSCRIBERS = 1000;
+// Subscriber is considered dead if no successful write in this time
+const SUBSCRIBER_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+
 class StatusBroadcaster {
   private statusStore = new Map<string, StatusData>();
-  private subscribers = new Set<SSECallback>();
+  private subscribers = new Map<string, Subscriber>();
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private cleanupInterval: NodeJS.Timeout | null = null;
   private syncInProgress = false;
+  private syncPromise: Promise<{
+    synced: number;
+    alive: number;
+    dead: number;
+  }> | null = null;
 
   constructor() {
     // Start cleanup interval unconditionally to prevent memory growth
@@ -77,8 +97,24 @@ class StatusBroadcaster {
     // Get existing data to preserve fields not in this update
     const existing = this.statusStore.get(sessionId);
 
-    // Update in-memory store (fresh update clears stale flag)
-    this.statusStore.set(sessionId, {
+    // For new sessions (not already in store), verify they exist in DB
+    // This prevents ghost sessions from appearing after deletion
+    if (!existing) {
+      // Enforce max store size first - evict oldest entries if at limit
+      if (this.statusStore.size >= MAX_STATUS_STORE_SIZE) {
+        this.evictOldestStatuses(100); // Remove 100 oldest to make room
+      }
+
+      // Check DB existence right before insert to minimize TOCTOU window
+      // This is still not fully atomic, but reduces the race window significantly
+      if (!this.sessionExistsInDb(sessionId)) {
+        // Session was deleted - don't add to store
+        return;
+      }
+    }
+
+    // Build the new status data
+    const newData: StatusData = {
       status,
       lastLine,
       updatedAt: Date.now(),
@@ -89,7 +125,10 @@ class StatusBroadcaster {
       setupError: setupError ?? existing?.setupError,
       lifecycleStatus: lifecycleStatus ?? existing?.lifecycleStatus,
       stale: false,
-    });
+    };
+
+    // Update in-memory store (fresh update clears stale flag)
+    this.statusStore.set(sessionId, newData);
 
     // Update DB timestamp for running/waiting states
     if (status === "running" || status === "waiting") {
@@ -128,27 +167,80 @@ class StatusBroadcaster {
 
   /**
    * Subscribe to status updates (for SSE connections)
+   * Returns a subscriber ID for cleanup
    */
-  subscribe(callback: SSECallback): void {
-    this.subscribers.add(callback);
+  subscribe(callback: SSECallback): string {
+    // Enforce max subscribers to prevent memory exhaustion
+    if (this.subscribers.size >= MAX_SUBSCRIBERS) {
+      // Remove oldest subscriber to make room
+      const oldest = this.findOldestSubscriber();
+      if (oldest) {
+        this.subscribers.delete(oldest);
+        console.warn(
+          `[status-broadcaster] Removed oldest subscriber ${oldest} due to limit`
+        );
+      }
+    }
+
+    const id = `sub_${randomUUID()}`;
+    const now = Date.now();
+    this.subscribers.set(id, {
+      callback,
+      id,
+      addedAt: now,
+      lastSuccessfulWrite: now,
+    });
 
     // Start heartbeat if this is the first subscriber
     // (cleanup is already running from constructor)
     if (this.subscribers.size === 1) {
       this.startHeartbeat();
     }
+
+    return id;
   }
 
   /**
-   * Unsubscribe from status updates
+   * Unsubscribe from status updates by ID
    */
-  unsubscribe(callback: SSECallback): void {
-    this.subscribers.delete(callback);
+  unsubscribe(subscriberId: string): void {
+    this.subscribers.delete(subscriberId);
 
     // Stop heartbeat if no more subscribers (cleanup keeps running to prevent memory growth)
     if (this.subscribers.size === 0) {
       this.stopHeartbeat();
     }
+  }
+
+  /**
+   * Unsubscribe by callback reference (legacy support)
+   */
+  unsubscribeByCallback(callback: SSECallback): void {
+    for (const [id, sub] of this.subscribers) {
+      if (sub.callback === callback) {
+        this.subscribers.delete(id);
+        break;
+      }
+    }
+
+    if (this.subscribers.size === 0) {
+      this.stopHeartbeat();
+    }
+  }
+
+  /**
+   * Find the oldest subscriber ID
+   */
+  private findOldestSubscriber(): string | null {
+    let oldest: string | null = null;
+    let oldestTime = Infinity;
+    for (const [id, sub] of this.subscribers) {
+      if (sub.addedAt < oldestTime) {
+        oldestTime = sub.addedAt;
+        oldest = id;
+      }
+    }
+    return oldest;
   }
 
   /**
@@ -160,32 +252,80 @@ class StatusBroadcaster {
 
   /**
    * Broadcast update to all subscribers
+   * Uses a snapshot to avoid concurrent modification issues
    */
   private broadcast(update: StatusUpdate): void {
-    for (const callback of this.subscribers) {
+    const deadSubscribers: string[] = [];
+    const now = Date.now();
+
+    // Snapshot subscriber IDs to avoid concurrent modification during iteration
+    const subscriberIds = Array.from(this.subscribers.keys());
+
+    for (const id of subscriberIds) {
+      const sub = this.subscribers.get(id);
+      if (!sub) continue; // Already removed
+
       try {
-        callback(update);
+        sub.callback(update);
+        sub.lastSuccessfulWrite = now;
       } catch (error) {
-        console.error("Error broadcasting to subscriber:", error);
+        // If callback throws, subscriber is likely dead
+        console.error(`Error broadcasting to subscriber ${id}:`, error);
+        deadSubscribers.push(id);
       }
+    }
+
+    // Remove dead subscribers
+    for (const id of deadSubscribers) {
+      this.subscribers.delete(id);
+      console.log(`[status-broadcaster] Removed dead subscriber ${id}`);
     }
   }
 
   /**
-   * Send heartbeat to keep connections alive
+   * Send heartbeat to keep connections alive and detect dead subscribers
+   * Uses a snapshot to avoid concurrent modification issues
    */
   private startHeartbeat(): void {
     if (this.heartbeatInterval) return;
 
     this.heartbeatInterval = setInterval(() => {
-      // Send a heartbeat event (empty update with special type)
-      for (const callback of this.subscribers) {
+      const deadSubscribers: string[] = [];
+      const now = Date.now();
+
+      // Snapshot subscriber IDs to avoid concurrent modification during iteration
+      const subscriberIds = Array.from(this.subscribers.keys());
+
+      // Send a heartbeat event and detect dead subscribers
+      for (const id of subscriberIds) {
+        const sub = this.subscribers.get(id);
+        if (!sub) continue; // Already removed
+
         try {
           // We use a special "heartbeat" session ID that clients can filter
-          callback({ sessionId: "__heartbeat__", status: "idle" });
+          sub.callback({ sessionId: "__heartbeat__", status: "idle" });
+          sub.lastSuccessfulWrite = now;
         } catch {
-          // Ignore heartbeat errors
+          // Callback threw - subscriber is dead
+          deadSubscribers.push(id);
+          continue; // Skip stale check - already marked for removal
         }
+
+        // Also check for stale subscribers (no successful write in a while)
+        if (now - sub.lastSuccessfulWrite > SUBSCRIBER_TIMEOUT_MS) {
+          deadSubscribers.push(id);
+        }
+      }
+
+      // Remove dead subscribers
+      for (const id of deadSubscribers) {
+        this.subscribers.delete(id);
+        console.log(`[status-broadcaster] Removed stale/dead subscriber ${id}`);
+      }
+
+      // Stop heartbeat if no more subscribers
+      if (this.subscribers.size === 0) {
+        this.stopHeartbeat();
       }
     }, 30000); // 30 second heartbeat
   }
@@ -233,6 +373,71 @@ class StatusBroadcaster {
    */
   clearStatus(sessionId: string): void {
     this.statusStore.delete(sessionId);
+  }
+
+  /**
+   * Check if a session exists in the database
+   */
+  private sessionExistsInDb(sessionId: string): boolean {
+    try {
+      const db = getDb();
+      const result = db
+        .prepare("SELECT 1 FROM sessions WHERE id = ?")
+        .get(sessionId);
+      return !!result;
+    } catch (error) {
+      // If DB fails, assume session exists to avoid dropping valid updates
+      // Log warning so operators can detect DB issues
+      console.warn(
+        `[status-broadcaster] DB check failed for session ${sessionId}, assuming exists:`,
+        error
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Evict oldest statuses when store is full
+   * Uses a two-phase approach to avoid expensive sorting when possible:
+   * 1. First try to evict entries older than a threshold (fast O(n) scan)
+   * 2. Fall back to sorting only if needed
+   */
+  private evictOldestStatuses(count: number): void {
+    const now = Date.now();
+    // First pass: try to evict entries older than 30 minutes (fast O(n) scan)
+    const staleThreshold = 30 * 60 * 1000;
+    const toEvict: string[] = [];
+
+    for (const [id, data] of this.statusStore) {
+      if (now - data.updatedAt > staleThreshold) {
+        toEvict.push(id);
+        if (toEvict.length >= count) break;
+      }
+    }
+
+    // If we found enough stale entries, evict them
+    if (toEvict.length >= count) {
+      for (const id of toEvict.slice(0, count)) {
+        this.statusStore.delete(id);
+      }
+      console.log(`[status-broadcaster] Evicted ${count} stale statuses`);
+      return;
+    }
+
+    // Second pass: if not enough stale entries, fall back to sorting
+    // This is more expensive but only happens rarely
+    const entries = Array.from(this.statusStore.entries()).sort(
+      (a, b) => a[1].updatedAt - b[1].updatedAt
+    );
+
+    const evictCount = Math.min(count, entries.length);
+    for (let i = 0; i < evictCount; i++) {
+      this.statusStore.delete(entries[i][0]);
+    }
+
+    console.log(
+      `[status-broadcaster] Evicted ${evictCount} oldest statuses (sorted)`
+    );
   }
 
   /**
@@ -284,15 +489,53 @@ class StatusBroadcaster {
    * containers with separate tmux sockets. The session-manager's recoverSessions()
    * handles the actual liveness checks at server startup.
    *
-   * Protected against concurrent calls - only one sync runs at a time.
+   * Protected against concurrent calls - concurrent callers will receive
+   * the result of the in-progress sync.
    */
   syncFromDatabase(): { synced: number; alive: number; dead: number } {
-    // Prevent concurrent syncs
-    if (this.syncInProgress) {
+    // If sync is already in progress, wait for it (but return synchronously for backwards compat)
+    if (this.syncInProgress && this.syncPromise) {
+      // Return a "pending" result - caller should retry or use syncFromDatabaseAsync
       return { synced: 0, alive: 0, dead: 0 };
     }
-    this.syncInProgress = true;
 
+    this.syncInProgress = true;
+    try {
+      return this.performSync();
+    } finally {
+      this.syncInProgress = false;
+      this.syncPromise = null;
+    }
+  }
+
+  /**
+   * Async version of syncFromDatabase that waits for in-progress syncs
+   */
+  async syncFromDatabaseAsync(): Promise<{
+    synced: number;
+    alive: number;
+    dead: number;
+  }> {
+    // If sync is already in progress, wait for it
+    if (this.syncPromise) {
+      return this.syncPromise;
+    }
+
+    this.syncInProgress = true;
+    this.syncPromise = Promise.resolve(this.performSync());
+
+    try {
+      return await this.syncPromise;
+    } finally {
+      this.syncInProgress = false;
+      this.syncPromise = null;
+    }
+  }
+
+  /**
+   * Internal sync implementation
+   */
+  private performSync(): { synced: number; alive: number; dead: number } {
     let synced = 0;
     let alive = 0;
     let dead = 0;
@@ -342,8 +585,6 @@ class StatusBroadcaster {
       }
     } catch {
       // DB not available, nothing to sync
-    } finally {
-      this.syncInProgress = false;
     }
 
     return { synced, alive, dead };

@@ -67,6 +67,9 @@ interface UseStatusStreamResult {
 const INITIAL_RETRY_DELAY = 1000; // 1 second
 const MAX_RETRY_DELAY = 30000; // 30 seconds
 const BACKOFF_MULTIPLIER = 2;
+// Connection timeout - if not connected within this time, reconnect
+// 15 seconds balances fast failure detection with network latency tolerance
+const CONNECTION_TIMEOUT_MS = 15000; // 15 seconds
 
 /**
  * Hook for real-time session status updates via SSE
@@ -87,6 +90,7 @@ export function useStatusStream(): UseStatusStreamResult {
   // Refs for cleanup and reconnection
   const eventSourceRef = useRef<EventSource | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryDelayRef = useRef(INITIAL_RETRY_DELAY);
   const mountedRef = useRef(true);
   const isConnectingRef = useRef(false);
@@ -158,6 +162,12 @@ export function useStatusStream(): UseStatusStreamResult {
       retryTimeoutRef.current = null;
     }
 
+    // Clear any existing connection timeout
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = null;
+    }
+
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -167,8 +177,40 @@ export function useStatusStream(): UseStatusStreamResult {
     const eventSource = new EventSource("/api/sessions/status-stream");
     eventSourceRef.current = eventSource;
 
+    // Set connection timeout - if not connected in time, force reconnect
+    connectionTimeoutRef.current = setTimeout(() => {
+      if (!mountedRef.current) return;
+      if (eventSource.readyState !== EventSource.OPEN) {
+        console.warn("[useStatusStream] Connection timeout, forcing reconnect");
+        eventSource.close();
+        eventSourceRef.current = null;
+        isConnectingRef.current = false;
+        setConnectionStatus("disconnected");
+
+        // Schedule reconnection with current backoff
+        retryTimeoutRef.current = setTimeout(() => {
+          if (mountedRef.current) {
+            connect();
+          }
+        }, retryDelayRef.current);
+
+        // Increase delay for next retry
+        retryDelayRef.current = Math.min(
+          retryDelayRef.current * BACKOFF_MULTIPLIER,
+          MAX_RETRY_DELAY
+        );
+      }
+    }, CONNECTION_TIMEOUT_MS);
+
     eventSource.onopen = () => {
       if (!mountedRef.current) return;
+
+      // Clear connection timeout on successful open
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
+
       isConnectingRef.current = false;
       setConnectionStatus("connected");
       retryDelayRef.current = INITIAL_RETRY_DELAY; // Reset retry delay on successful connect
@@ -199,6 +241,12 @@ export function useStatusStream(): UseStatusStreamResult {
 
     eventSource.onerror = () => {
       if (!mountedRef.current) return;
+
+      // Clear connection timeout on error
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
 
       isConnectingRef.current = false;
       eventSource.close();
@@ -242,6 +290,10 @@ export function useStatusStream(): UseStatusStreamResult {
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
         retryTimeoutRef.current = null;
+      }
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
