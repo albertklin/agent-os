@@ -94,9 +94,7 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 # Install Claude Code using native installer
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${CLAUDE_CODE_VERSION} && \
   # Verify installation succeeded
-  test -x /home/node/.local/bin/claude && \
-  # Create symlink in /usr/local/bin as fallback for PATH issues
-  sudo ln -sf /home/node/.local/bin/claude /usr/local/bin/claude
+  test -x /home/node/.local/bin/claude
 
 
 # Copy firewall script (executed via `docker exec -u root`, not sudo)
