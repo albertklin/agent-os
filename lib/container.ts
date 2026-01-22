@@ -341,6 +341,7 @@ export interface CreateContainerOptions {
   sessionId: string;
   worktreePath: string;
   extraMounts?: MountConfig[];
+  allowedDomains?: string[];
 }
 
 export interface CreateContainerResult {
@@ -366,7 +367,7 @@ const CONTAINER_CREATION_TIMEOUT = 180000;
 export async function createContainer(
   opts: CreateContainerOptions
 ): Promise<CreateContainerResult> {
-  const { sessionId, worktreePath, extraMounts } = opts;
+  const { sessionId, worktreePath, extraMounts, allowedDomains } = opts;
   const containerName = `agentos-${sessionId}`;
   const claudeConfigDir = path.join(os.homedir(), ".claude");
   const sshAuthSock = process.env.SSH_AUTH_SOCK;
@@ -459,6 +460,16 @@ export async function createContainer(
         );
       }
 
+      // Build extra allowed domains env var
+      let extraDomainsEnv = "";
+      if (allowedDomains?.length) {
+        // Pass as comma-separated list
+        extraDomainsEnv = `-e EXTRA_ALLOWED_DOMAINS="${allowedDomains.join(",")}"`;
+        console.log(
+          `[container] Adding ${allowedDomains.length} extra allowed domain(s) for session ${sessionId}`
+        );
+      }
+
       const { stdout } = await execAsync(
         `docker run -d \
         --name "${containerName}" \
@@ -476,6 +487,7 @@ export async function createContainer(
         ${sshAgentMount} \
         ${claudeConfigMount} \
         ${extraMountFlags} \
+        ${extraDomainsEnv} \
         -e NODE_OPTIONS="--max-old-space-size=4096" \
         -e CLAUDE_CONFIG_DIR="/home/node/.claude" \
         ${SANDBOX_IMAGE} \

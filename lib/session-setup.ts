@@ -24,6 +24,7 @@ import {
   logSecurityEvent,
 } from "@/lib/container";
 import { parseMounts } from "@/lib/mounts";
+import { parseDomains } from "@/lib/domains";
 import { sessionManager } from "@/lib/session-manager";
 import { buildAgentCommand } from "@/lib/sessions";
 
@@ -148,6 +149,7 @@ export async function runSessionSetup(
       auto_approve: number;
       agent_type: string;
       extra_mounts: string | null;
+      allowed_domains: string | null;
     } | null;
 
     if (session?.auto_approve && session?.agent_type === "claude") {
@@ -163,6 +165,7 @@ export async function runSessionSetup(
             sessionId,
             worktreePath: worktreeInfo.worktreePath,
             extraMounts: parseMounts(session.extra_mounts),
+            allowedDomains: parseDomains(session.allowed_domains),
           });
           containerId = containerResult.containerId; // Track for cleanup
 

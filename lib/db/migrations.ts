@@ -276,6 +276,14 @@ const migrations: Migration[] = [
       db.exec(`ALTER TABLE sessions ADD COLUMN extra_mounts TEXT`);
     },
   },
+  {
+    id: 20,
+    name: "add_allowed_domains_to_sessions",
+    up: (db) => {
+      // JSON array of domain strings: ["*.googleapis.com", "storage.cloud.google.com"]
+      db.exec(`ALTER TABLE sessions ADD COLUMN allowed_domains TEXT`);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

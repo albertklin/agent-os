@@ -75,6 +75,8 @@ export interface Session {
   container_health_status: "healthy" | "unhealthy" | null;
   // Extra mounts for sandboxed sessions (JSON-encoded MountConfig[])
   extra_mounts: string | null;
+  // Extra allowed network domains for sandboxed sessions (JSON-encoded string[])
+  allowed_domains: string | null;
 }
 
 export interface Group {
