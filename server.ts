@@ -3,6 +3,9 @@ import { parse } from "url";
 import next from "next";
 import { WebSocketServer, WebSocket } from "ws";
 import * as pty from "node-pty";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import { writeGlobalHooksConfig } from "./lib/hooks/generate-config";
 import { ensureSandboxImage, isContainerRunning } from "./lib/container";
 import { getDb } from "./lib/db";
@@ -18,6 +21,50 @@ import {
   createIpFilterMiddleware,
   describeTrustedNetworks,
 } from "./lib/ip-filter";
+
+// Temp file cleanup configuration
+const SCREENSHOT_TEMP_DIR = path.join(os.tmpdir(), "agent-os-screenshots");
+const TEMP_FILE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TEMP_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Clean up old temporary files (screenshots, etc.)
+ * Removes files older than TEMP_FILE_MAX_AGE_MS
+ */
+async function cleanupTempFiles(): Promise<{
+  checked: number;
+  removed: number;
+}> {
+  let checked = 0;
+  let removed = 0;
+
+  try {
+    if (!fs.existsSync(SCREENSHOT_TEMP_DIR)) {
+      return { checked, removed };
+    }
+
+    const files = await fs.promises.readdir(SCREENSHOT_TEMP_DIR);
+    const now = Date.now();
+
+    for (const file of files) {
+      checked++;
+      const filePath = path.join(SCREENSHOT_TEMP_DIR, file);
+      try {
+        const stats = await fs.promises.stat(filePath);
+        if (now - stats.mtimeMs > TEMP_FILE_MAX_AGE_MS) {
+          await fs.promises.unlink(filePath);
+          removed++;
+        }
+      } catch {
+        // Ignore errors for individual files (may have been deleted already)
+      }
+    }
+  } catch (err) {
+    console.error("[cleanup] Error cleaning temp files:", err);
+  }
+
+  return { checked, removed };
+}
 
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT || "3011", 10);
@@ -56,8 +103,19 @@ app.prepare().then(async () => {
   // Recover sessions from previous server run
   const recoveryResult = await sessionManager.recoverSessions();
   console.log(
-    `> Sessions recovered: ${recoveryResult.synced} total (${recoveryResult.alive} alive, ${recoveryResult.dead} dead)`
+    `> Sessions recovered: ${recoveryResult.synced} total (${recoveryResult.alive} alive, ${recoveryResult.dead} dead)` +
+      (recoveryResult.orphanContainersRemoved > 0
+        ? `, ${recoveryResult.orphanContainersRemoved} orphan container(s) cleaned`
+        : "")
   );
+
+  // Clean up old temp files on startup
+  const tempCleanup = await cleanupTempFiles();
+  if (tempCleanup.removed > 0) {
+    console.log(
+      `> Temp files cleaned: ${tempCleanup.removed} old file(s) removed`
+    );
+  }
 
   // Build sandbox container image - Docker is required
   const imageReady = await ensureSandboxImage();
@@ -99,6 +157,9 @@ app.prepare().then(async () => {
   // Track active connections per session (exclusive - only one client at a time)
   const activeConnections = new Map<string, Set<WebSocket>>();
   const MAX_CONNECTIONS_PER_SESSION = 1;
+  // Global limit on total WebSocket connections to prevent resource exhaustion
+  // For personal network use, 50 is generous (allows many browser tabs)
+  const MAX_TOTAL_CONNECTIONS = 50;
 
   // Track active PTY processes for proper cleanup on shutdown
   const activePtyProcesses = new Map<WebSocket, pty.IPty>();
@@ -206,7 +267,26 @@ app.prepare().then(async () => {
           return;
         }
 
-        // 6. Check connection limit for this session (exclusive - only one client at a time)
+        // 6. Check global connection limit to prevent resource exhaustion
+        const totalConnections = Array.from(activeConnections.values()).reduce(
+          (sum, conns) => sum + conns.size,
+          0
+        );
+        if (totalConnections >= MAX_TOTAL_CONNECTIONS) {
+          console.warn(
+            `[terminal] Global connection limit reached (${MAX_TOTAL_CONNECTIONS}), rejecting new connection`
+          );
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: `Server connection limit reached (${MAX_TOTAL_CONNECTIONS}). Please close some terminal tabs and try again.`,
+            })
+          );
+          ws.close();
+          return;
+        }
+
+        // 7. Check connection limit for this session (exclusive - only one client at a time)
         const sessionConns = activeConnections.get(sessionId) || new Set();
         if (sessionConns.size >= MAX_CONNECTIONS_PER_SESSION) {
           if (takeover) {
@@ -443,6 +523,49 @@ app.prepare().then(async () => {
     }
   );
 
+  // Periodic cleanup of orphaned PTY processes (every 60 seconds)
+  // This catches any PTY processes whose WebSocket closed without proper cleanup
+  const ptyCleanupInterval = setInterval(() => {
+    let orphanedCount = 0;
+    for (const [ws, ptyProcess] of activePtyProcesses) {
+      // Check if WebSocket is no longer open
+      if (
+        ws.readyState !== WebSocket.OPEN &&
+        ws.readyState !== WebSocket.CONNECTING
+      ) {
+        try {
+          ptyProcess.kill();
+          orphanedCount++;
+        } catch {
+          // Ignore kill errors (process may already be dead)
+        }
+        activePtyProcesses.delete(ws);
+
+        // Also clean up any pending resize timeout
+        const pendingResize = pendingResizes.get(ws);
+        if (pendingResize) {
+          clearTimeout(pendingResize.timeout);
+          pendingResizes.delete(ws);
+        }
+      }
+    }
+    if (orphanedCount > 0) {
+      console.log(
+        `[terminal] Cleaned up ${orphanedCount} orphaned PTY process(es)`
+      );
+    }
+  }, 60000);
+
+  // Periodic cleanup of old temp files (every hour)
+  const tempCleanupInterval = setInterval(async () => {
+    const result = await cleanupTempFiles();
+    if (result.removed > 0) {
+      console.log(
+        `[cleanup] Removed ${result.removed} old temp file(s) out of ${result.checked} checked`
+      );
+    }
+  }, TEMP_CLEANUP_INTERVAL_MS);
+
   // Fix orphaned auto-approve sessions (mark as failed if no container)
   const db = getDb();
   const fixedCount = fixOrphanedAutoApproveSessions(db);
@@ -468,6 +591,10 @@ app.prepare().then(async () => {
   // Graceful shutdown handler
   const shutdown = async (signal: string) => {
     console.log(`\n> Received ${signal}, shutting down gracefully...`);
+
+    // Stop periodic cleanup intervals
+    clearInterval(ptyCleanupInterval);
+    clearInterval(tempCleanupInterval);
 
     // Close WebSocket server (stops accepting new connections)
     terminalWss.close();

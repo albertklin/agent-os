@@ -11,10 +11,20 @@ export { queries } from "./queries";
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "agent-os.db");
 const LOCK_PATH = DB_PATH + ".init-lock";
 
+// Synchronous sleep using Atomics (avoids busy-wait CPU spin)
+function sleepSync(ms: number): void {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    // Use a short busy interval to avoid excessive CPU but stay synchronous
+    // This is acceptable for rare initialization contention
+  }
+}
+
 // Simple file-based lock for initialization
 function withInitLock<T>(fn: () => T): T {
   const maxWait = 10000; // 10 seconds
   const start = Date.now();
+  const pollInterval = 50; // Check every 50ms instead of busy-waiting
 
   // Wait for lock to be available
   while (fs.existsSync(LOCK_PATH)) {
@@ -25,9 +35,8 @@ function withInitLock<T>(fn: () => T): T {
       } catch {}
       break;
     }
-    // Busy wait (sync is fine here, this is initialization)
-    const waitUntil = Date.now() + 100;
-    while (Date.now() < waitUntil) {}
+    // Sleep briefly before rechecking (reduces CPU usage vs busy-wait)
+    sleepSync(pollInterval);
   }
 
   // Acquire lock

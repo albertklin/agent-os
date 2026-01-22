@@ -20,6 +20,10 @@ const execAsync = promisify(exec);
 // Base directory for all worktrees
 const WORKTREES_DIR = path.join(os.homedir(), ".agent-os", "worktrees");
 
+// Maximum number of worktrees allowed to prevent disk exhaustion
+// Each worktree can be large (full git repo + dependencies)
+const MAX_WORKTREES = 50;
+
 export interface WorktreeInfo {
   worktreePath: string;
   branchName: string;
@@ -119,6 +123,23 @@ export async function createWorktree(
   // Validate project is a git repo
   if (!(await isGitRepo(resolvedProjectPath))) {
     throw new Error(`Not a git repository: ${projectPath}`);
+  }
+
+  // Check worktree count limit to prevent disk exhaustion
+  await ensureWorktreesDir();
+  try {
+    const existingWorktrees = await fs.promises.readdir(WORKTREES_DIR);
+    if (existingWorktrees.length >= MAX_WORKTREES) {
+      throw new Error(
+        `Maximum worktree limit (${MAX_WORKTREES}) reached. Please delete some existing sessions to create new ones.`
+      );
+    }
+  } catch (error) {
+    // If it's our limit error, re-throw it
+    if (error instanceof Error && error.message.includes("Maximum worktree")) {
+      throw error;
+    }
+    // Otherwise ignore (directory might not exist yet)
   }
 
   // Generate branch name

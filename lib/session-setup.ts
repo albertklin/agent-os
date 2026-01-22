@@ -22,7 +22,12 @@ import {
   verifyContainerHealth,
   destroyContainer,
   logSecurityEvent,
+  countActiveContainers,
 } from "@/lib/container";
+
+// Maximum number of concurrent containers to prevent system resource exhaustion
+// Each container uses ~4GB RAM limit, so 20 containers = 80GB theoretical max
+const MAX_ACTIVE_CONTAINERS = 20;
 import { parseMounts } from "@/lib/mounts";
 import { parseDomains } from "@/lib/domains";
 import { sessionManager } from "@/lib/session-manager";
@@ -155,6 +160,33 @@ export async function runSessionSetup(
     if (session?.auto_approve && session?.agent_type === "claude") {
       // Check if Docker is available before attempting container creation
       if (await isDockerAvailable()) {
+        // Enforce container count limit to prevent resource exhaustion
+        const activeCount = await countActiveContainers();
+        if (activeCount >= MAX_ACTIVE_CONTAINERS) {
+          console.error(
+            `[container] Container limit (${MAX_ACTIVE_CONTAINERS}) reached, cannot create container for session ${sessionId}`
+          );
+          await cleanupWorktreeOnFailure(
+            worktreeInfo.worktreePath,
+            projectPath
+          );
+          // Clear stale worktree DB fields after cleanup
+          db.prepare(
+            `
+            UPDATE sessions
+            SET worktree_path = NULL, branch_name = NULL, base_branch = NULL, working_directory = ?
+            WHERE id = ?
+          `
+          ).run(projectPath, sessionId);
+          updateSetupStatus(
+            sessionId,
+            "failed",
+            `Container limit reached (${MAX_ACTIVE_CONTAINERS}). Please delete some existing sessions to create new sandboxed sessions.`,
+            "failed"
+          );
+          return; // Abort setup
+        }
+
         updateSetupStatus(sessionId, "init_container");
 
         try {

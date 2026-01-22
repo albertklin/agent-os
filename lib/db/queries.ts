@@ -244,13 +244,19 @@ export const queries = {
     ),
 
   // Batch copy messages from one session to another (for fork)
+  // Limited to 1000 most recent messages to prevent unbounded DB growth
   copySessionMessages: (db: Database.Database) =>
     getStmt(
       db,
       `INSERT INTO messages (session_id, role, content, duration_ms)
        SELECT ?, role, content, duration_ms
-       FROM messages
-       WHERE session_id = ?
+       FROM (
+         SELECT role, content, duration_ms, timestamp
+         FROM messages
+         WHERE session_id = ?
+         ORDER BY timestamp DESC
+         LIMIT 1000
+       )
        ORDER BY timestamp ASC`
     ),
 
