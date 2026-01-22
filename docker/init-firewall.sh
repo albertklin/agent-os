@@ -100,6 +100,39 @@ for domain in \
     done < <(echo "$ips")
 done
 
+# Function to add Google IP ranges (similar to GitHub handling)
+add_google_ranges() {
+    echo "Fetching Google IP ranges..."
+    local google_ranges
+    google_ranges=$(curl -s https://www.gstatic.com/ipranges/goog.json)
+    if [ -z "$google_ranges" ]; then
+        echo "WARNING: Failed to fetch Google IP ranges"
+        return 1
+    fi
+
+    if ! echo "$google_ranges" | jq -e '.prefixes' >/dev/null; then
+        echo "WARNING: Google API response missing prefixes field"
+        return 1
+    fi
+
+    echo "Processing Google IPs..."
+    while read -r cidr; do
+        if [ -z "$cidr" ] || [ "$cidr" = "null" ]; then
+            continue
+        fi
+        if [[ ! "$cidr" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+            echo "WARNING: Invalid CIDR range from Google: $cidr - skipping"
+            continue
+        fi
+        echo "Adding Google range $cidr"
+        ipset add allowed-domains "$cidr" 2>/dev/null || true
+    done < <(echo "$google_ranges" | jq -r '.prefixes[].ipv4Prefix // empty' | aggregate -q)
+    return 0
+}
+
+# Check if any Google-related domain is in the extra allowed domains
+GOOGLE_RANGES_ADDED=false
+
 # Process extra allowed domains from environment variable (comma-separated)
 if [ -n "${EXTRA_ALLOWED_DOMAINS:-}" ]; then
     echo "Processing extra allowed domains from EXTRA_ALLOWED_DOMAINS..."
@@ -109,6 +142,30 @@ if [ -n "${EXTRA_ALLOWED_DOMAINS:-}" ]; then
         domain=$(echo "$domain" | xargs)
         if [ -z "$domain" ]; then
             continue
+        fi
+
+        # Check if this is a Google-related domain - if so, fetch Google IP ranges
+        if [[ "$domain" =~ (^|\.)google\.com$ ]] || \
+           [[ "$domain" =~ (^|\.)googleapis\.com$ ]] || \
+           [[ "$domain" =~ (^|\.)gstatic\.com$ ]] || \
+           [[ "$domain" =~ (^|\.)googlevideo\.com$ ]] || \
+           [[ "$domain" =~ (^|\.)youtube\.com$ ]] || \
+           [[ "$domain" =~ (^|\.)ytimg\.com$ ]]; then
+            if [ "$GOOGLE_RANGES_ADDED" = false ]; then
+                echo "Detected Google-related domain: $domain - fetching Google IP ranges"
+                if add_google_ranges; then
+                    GOOGLE_RANGES_ADDED=true
+                    echo "Google IP ranges added successfully"
+                else
+                    echo "WARNING: Failed to add Google IP ranges, falling back to DNS resolution"
+                fi
+            else
+                echo "Google-related domain $domain - IP ranges already added"
+            fi
+            # Skip individual DNS resolution for Google domains since we added all ranges
+            if [ "$GOOGLE_RANGES_ADDED" = true ]; then
+                continue
+            fi
         fi
 
         # Handle wildcard domains (*.example.com) - resolve the base domain
