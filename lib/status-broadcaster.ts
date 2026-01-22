@@ -5,13 +5,11 @@
  * - In-memory status store for fast access
  * - SSE client registry for broadcasting updates
  * - DB persistence for status changes
- * - Tmux sync for initial status population
+ * - Database sync for initial status population
  */
 
-import { execSync } from "child_process";
 import { getDb } from "@/lib/db";
 import type { SetupStatus, LifecycleStatus } from "@/lib/db/types";
-import { TMUX_SOCKET } from "@/lib/tmux";
 
 export type SessionStatus = "running" | "waiting" | "idle" | "dead" | "unknown";
 
@@ -279,13 +277,16 @@ class StatusBroadcaster {
   }
 
   /**
-   * Sync status from tmux sessions at startup.
-   * This populates initial status for all sessions based on whether their
-   * tmux session exists.
+   * Sync status from database at startup or after hot reload.
+   * This populates the in-memory status store from the database's lifecycle_status.
+   *
+   * Note: This does NOT check tmux directly because sessions run inside Docker
+   * containers with separate tmux sockets. The session-manager's recoverSessions()
+   * handles the actual liveness checks at server startup.
    *
    * Protected against concurrent calls - only one sync runs at a time.
    */
-  syncFromTmux(): { synced: number; alive: number; dead: number } {
+  syncFromDatabase(): { synced: number; alive: number; dead: number } {
     // Prevent concurrent syncs
     if (this.syncInProgress) {
       return { synced: 0, alive: 0, dead: 0 };
@@ -297,19 +298,8 @@ class StatusBroadcaster {
     let dead = 0;
 
     try {
-      // Get list of active tmux sessions
-      const tmuxOutput = execSync(
-        `tmux -L ${TMUX_SOCKET} list-sessions -F '#{session_name}'`,
-        {
-          encoding: "utf-8",
-          timeout: 5000,
-        }
-      );
-      const activeTmuxSessions = new Set(
-        tmuxOutput.trim().split("\n").filter(Boolean)
-      );
-
-      // Get all sessions from database
+      // Get all sessions from database - use lifecycle_status as source of truth
+      // (set correctly by session-manager's recoverSessions)
       const db = getDb();
       const sessions = db
         .prepare(
@@ -333,8 +323,9 @@ class StatusBroadcaster {
           continue;
         }
 
-        const tmuxExists = activeTmuxSessions.has(session.tmux_name);
-        const status: SessionStatus = tmuxExists ? "idle" : "dead";
+        // Derive status from lifecycle_status (set by session-manager recovery)
+        const isAlive = session.lifecycle_status === "ready";
+        const status: SessionStatus = isAlive ? "idle" : "dead";
 
         this.statusStore.set(session.id, {
           status,
@@ -346,44 +337,11 @@ class StatusBroadcaster {
         });
 
         synced++;
-        if (tmuxExists) alive++;
+        if (isAlive) alive++;
         else dead++;
       }
-    } catch (error) {
-      // tmux not running or no sessions - mark all as dead
-      console.warn("Failed to sync from tmux:", error);
-      try {
-        const db = getDb();
-        const sessions = db
-          .prepare(
-            "SELECT id, setup_status, setup_error, lifecycle_status FROM sessions"
-          )
-          .all() as Array<{
-          id: string;
-          setup_status: SetupStatus | null;
-          setup_error: string | null;
-          lifecycle_status: LifecycleStatus | null;
-        }>;
-
-        const now = Date.now();
-        for (const session of sessions) {
-          const existing = this.statusStore.get(session.id);
-          if (existing && now - existing.updatedAt < 60000) continue;
-
-          this.statusStore.set(session.id, {
-            status: "dead",
-            updatedAt: now,
-            setupStatus: session.setup_status ?? undefined,
-            setupError: session.setup_error ?? undefined,
-            lifecycleStatus: session.lifecycle_status ?? undefined,
-            stale: false,
-          });
-          synced++;
-          dead++;
-        }
-      } catch {
-        // DB not available, nothing to sync
-      }
+    } catch {
+      // DB not available, nothing to sync
     } finally {
       this.syncInProgress = false;
     }
