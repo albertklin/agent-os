@@ -604,9 +604,7 @@ function ProjectsSectionComponent({
               <div className="space-y-0.5">
                 {/* Project header - wrap with droppable when collapsed AND dragging a session */}
                 {/* Don't use DroppableProjectHeader when dragging a project - it interferes with sortable */}
-                {!project.expanded &&
-                !project.is_uncategorized &&
-                !isDraggingProject ? (
+                {!project.expanded && !isDraggingProject ? (
                   <DroppableProjectHeader
                     projectId={project.id}
                     isDraggingProject={isDraggingProject}
