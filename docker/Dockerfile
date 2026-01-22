@@ -87,13 +87,8 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
   -a 'export PATH="$HOME/.local/bin:$PATH"' \
   -x
 
-# Install Claude
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
-
-# Create ~/.local/bin symlink to satisfy "native" installation checks
-# (Claude CLI may detect installMethod=native from mounted host config)
-RUN mkdir -p /home/node/.local/bin && \
-  ln -s /usr/local/share/npm-global/bin/claude /home/node/.local/bin/claude
+# Install Claude Code using native installer
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${CLAUDE_CODE_VERSION}
 
 
 # Copy firewall script (executed via `docker exec -u root`, not sudo)
