@@ -11,6 +11,7 @@
 import { execSync } from "child_process";
 import { getDb } from "@/lib/db";
 import type { SetupStatus, LifecycleStatus } from "@/lib/db/types";
+import { TMUX_SOCKET } from "@/lib/tmux";
 
 export type SessionStatus = "running" | "waiting" | "idle" | "dead" | "unknown";
 
@@ -297,10 +298,13 @@ class StatusBroadcaster {
 
     try {
       // Get list of active tmux sessions
-      const tmuxOutput = execSync("tmux list-sessions -F '#{session_name}'", {
-        encoding: "utf-8",
-        timeout: 5000,
-      });
+      const tmuxOutput = execSync(
+        `tmux -L ${TMUX_SOCKET} list-sessions -F '#{session_name}'`,
+        {
+          encoding: "utf-8",
+          timeout: 5000,
+        }
+      );
       const activeTmuxSessions = new Set(
         tmuxOutput.trim().split("\n").filter(Boolean)
       );

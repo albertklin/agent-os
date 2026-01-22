@@ -31,7 +31,7 @@ export function TmuxSessions({ onAttach }: TmuxSessionsProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           command:
-            "tmux list-sessions -F '#{session_name}|#{session_windows}|#{session_created}|#{session_attached}' 2>/dev/null || echo ''",
+            "tmux -L agentos list-sessions -F '#{session_name}|#{session_windows}|#{session_created}|#{session_attached}' 2>/dev/null || echo ''",
         }),
       });
       const data = await res.json();
