@@ -70,7 +70,17 @@ export async function GET(): Promise<Response> {
         }
       };
 
-      subscriberId = statusBroadcaster.subscribe(callback);
+      // Close callback for graceful shutdown - closes the stream controller
+      const closeCallback = () => {
+        cleanup();
+        try {
+          controller.close();
+        } catch {
+          // Already closed
+        }
+      };
+
+      subscriberId = statusBroadcaster.subscribe(callback, closeCallback);
     },
     cancel() {
       // Clean up subscription when stream is cancelled

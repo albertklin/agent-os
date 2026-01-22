@@ -45,9 +45,11 @@ export interface StatusUpdate {
 }
 
 type SSECallback = (data: StatusUpdate) => void;
+type CloseCallback = () => void;
 
 interface Subscriber {
   callback: SSECallback;
+  closeCallback?: CloseCallback;
   id: string;
   addedAt: number;
   lastSuccessfulWrite: number;
@@ -168,8 +170,10 @@ class StatusBroadcaster {
   /**
    * Subscribe to status updates (for SSE connections)
    * Returns a subscriber ID for cleanup
+   * @param callback - Called on each status update
+   * @param closeCallback - Optional callback to forcibly close the connection (for shutdown)
    */
-  subscribe(callback: SSECallback): string {
+  subscribe(callback: SSECallback, closeCallback?: CloseCallback): string {
     // Enforce max subscribers to prevent memory exhaustion
     if (this.subscribers.size >= MAX_SUBSCRIBERS) {
       // Remove oldest subscriber to make room
@@ -186,6 +190,7 @@ class StatusBroadcaster {
     const now = Date.now();
     this.subscribers.set(id, {
       callback,
+      closeCallback,
       id,
       addedAt: now,
       lastSuccessfulWrite: now,
@@ -359,13 +364,28 @@ class StatusBroadcaster {
   }
 
   /**
-   * Shutdown the broadcaster - stop all intervals.
+   * Shutdown the broadcaster - close all SSE connections and stop all intervals.
    * Call this during graceful server shutdown.
    */
   shutdown(): void {
+    // Close all SSE connections first so server.close() can complete
+    const subscriberCount = this.subscribers.size;
+    for (const [id, sub] of this.subscribers) {
+      if (sub.closeCallback) {
+        try {
+          sub.closeCallback();
+        } catch {
+          // Ignore errors closing connections
+        }
+      }
+    }
+    this.subscribers.clear();
+
     this.stopHeartbeat();
     this.stopCleanup();
-    console.log("[status-broadcaster] Shutdown complete");
+    console.log(
+      `[status-broadcaster] Shutdown complete (closed ${subscriberCount} SSE connection(s))`
+    );
   }
 
   /**
