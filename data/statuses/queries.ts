@@ -26,7 +26,7 @@ function toSessionStatus(
   data: StatusData | undefined,
   session?: Session
 ): SessionStatus {
-  const sessionName = session?.tmux_name || `session-${sessionId}`;
+  const sessionName = session?.name || `session-${sessionId}`;
 
   if (!data) {
     // Check if session has setup status or lifecycle status from DB (for newly created sessions)

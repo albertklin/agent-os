@@ -40,6 +40,7 @@ export type ContainerStatus = "creating" | "ready" | "failed";
 export interface Session {
   id: string;
   name: string;
+  /** @deprecated Use getTmuxSessionName() instead. This field exists for historical reasons but should not be used directly. */
   tmux_name: string;
   created_at: string;
   updated_at: string;

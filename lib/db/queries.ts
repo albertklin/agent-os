@@ -43,12 +43,6 @@ export const queries = {
       `UPDATE sessions SET claude_session_id = ?, updated_at = datetime('now') WHERE id = ?`
     ),
 
-  updateSessionName: (db: Database.Database) =>
-    getStmt(
-      db,
-      `UPDATE sessions SET name = ?, tmux_name = ?, updated_at = datetime('now') WHERE id = ?`
-    ),
-
   deleteSession: (db: Database.Database) =>
     getStmt(db, `DELETE FROM sessions WHERE id = ?`),
 
