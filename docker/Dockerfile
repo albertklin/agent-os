@@ -67,7 +67,11 @@ USER node
 
 # Install global packages
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-ENV PATH=$HOME/.local/bin:$PATH:/usr/local/share/npm-global/bin
+# Use absolute path for .local/bin to ensure it's in PATH for non-interactive shells (tmux commands)
+ENV PATH=/home/node/.local/bin:$PATH:/usr/local/share/npm-global/bin
+
+# Create .local/bin directory for native installers (Claude Code, etc.)
+RUN mkdir -p /home/node/.local/bin
 
 # Set the default shell to zsh rather than sh
 ENV SHELL=/bin/zsh
@@ -88,7 +92,11 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
   -x
 
 # Install Claude Code using native installer
-RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${CLAUDE_CODE_VERSION}
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${CLAUDE_CODE_VERSION} && \
+  # Verify installation succeeded
+  test -x /home/node/.local/bin/claude && \
+  # Create symlink in /usr/local/bin as fallback for PATH issues
+  sudo ln -sf /home/node/.local/bin/claude /usr/local/bin/claude
 
 
 # Copy firewall script (executed via `docker exec -u root`, not sudo)
