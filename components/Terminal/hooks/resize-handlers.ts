@@ -14,7 +14,6 @@ interface ResizeHandlersConfig {
 export function setupResizeHandlers(config: ResizeHandlersConfig): () => void {
   const { term, fitAddon, containerRef, isMobile, sendResize } = config;
 
-  let resizeTimeout: NodeJS.Timeout | null = null;
   let fitTimeouts: NodeJS.Timeout[] = [];
   const mqListeners: { mq: MediaQueryList; handler: () => void }[] = [];
   let resizeObserver: ResizeObserver | null = null;
@@ -55,7 +54,8 @@ export function setupResizeHandlers(config: ResizeHandlersConfig): () => void {
       restoreScroll();
       sendResize(term.cols, term.rows);
 
-      // Second fit - after 100ms (handles most delayed layout updates)
+      // Second fit - after 100ms (handles delayed layout updates)
+      // Server-side debounces tmux refresh, so no need for more stages
       fitTimeouts.push(
         setTimeout(() => {
           fitAddon.fit();
@@ -64,23 +64,11 @@ export function setupResizeHandlers(config: ResizeHandlersConfig): () => void {
           sendResize(term.cols, term.rows);
         }, 100)
       );
-
-      // Third fit - after 250ms (handles slow layout updates, e.g., DevTools toggle)
-      fitTimeouts.push(
-        setTimeout(() => {
-          fitAddon.fit();
-          fixMobileScrollbarWidth();
-          restoreScroll();
-          sendResize(term.cols, term.rows);
-        }, 250)
-      );
     });
   };
 
-  const handleResize = () => {
-    if (resizeTimeout) clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(doFit, isMobile ? 100 : 50);
-  };
+  // No client-side debounce - server already debounces tmux refresh calls
+  const handleResize = () => doFit();
 
   // Window resize
   window.addEventListener("resize", handleResize);
@@ -116,7 +104,6 @@ export function setupResizeHandlers(config: ResizeHandlersConfig): () => void {
 
   // Return cleanup function
   return () => {
-    if (resizeTimeout) clearTimeout(resizeTimeout);
     fitTimeouts.forEach(clearTimeout);
 
     window.removeEventListener("resize", handleResize);
