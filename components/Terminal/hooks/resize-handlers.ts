@@ -14,8 +14,6 @@ interface ResizeHandlersConfig {
 export function setupResizeHandlers(config: ResizeHandlersConfig): () => void {
   const { term, fitAddon, containerRef, isMobile, sendResize } = config;
 
-  let fitTimeouts: NodeJS.Timeout[] = [];
-  const mqListeners: { mq: MediaQueryList; handler: () => void }[] = [];
   let resizeObserver: ResizeObserver | null = null;
 
   // Workaround for FitAddon bug: it reserves 14px for scrollbar even when hidden
@@ -34,94 +32,37 @@ export function setupResizeHandlers(config: ResizeHandlersConfig): () => void {
   };
 
   const doFit = () => {
-    // Clear any pending fit timeouts
-    fitTimeouts.forEach(clearTimeout);
-    fitTimeouts = [];
-
-    // On mobile, save scroll position before fit to prevent keyboard open/close scroll
+    // On mobile, save scroll position before fit to prevent keyboard open/close scroll jump
     const savedScrollLine = isMobile ? term.buffer.active.viewportY : null;
 
-    const restoreScroll = () => {
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+      fixMobileScrollbarWidth();
       if (savedScrollLine !== null) {
         term.scrollToLine(savedScrollLine);
       }
-    };
-
-    requestAnimationFrame(() => {
-      // First fit - immediate
-      fitAddon.fit();
-      fixMobileScrollbarWidth();
-      restoreScroll();
       sendResize(term.cols, term.rows);
-
-      // Second fit - after 100ms (handles delayed layout updates)
-      // Server-side debounces tmux refresh, so no need for more stages
-      fitTimeouts.push(
-        setTimeout(() => {
-          fitAddon.fit();
-          fixMobileScrollbarWidth();
-          restoreScroll();
-          sendResize(term.cols, term.rows);
-        }, 100)
-      );
     });
   };
 
-  // No client-side debounce - server already debounces tmux refresh calls
-  const handleResize = () => doFit();
-
-  // Window resize
-  window.addEventListener("resize", handleResize);
-
-  // Media query listeners for Chrome DevTools mobile toggle
-  const mediaQueries = [
-    "(max-width: 640px)",
-    "(max-width: 768px)",
-    "(max-width: 1024px)",
-  ];
-  mediaQueries.forEach((query) => {
-    const mq = window.matchMedia(query);
-    const handler = () => handleResize();
-    mq.addEventListener("change", handler);
-    mqListeners.push({ mq, handler });
-  });
-
-  // Handle orientation change on mobile
-  if (isMobile && "orientation" in screen) {
-    screen.orientation.addEventListener("change", handleResize);
-  }
-
-  // Handle visual viewport changes (for mobile keyboard)
-  if (isMobile && window.visualViewport) {
-    window.visualViewport.addEventListener("resize", handleResize);
-  }
-
-  // ResizeObserver for container changes
+  // ResizeObserver catches all container size changes (window resize, DevTools, orientation, etc.)
   if (containerRef.current) {
-    resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver = new ResizeObserver(() => doFit());
     resizeObserver.observe(containerRef.current);
+  }
+
+  // Visual viewport changes for mobile keyboard (may not trigger container resize immediately)
+  if (isMobile && window.visualViewport) {
+    window.visualViewport.addEventListener("resize", doFit);
   }
 
   // Return cleanup function
   return () => {
-    fitTimeouts.forEach(clearTimeout);
-
-    window.removeEventListener("resize", handleResize);
-
-    mqListeners.forEach(({ mq, handler }) => {
-      mq.removeEventListener("change", handler);
-    });
-
-    if (isMobile && "orientation" in screen) {
-      screen.orientation.removeEventListener("change", handleResize);
-    }
-
-    if (isMobile && window.visualViewport) {
-      window.visualViewport.removeEventListener("resize", handleResize);
-    }
-
     if (resizeObserver) {
       resizeObserver.disconnect();
+    }
+    if (isMobile && window.visualViewport) {
+      window.visualViewport.removeEventListener("resize", doFit);
     }
   };
 }
