@@ -189,12 +189,13 @@ function SessionCardComponent({
   const [forkDialogOpen, setForkDialogOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const justStartedEditingRef = useRef(false);
+  // Track whether blur should close editing - only true after focus acquired and settled
+  const allowBlurCloseRef = useRef(false);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
-      // Mark that we just started editing to ignore immediate blur
-      justStartedEditingRef.current = true;
+      // Don't allow blur to close until focus is acquired and settled
+      allowBlurCloseRef.current = false;
 
       // Use multiple animation frames to ensure we're past Radix's focus restoration
       // This is more reliable than setTimeout across different browsers/machines
@@ -205,10 +206,11 @@ function SessionCardComponent({
               inputRef.current.focus();
               inputRef.current.select();
             }
-            // Clear the flag after a longer delay to handle edge cases
+            // Allow blur-based closing after focus is acquired and a delay
+            // to handle any late focus restoration from Radix
             setTimeout(() => {
-              justStartedEditingRef.current = false;
-            }, 200);
+              allowBlurCloseRef.current = true;
+            }, 300);
           });
         });
       };
@@ -217,9 +219,9 @@ function SessionCardComponent({
     }
   }, [isEditing]);
 
-  const handleRename = () => {
-    // Ignore blur events that happen immediately after starting to edit
-    if (justStartedEditingRef.current) return;
+  const handleRename = (fromBlur = false) => {
+    // Ignore blur events until focus has been acquired and settled
+    if (fromBlur && !allowBlurCloseRef.current) return;
 
     if (editName.trim() && editName !== session.name && onRename) {
       onRename(editName.trim());
@@ -455,14 +457,20 @@ function SessionCardComponent({
           type="text"
           value={editName}
           onChange={(e) => setEditName(e.target.value)}
-          onBlur={handleRename}
+          onBlur={() => handleRename(true)}
           onFocus={(e) => {
             // Re-select text when focus is gained (handles edge cases)
             e.target.select();
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleRename();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.stopPropagation();
+              handleRename();
+            }
             if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
               setEditName(session.name);
               setIsEditing(false);
             }
