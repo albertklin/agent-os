@@ -30,11 +30,18 @@ export function createWebSocketConnection(
   sessionId?: string
 ): WebSocketManager {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  // URL encode sessionId to prevent injection attacks
-  const wsUrl = sessionId
-    ? `${protocol}//${window.location.host}/ws/terminal?sessionId=${encodeURIComponent(sessionId)}`
-    : `${protocol}//${window.location.host}/ws/terminal`;
-  const ws = new WebSocket(wsUrl);
+
+  // Build WebSocket URL with current terminal dimensions
+  // (server uses these to spawn PTY at correct size, avoiding resize flash)
+  const buildWsUrl = () => {
+    const params = new URLSearchParams();
+    if (sessionId) params.set("sessionId", sessionId);
+    params.set("cols", String(term.cols));
+    params.set("rows", String(term.rows));
+    return `${protocol}//${window.location.host}/ws/terminal?${params.toString()}`;
+  };
+
+  const ws = new WebSocket(buildWsUrl());
   wsRef.current = ws;
 
   const sendResize = (cols: number, rows: number) => {
@@ -92,8 +99,8 @@ export function createWebSocketConnection(
     callbacks.onConnectionStateChange("reconnecting");
     reconnectDelayRef.current = WS_RECONNECT_BASE_DELAY;
 
-    // Create fresh connection with saved handlers
-    const newWs = new WebSocket(wsUrl);
+    // Create fresh connection with saved handlers (use current terminal size)
+    const newWs = new WebSocket(buildWsUrl());
     wsRef.current = newWs;
     newWs.onopen = savedHandlers.onopen;
     newWs.onmessage = savedHandlers.onmessage;
@@ -118,47 +125,21 @@ export function createWebSocketConnection(
     term.focus();
   };
 
-  // Fight against Claude Code's forced top-scrolling bug
-  // See: https://github.com/anthropics/claude-code/issues/826
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
       if (msg.type === "output") {
-        // Send resize on first output - this is when tmux has actually attached and is rendering.
-        // Use staggered retries to handle containerized sessions where docker exec adds latency.
+        // Send resize on first output as a safety check (in case terminal was resized
+        // between connection and first output). PTY already starts at correct size
+        // since we send dimensions in the WebSocket URL.
         if (!hasSentInitialResize) {
           hasSentInitialResize = true;
-          // Immediate resize
           sendResize(term.cols, term.rows);
-          // Retry after 100ms - handles most container latency
-          setTimeout(() => sendResize(term.cols, term.rows), 100);
-          // Final retry after 300ms - handles slow container startup
-          setTimeout(() => sendResize(term.cols, term.rows), 300);
         }
-
-        const buffer = term.buffer.active;
-        const scrollYBefore = buffer.viewportY;
-        const wasAtTop = scrollYBefore <= 0;
-        const wasAtBottom = scrollYBefore >= buffer.baseY;
-
         term.write(msg.data);
-
-        // After write, check if scroll jumped to top unexpectedly
-        // Give it a moment for the write to complete
-        requestAnimationFrame(() => {
-          const scrollYAfter = term.buffer.active.viewportY;
-          const isNowAtTop = scrollYAfter <= 0;
-
-          // If we jumped to top but weren't at top before, and weren't at bottom
-          // (at bottom means we want to follow output), restore position
-          if (isNowAtTop && !wasAtTop && !wasAtBottom && scrollYBefore > 5) {
-            term.scrollToLine(scrollYBefore);
-          }
-        });
       } else if (msg.type === "exit") {
         term.write("\r\n\x1b[33m[Session ended]\x1b[0m\r\n");
       } else if (msg.type === "error") {
-        // Display server error messages to the user
         term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
       }
     } catch {

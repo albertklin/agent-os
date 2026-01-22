@@ -132,7 +132,6 @@ export function useTerminalConnection({
       return;
     }
 
-    let cancelled = false;
     // Reset intentional close flag (may be true from previous cleanup)
     intentionalCloseRef.current = false;
     let cleanupTouchScroll: (() => void) | null = null;
@@ -141,73 +140,67 @@ export function useTerminalConnection({
     let cleanupTerminal: (() => void) | null = null;
     let cleanupScrollHandler: (() => void) | null = null;
 
-    const connectTimeout = setTimeout(() => {
-      if (cancelled || !terminalRef.current) return;
+    // Initialize terminal
+    const { term, fitAddon, searchAddon, cleanup } = createTerminal(
+      terminalRef.current,
+      isMobile,
+      theme
+    );
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+    searchAddonRef.current = searchAddon;
+    cleanupTerminal = cleanup;
 
-      // Initialize terminal
-      const { term, fitAddon, searchAddon, cleanup } = createTerminal(
-        terminalRef.current,
-        isMobile,
-        theme
-      );
-      xtermRef.current = term;
-      fitAddonRef.current = fitAddon;
-      searchAddonRef.current = searchAddon;
-      cleanupTerminal = cleanup;
+    // Scroll tracking - store disposable for cleanup
+    const scrollDisposable = term.onScroll(() => {
+      const buffer = term.buffer.active;
+      setIsAtBottom(buffer.viewportY >= buffer.baseY);
+    });
+    cleanupScrollHandler = () => scrollDisposable.dispose();
 
-      // Scroll tracking - store disposable for cleanup
-      const scrollDisposable = term.onScroll(() => {
-        const buffer = term.buffer.active;
-        setIsAtBottom(buffer.viewportY >= buffer.baseY);
-      });
-      cleanupScrollHandler = () => scrollDisposable.dispose();
+    // Setup touch scroll (mobile)
+    cleanupTouchScroll = setupTouchScroll({ term, selectModeRef, wsRef });
 
-      // Setup touch scroll (mobile)
-      cleanupTouchScroll = setupTouchScroll({ term, selectModeRef, wsRef });
-
-      // Setup WebSocket
-      const wsManager = createWebSocketConnection(
-        term,
-        {
-          onConnected: () => {
-            callbacksRef.current.onConnected?.();
-            // Restore scroll state after connection
-            if (initialScrollStateRef.current && terminalRef.current) {
-              setTimeout(() => {
-                const viewport = terminalRef.current?.querySelector(
-                  ".xterm-viewport"
-                ) as HTMLElement;
-                if (viewport)
-                  viewport.scrollTop = initialScrollStateRef.current!.scrollTop;
-              }, 200);
-            }
-          },
-          onDisconnected: () => callbacksRef.current.onDisconnected?.(),
-          onConnectionStateChange: setConnectionState,
-          onSetConnected: setConnected,
+    // Setup WebSocket
+    const wsManager = createWebSocketConnection(
+      term,
+      {
+        onConnected: () => {
+          callbacksRef.current.onConnected?.();
+          // Restore scroll state after connection
+          if (initialScrollStateRef.current && terminalRef.current) {
+            setTimeout(() => {
+              const viewport = terminalRef.current?.querySelector(
+                ".xterm-viewport"
+              ) as HTMLElement;
+              if (viewport)
+                viewport.scrollTop = initialScrollStateRef.current!.scrollTop;
+            }, 200);
+          }
         },
-        wsRef,
-        reconnectTimeoutRef,
-        reconnectDelayRef,
-        intentionalCloseRef,
-        sessionId
-      );
-      cleanupWebSocket = wsManager.cleanup;
-      reconnectFnRef.current = wsManager.reconnect;
+        onDisconnected: () => callbacksRef.current.onDisconnected?.(),
+        onConnectionStateChange: setConnectionState,
+        onSetConnected: setConnected,
+      },
+      wsRef,
+      reconnectTimeoutRef,
+      reconnectDelayRef,
+      intentionalCloseRef,
+      sessionId
+    );
+    cleanupWebSocket = wsManager.cleanup;
+    reconnectFnRef.current = wsManager.reconnect;
 
-      // Setup resize handlers
-      cleanupResizeHandlers = setupResizeHandlers({
-        term,
-        fitAddon,
-        containerRef: terminalRef,
-        isMobile,
-        sendResize: wsManager.sendResize,
-      });
-    }, 150);
+    // Setup resize handlers
+    cleanupResizeHandlers = setupResizeHandlers({
+      term,
+      fitAddon,
+      containerRef: terminalRef,
+      isMobile,
+      sendResize: wsManager.sendResize,
+    });
 
     return () => {
-      cancelled = true;
-      clearTimeout(connectTimeout);
       intentionalCloseRef.current = true;
 
       // Save scroll state before unmount

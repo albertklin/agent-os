@@ -143,12 +143,21 @@ app.prepare().then(async () => {
       let tmuxName: string | null = null;
       let containerId: string | undefined = undefined;
 
-      // Parse sessionId early so it's available for cleanup in event handlers
+      // Parse sessionId and terminal dimensions from URL params
       const requestUrl = new URL(
         request.url || "",
         `http://${request.headers.host}`
       );
       const sessionId = requestUrl.searchParams.get("sessionId");
+      // Parse initial terminal dimensions (to avoid resize flash on connect)
+      const initialCols = Math.max(
+        1,
+        parseInt(requestUrl.searchParams.get("cols") || "80", 10) || 80
+      );
+      const initialRows = Math.max(
+        1,
+        parseInt(requestUrl.searchParams.get("rows") || "24", 10) || 24
+      );
 
       try {
         // 1. If no sessionId provided, send error and close
@@ -271,10 +280,11 @@ app.prepare().then(async () => {
         );
 
         // 10. Spawn PTY with the attach command (this attaches to the existing tmux session)
+        // Use client-provided dimensions to avoid resize flash on initial connect
         ptyProcess = pty.spawn(command, args, {
           name: "xterm-256color",
-          cols: 80,
-          rows: 24,
+          cols: initialCols,
+          rows: initialRows,
           cwd: process.env.HOME || "/",
           env: {
             PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
