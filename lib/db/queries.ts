@@ -349,6 +349,12 @@ export const queries = {
   updateProjectOrder: (db: Database.Database) =>
     getStmt(db, `UPDATE projects SET sort_order = ? WHERE id = ?`),
 
+  updateProjectDefaults: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE projects SET default_extra_mounts = ?, default_allowed_domains = ?, updated_at = datetime('now') WHERE id = ?`
+    ),
+
   deleteProject: (db: Database.Database) =>
     getStmt(db, `DELETE FROM projects WHERE id = ? AND is_uncategorized = 0`),
 };

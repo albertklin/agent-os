@@ -284,6 +284,16 @@ const migrations: Migration[] = [
       db.exec(`ALTER TABLE sessions ADD COLUMN allowed_domains TEXT`);
     },
   },
+  {
+    id: 21,
+    name: "add_session_defaults_to_projects",
+    up: (db) => {
+      // Default extra mounts for new sessions in this project
+      db.exec(`ALTER TABLE projects ADD COLUMN default_extra_mounts TEXT`);
+      // Default allowed domains for new sessions in this project
+      db.exec(`ALTER TABLE projects ADD COLUMN default_allowed_domains TEXT`);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

@@ -96,6 +96,30 @@ export function toggleProjectExpanded(id: string, expanded: boolean): void {
 }
 
 /**
+ * Update project session defaults (extra mounts and allowed domains)
+ */
+export function updateProjectDefaults(
+  id: string,
+  defaults: {
+    default_extra_mounts?: string | null;
+    default_allowed_domains?: string | null;
+  }
+): Project | undefined {
+  const project = getProject(id);
+  if (!project || project.is_uncategorized) return undefined;
+
+  queries
+    .updateProjectDefaults(db)
+    .run(
+      defaults.default_extra_mounts ?? project.default_extra_mounts,
+      defaults.default_allowed_domains ?? project.default_allowed_domains,
+      id
+    );
+
+  return getProject(id);
+}
+
+/**
  * Delete a project (moves sessions to Uncategorized)
  */
 export function deleteProject(id: string): boolean {

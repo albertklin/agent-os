@@ -96,6 +96,9 @@ export interface Project {
   is_uncategorized: boolean;
   created_at: string;
   updated_at: string;
+  // Default session settings (JSON-encoded, used to pre-populate session creation form)
+  default_extra_mounts: string | null;
+  default_allowed_domains: string | null;
 }
 
 export interface Message {
