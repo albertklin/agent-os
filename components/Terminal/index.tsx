@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useTheme } from "next-themes";
 import "@xterm/xterm/css/xterm.css";
-import { ImagePlus, WifiOff, Upload, Loader2 } from "lucide-react";
+import { ImagePlus, WifiOff, Upload, Loader2, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SearchBar } from "./SearchBar";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
@@ -96,6 +96,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       restoreScrollState,
       reconnect,
       takeover,
+      triggerResize,
     } = useTerminalConnection({
       terminalRef,
       sessionId,
@@ -302,15 +303,28 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           </div>
         )}
 
-        {/* Image picker button - desktop only, for agent terminals */}
-        {!isMobile && showImageButton && (
-          <button
-            onClick={() => setShowImagePicker(true)}
-            className="bg-secondary hover:bg-accent absolute top-3 right-3 z-40 flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition-all"
-            title="Select image"
-          >
-            <ImagePlus className="h-4 w-4" />
-          </button>
+        {/* Desktop action buttons */}
+        {!isMobile && (
+          <div className="absolute top-3 right-3 z-40 flex items-center gap-2">
+            {/* Resize button */}
+            <button
+              onClick={triggerResize}
+              className="bg-secondary hover:bg-accent flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition-all"
+              title="Fit terminal to window"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+            {/* Image picker button */}
+            {showImageButton && (
+              <button
+                onClick={() => setShowImagePicker(true)}
+                className="bg-secondary hover:bg-accent flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition-all"
+                title="Select image"
+              >
+                <ImagePlus className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         )}
 
         {/* Image picker modal */}
@@ -330,6 +344,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           <TerminalToolbar
             onKeyPress={sendInput}
             onImagePicker={() => setShowImagePicker(true)}
+            onResize={triggerResize}
             onCopy={copySelection}
             selectMode={selectMode}
             onSelectModeChange={setSelectMode}
