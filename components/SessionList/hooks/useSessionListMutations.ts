@@ -5,6 +5,7 @@ import {
   useDeleteSession,
   useRenameSession,
   useForkSession,
+  useSetSessionStatus,
   type ForkSessionInput,
   type DeleteSessionOptions,
 } from "@/data/sessions";
@@ -37,6 +38,7 @@ export function useSessionListMutations({
   const deleteSessionMutation = useDeleteSession();
   const renameSessionMutation = useRenameSession();
   const forkSessionMutation = useForkSession();
+  const setSessionStatusMutation = useSetSessionStatus();
 
   // Project mutations
   const toggleProjectMutation = useToggleProject();
@@ -131,6 +133,19 @@ export function useSessionListMutations({
       }
     },
     [forkSessionMutation, onSelectSession]
+  );
+
+  const handleSetStatus = useCallback(
+    async (sessionId: string, status: "idle" | "running" | "waiting") => {
+      try {
+        await setSessionStatusMutation.mutateAsync({ sessionId, status });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to set status"
+        );
+      }
+    },
+    [setSessionStatusMutation]
   );
 
   // Project handlers
@@ -271,6 +286,7 @@ export function useSessionListMutations({
     handleDeleteSession,
     handleRenameSession,
     handleForkSession,
+    handleSetStatus,
 
     // Project handlers
     handleToggleProject,

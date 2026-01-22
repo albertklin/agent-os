@@ -6,6 +6,7 @@ export {
   useRenameSession,
   useForkSession,
   useMoveSessionToGroup,
+  useSetSessionStatus,
   useReorderSessions,
 } from "./queries";
 export type {
