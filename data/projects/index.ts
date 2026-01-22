@@ -8,4 +8,5 @@ export {
   useUpdateProject,
   useReorderProjects,
   type ProjectOrderUpdate,
+  type MountConfig,
 } from "./queries";

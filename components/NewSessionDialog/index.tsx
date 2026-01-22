@@ -18,6 +18,7 @@ import { WorkingDirectoryInput } from "./WorkingDirectoryInput";
 import { WorktreeSection } from "./WorktreeSection";
 import { ProjectSelector } from "./ProjectSelector";
 import { SessionOptions } from "./AdvancedSettings";
+import { ContainerSettings } from "./ContainerSettings";
 import { CreatingOverlay } from "./CreatingOverlay";
 import type { NewSessionDialogProps } from "./NewSessionDialog.types";
 
@@ -134,7 +135,17 @@ export function NewSessionDialog({
               />
             )}
 
-            {/* 7. Prompt (at bottom) */}
+            {/* 7. Container settings (for sandboxed sessions) */}
+            {form.skipPermissions && form.agentType === "claude" && (
+              <ContainerSettings
+                extraMounts={form.extraMounts}
+                onExtraMountsChange={form.setExtraMounts}
+                allowedDomains={form.allowedDomains}
+                onAllowedDomainsChange={form.setAllowedDomains}
+              />
+            )}
+
+            {/* 8. Prompt (at bottom) */}
             <div className="space-y-1.5">
               <label htmlFor="initialPrompt" className="text-sm font-medium">
                 Prompt{" "}

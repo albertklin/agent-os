@@ -195,6 +195,12 @@ export function useMoveSessionToGroup() {
   });
 }
 
+export interface MountConfig {
+  hostPath: string;
+  containerPath: string;
+  mode: "ro" | "rw";
+}
+
 export interface CreateSessionInput {
   name?: string;
   workingDirectory: string;
@@ -206,6 +212,8 @@ export interface CreateSessionInput {
   baseBranch: string | null;
   autoApprove: boolean;
   initialPrompt: string | null;
+  extraMounts?: MountConfig[];
+  allowedDomains?: string[];
 }
 
 interface CreateSessionResponse {

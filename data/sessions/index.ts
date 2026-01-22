@@ -13,4 +13,5 @@ export type {
   DeleteSessionOptions,
   ForkSessionInput,
   SessionOrderUpdate,
+  MountConfig,
 } from "./queries";
