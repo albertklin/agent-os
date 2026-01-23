@@ -181,6 +181,27 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       effectiveWorktreeSelection.mode === "isolated" &&
       effectiveWorktreeSelection.featureName;
 
+    // Validate: auto_approve sessions cannot be forked to main worktree in direct mode
+    // (inherited from parent, container needs isolated worktree)
+    if (parent.auto_approve && parent.agent_type === "claude") {
+      // Check if this would be main + direct
+      const mainBranch = await getCurrentBranch(sourceProjectPath);
+      const isMainDirect =
+        effectiveWorktreeSelection.mode === "direct" &&
+        effectiveWorktreeSelection.branch === mainBranch;
+
+      if (isMainDirect) {
+        return NextResponse.json(
+          {
+            error:
+              "Forking a session with auto-approve requires an isolated worktree. " +
+              "Please select 'Isolated' mode or choose a different branch.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // For direct mode, resolve the branch to its worktree path
     let branchWorktreeInfo: BranchWorktreeInfo | null = null;
     let isExistingWorktreeDirect = false;
@@ -275,16 +296,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         )
         .get(branchWorktreeInfo.worktreePath) as Session | undefined;
 
-      if (existingWorktreeSession) {
-        queries
-          .updateSessionWorktree(db)
-          .run(
-            existingWorktreeSession.worktree_path,
-            existingWorktreeSession.branch_name,
-            existingWorktreeSession.base_branch,
-            newId
-          );
+      if (!existingWorktreeSession) {
+        // Race condition: worktree was deleted between findWorktreeForBranch and here
+        queries.deleteSession(db).run(newId);
+        return NextResponse.json(
+          {
+            error:
+              "The worktree for this branch is no longer available. Please try again.",
+          },
+          { status: 409 }
+        );
       }
+
+      queries
+        .updateSessionWorktree(db)
+        .run(
+          existingWorktreeSession.worktree_path,
+          existingWorktreeSession.branch_name,
+          existingWorktreeSession.base_branch,
+          newId
+        );
 
       // Create tmux session with fork command
       const agentCommand = buildAgentCommand(agentType, {
