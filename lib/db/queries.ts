@@ -160,6 +160,18 @@ export const queries = {
        ORDER BY updated_at DESC`
     ),
 
+  // Get all worktrees for a project (grouped by worktree_path with session count)
+  // Used for worktree selection UI
+  getWorktreesByProject: (db: Database.Database) =>
+    getStmt(
+      db,
+      `SELECT worktree_path, branch_name, base_branch, COUNT(*) as session_count
+       FROM sessions
+       WHERE project_id = ? AND worktree_path IS NOT NULL
+         AND lifecycle_status NOT IN ('failed', 'deleting')
+       GROUP BY worktree_path`
+    ),
+
   updateSessionSetupStatus: (db: Database.Database) =>
     getStmt(
       db,

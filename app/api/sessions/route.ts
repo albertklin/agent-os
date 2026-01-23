@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { exec } from "child_process";
+import { promisify } from "util";
 import { getDb, queries, type Session, type Group } from "@/lib/db";
-import { isValidAgentType, type AgentType, getProvider } from "@/lib/providers";
+import { isValidAgentType, type AgentType } from "@/lib/providers";
 import { runSessionSetup } from "@/lib/session-setup";
 import { validateMounts, serializeMounts } from "@/lib/mounts";
 import {
@@ -15,6 +17,31 @@ import { isGitRepo } from "@/lib/git";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { sessionManager } from "@/lib/session-manager";
 import { buildAgentCommand } from "@/lib/sessions";
+
+const execAsync = promisify(exec);
+
+// Worktree selection for new session creation
+interface WorktreeSelection {
+  base: string; // worktree path (project dir = main worktree)
+  mode: "direct" | "isolated";
+  featureName?: string; // required if mode="isolated"
+}
+
+/**
+ * Get current branch name for a directory
+ */
+async function getCurrentBranch(dir: string): Promise<string | null> {
+  try {
+    const resolvedDir = dir.replace("~", process.env.HOME || "");
+    const { stdout } = await execAsync(
+      `git -C "${resolvedDir}" rev-parse --abbrev-ref HEAD`,
+      { timeout: 5000 }
+    );
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 // GET /api/sessions - List all sessions and groups
 export async function GET() {
@@ -72,10 +99,11 @@ export async function POST(request: NextRequest) {
       agentType: rawAgentType = "claude",
       autoApprove = false,
       projectId = "uncategorized",
-      // Worktree options
+      // NEW: Unified worktree selection (preferred)
+      worktreeSelection = null as WorktreeSelection | null,
+      // LEGACY: Worktree options (for backward compatibility)
       useWorktree = false,
       featureName = null,
-      baseBranch = "main",
       // Initial prompt to send when session starts
       initialPrompt = null,
       // Extra mounts for sandboxed sessions
@@ -89,14 +117,78 @@ export async function POST(request: NextRequest) {
       ? rawAgentType
       : "claude";
 
-    // Sandboxed sessions require an isolated worktree for clean settings management
+    // Normalize worktree selection - support both new and legacy formats
+    let effectiveWorktreeSelection: WorktreeSelection | null = null;
+
+    if (worktreeSelection) {
+      // New unified format
+      effectiveWorktreeSelection = worktreeSelection;
+    } else if (useWorktree && featureName) {
+      // Legacy format - convert to new format (main + isolated)
+      effectiveWorktreeSelection = {
+        base: workingDirectory,
+        mode: "isolated",
+        featureName,
+      };
+    }
+
+    // Determine if this session needs worktree setup
+    const needsWorktreeSetup =
+      effectiveWorktreeSelection?.mode === "isolated" &&
+      effectiveWorktreeSelection?.featureName;
+
+    // For existing worktree + direct mode, find the existing session to copy worktree info
+    let existingWorktreeSession: Session | null = null;
+    if (
+      effectiveWorktreeSelection?.mode === "direct" &&
+      effectiveWorktreeSelection.base !== workingDirectory
+    ) {
+      // This is an existing isolated worktree - find session with this worktree_path
+      const existingSessions = db
+        .prepare(
+          `SELECT * FROM sessions WHERE worktree_path = ? AND lifecycle_status NOT IN ('failed', 'deleting') LIMIT 1`
+        )
+        .get(effectiveWorktreeSelection.base) as Session | undefined;
+      existingWorktreeSession = existingSessions || null;
+
+      if (!existingWorktreeSession) {
+        return NextResponse.json(
+          {
+            error:
+              "The selected worktree does not exist or has no active sessions",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate: skipPermissions requires isolated mode (not main + direct)
     if (autoApprove && agentType === "claude") {
-      if (!useWorktree || !featureName) {
+      const isMainDirect =
+        !effectiveWorktreeSelection ||
+        (effectiveWorktreeSelection.mode === "direct" &&
+          effectiveWorktreeSelection.base === workingDirectory);
+
+      if (isMainDirect) {
         return NextResponse.json(
           {
             error:
               "Skipping permissions requires an isolated worktree. " +
-              "Please enable 'Isolated worktree' and provide a feature name.",
+              "Please select 'Isolated' mode and provide a feature name.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // If isolated mode, validate feature name is provided
+      if (
+        effectiveWorktreeSelection?.mode === "isolated" &&
+        !effectiveWorktreeSelection?.featureName
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Skipping permissions requires a feature name for the isolated worktree.",
           },
           { status: 400 }
         );
@@ -144,22 +236,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Auto-generate name if not provided
+    const effectiveFeatureName =
+      effectiveWorktreeSelection?.featureName || featureName;
     const name =
       providedName?.trim() ||
-      (featureName ? featureName : generateSessionName(db));
+      (effectiveFeatureName ? effectiveFeatureName : generateSessionName(db));
 
     const id = randomUUID();
 
-    // For worktree sessions, we create the session immediately with pending status
-    // and run the setup (worktree creation, submodule init, dep install) in background
-    const isWorktreeSession = useWorktree && featureName;
+    // Determine the actual working directory for the session
+    let actualWorkingDirectory = workingDirectory;
+    if (existingWorktreeSession?.worktree_path) {
+      // existing + direct: use the existing worktree path
+      actualWorkingDirectory = existingWorktreeSession.worktree_path;
+    }
 
     const tmuxName = `${agentType}-${id}`;
     queries.createSession(db).run(
       id,
       name,
       tmuxName,
-      workingDirectory, // Will be updated to worktree path by background setup
+      actualWorkingDirectory, // Will be updated to worktree path by background setup if isolated
       parentSessionId,
       model,
       systemPrompt,
@@ -171,9 +268,9 @@ export async function POST(request: NextRequest) {
       serializeDomains(normalizeDomains(typedAllowedDomains))
     );
 
-    // For worktree sessions, set setup_status to pending and lifecycle_status to creating
-    // Then trigger background setup
-    if (isWorktreeSession) {
+    // Handle the 4 worktree combinations
+    if (needsWorktreeSetup && effectiveWorktreeSelection) {
+      // ISOLATED mode: Create new worktree (either from main or from existing)
       queries.updateSessionSetupStatus(db).run("pending", null, id);
       queries.updateSessionLifecycleStatus(db).run("creating", id);
 
@@ -185,12 +282,30 @@ export async function POST(request: NextRequest) {
         setupStatus: "pending",
       });
 
+      // Get current branch from the selected base worktree
+      // This is independent of step 1 selection - we always use whatever branch
+      // is currently checked out in the selected worktree
+      const currentBranch = await getCurrentBranch(
+        effectiveWorktreeSelection.base
+      );
+      if (!currentBranch) {
+        // Clean up the session we just created
+        queries.deleteSession(db).run(id);
+        return NextResponse.json(
+          {
+            error: "Could not determine current branch for worktree creation",
+          },
+          { status: 400 }
+        );
+      }
+      const baseBranchToUse = currentBranch;
+
       // Fire and forget - background setup will update status via SSE
       runSessionSetup({
         sessionId: id,
-        projectPath: workingDirectory,
-        featureName: featureName.trim(),
-        baseBranch: baseBranch || "main", // Handle null from frontend
+        projectPath: workingDirectory, // Always use main project path for worktree creation
+        featureName: effectiveWorktreeSelection.featureName!.trim(),
+        baseBranch: baseBranchToUse,
         initialPrompt: initialPrompt?.trim() || undefined,
       }).catch((error) => {
         console.error(
@@ -198,9 +313,18 @@ export async function POST(request: NextRequest) {
           error
         );
       });
-    } else {
-      // Non-worktree sessions need their tmux session created before they're ready
-      // startTmuxSession creates the tmux session and sets lifecycle_status to 'ready'
+    } else if (existingWorktreeSession) {
+      // DIRECT mode with existing worktree: Copy worktree info (tracked sibling)
+      queries
+        .updateSessionWorktree(db)
+        .run(
+          existingWorktreeSession.worktree_path,
+          existingWorktreeSession.branch_name,
+          existingWorktreeSession.base_branch,
+          id
+        );
+
+      // Start tmux session directly
       try {
         const agentCommand = buildAgentCommand(agentType, {
           model,
@@ -213,7 +337,31 @@ export async function POST(request: NextRequest) {
           `[sessions] Failed to start tmux session for ${id}:`,
           error
         );
-        // Mark session as failed if tmux creation fails
+        queries.updateSessionLifecycleStatus(db).run("failed", id);
+        statusBroadcaster.updateStatus({
+          sessionId: id,
+          status: "idle",
+          lifecycleStatus: "failed",
+        });
+        return NextResponse.json(
+          { error: "Failed to start terminal session" },
+          { status: 500 }
+        );
+      }
+    } else {
+      // DIRECT mode with main worktree (or no worktree selection): Start tmux directly
+      try {
+        const agentCommand = buildAgentCommand(agentType, {
+          model,
+          autoApprove,
+          initialPrompt,
+        });
+        await sessionManager.startTmuxSession(id, agentCommand);
+      } catch (error) {
+        console.error(
+          `[sessions] Failed to start tmux session for ${id}:`,
+          error
+        );
         queries.updateSessionLifecycleStatus(db).run("failed", id);
         statusBroadcaster.updateStatus({
           sessionId: id,

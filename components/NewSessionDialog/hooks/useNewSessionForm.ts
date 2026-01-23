@@ -15,6 +15,7 @@ import {
   AGENT_OPTIONS,
   generateFeatureName,
 } from "../NewSessionDialog.types";
+import type { WorktreeSelection } from "../WorktreeSelector";
 
 // Re-export MountConfig for consumers
 export type { MountConfig };
@@ -73,11 +74,18 @@ export function useNewSessionForm({
   const [skipPermissions, setSkipPermissions] = useState(false);
   const [initialPrompt, setInitialPrompt] = useState("");
 
-  // Worktree state
-  const [useWorktree, setUseWorktree] = useState(false);
-  const [featureName, setFeatureName] = useState("");
-  const [featureNameDirty, setFeatureNameDirty] = useState(false); // Track manual edits
-  const [baseBranch, setBaseBranch] = useState("main");
+  // NEW: Unified worktree selection state
+  const [worktreeSelection, setWorktreeSelection] = useState<WorktreeSelection>(
+    {
+      base: "~",
+      mode: "direct",
+    }
+  );
+
+  // Track if feature name was manually edited
+  const [featureNameDirty, setFeatureNameDirty] = useState(false);
+
+  // Git info state
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [checkingGit, setCheckingGit] = useState(false);
 
@@ -101,8 +109,7 @@ export function useNewSessionForm({
   const checkGitRepo = useCallback(async (path: string) => {
     if (!path || path === "~") {
       setGitInfo(null);
-      setUseWorktree(false);
-      setFeatureName("");
+      setWorktreeSelection({ base: path, mode: "direct" });
       return;
     }
 
@@ -115,29 +122,26 @@ export function useNewSessionForm({
       });
       const data = await res.json();
       setGitInfo(data);
-      // Set base branch: prefer defaultBranch, fall back to first available branch
-      if (data.defaultBranch) {
-        setBaseBranch(data.defaultBranch);
-      } else if (data.branches?.length > 0) {
-        setBaseBranch(data.branches[0]);
-      }
+
       if (data.isGitRepo) {
-        // Use saved preference, defaulting to true for git repos
+        // Use saved preference for mode, defaulting to isolated for git repos
         const savedUseWorktree = localStorage.getItem(USE_WORKTREE_KEY);
-        setUseWorktree(
-          savedUseWorktree !== null ? savedUseWorktree === "true" : true
-        );
-        // Feature name will be synced to session name via effect
+        const preferIsolated =
+          savedUseWorktree !== null ? savedUseWorktree === "true" : true;
+
+        setWorktreeSelection({
+          base: path,
+          mode: preferIsolated ? "isolated" : "direct",
+          featureName: preferIsolated ? "" : undefined,
+        });
         setFeatureNameDirty(false);
       } else {
-        setUseWorktree(false);
-        setFeatureName("");
+        setWorktreeSelection({ base: path, mode: "direct" });
         setFeatureNameDirty(false);
       }
     } catch {
       setGitInfo(null);
-      setUseWorktree(false);
-      setFeatureName("");
+      setWorktreeSelection({ base: path, mode: "direct" });
       setFeatureNameDirty(false);
     } finally {
       setCheckingGit(false);
@@ -152,12 +156,15 @@ export function useNewSessionForm({
     return () => clearTimeout(timer);
   }, [workingDirectory, checkGitRepo]);
 
-  // Sync feature name to session name (unless manually edited)
+  // Sync feature name to session name (unless manually edited) for isolated mode
   useEffect(() => {
-    if (useWorktree && !featureNameDirty) {
-      setFeatureName(name);
+    if (worktreeSelection.mode === "isolated" && !featureNameDirty) {
+      setWorktreeSelection((prev) => ({
+        ...prev,
+        featureName: name,
+      }));
     }
-  }, [name, useWorktree, featureNameDirty]);
+  }, [name, worktreeSelection.mode, featureNameDirty]);
 
   // Load preferences from localStorage
   useEffect(() => {
@@ -239,22 +246,36 @@ export function useNewSessionForm({
     localStorage.setItem(getModelKey(agentType), value);
   };
 
-  const handleUseWorktreeChange = (checked: boolean) => {
-    setUseWorktree(checked);
-    localStorage.setItem(USE_WORKTREE_KEY, String(checked));
-  };
+  // Handler for worktree selection changes
+  const handleWorktreeSelectionChange = useCallback(
+    (newSelection: WorktreeSelection) => {
+      // Track if feature name is being manually edited
+      if (
+        newSelection.mode === "isolated" &&
+        newSelection.featureName !== worktreeSelection.featureName &&
+        newSelection.featureName !== name
+      ) {
+        setFeatureNameDirty(true);
+      }
 
-  const handleFeatureNameChange = (value: string) => {
-    setFeatureName(value);
-    setFeatureNameDirty(true);
-  };
+      // Save mode preference
+      localStorage.setItem(
+        USE_WORKTREE_KEY,
+        String(newSelection.mode === "isolated")
+      );
+
+      setWorktreeSelection(newSelection);
+    },
+    [worktreeSelection.featureName, name]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     createSession.reset(); // Clear any previous errors
 
-    if (useWorktree) {
-      if (!featureName.trim()) {
+    // Validate isolated mode requires feature name
+    if (worktreeSelection.mode === "isolated") {
+      if (!worktreeSelection.featureName?.trim()) {
         return; // Validation handled by button disabled state
       }
       if (!gitInfo?.isGitRepo) {
@@ -271,9 +292,15 @@ export function useNewSessionForm({
         projectId,
         agentType,
         model: model || undefined,
-        useWorktree,
-        featureName: useWorktree ? featureName.trim() : null,
-        baseBranch: useWorktree ? baseBranch : null,
+        // NEW: Use worktreeSelection
+        worktreeSelection: gitInfo?.isGitRepo ? worktreeSelection : undefined,
+        // LEGACY: Keep these for backward compatibility with backend
+        useWorktree: worktreeSelection.mode === "isolated",
+        featureName:
+          worktreeSelection.mode === "isolated"
+            ? worktreeSelection.featureName?.trim() || null
+            : null,
+        baseBranch: null, // Let the backend determine the base branch
         autoApprove: skipPermissions,
         initialPrompt: initialPrompt.trim() || null,
         extraMounts: extraMounts.length > 0 ? extraMounts : undefined,
@@ -301,10 +328,8 @@ export function useNewSessionForm({
     setName(generateFeatureName()); // Regenerate random name
     setWorkingDirectory("~");
     setProjectId(null);
-    setUseWorktree(false);
-    setFeatureName("");
+    setWorktreeSelection({ base: "~", mode: "direct" });
     setFeatureNameDirty(false);
-    setBaseBranch("main");
     setInitialPrompt("");
     setExtraMounts([]);
     setAllowedDomains([]);
@@ -329,13 +354,10 @@ export function useNewSessionForm({
     skipPermissions,
     initialPrompt,
     setInitialPrompt,
-    // Worktree
-    useWorktree,
-    handleUseWorktreeChange,
-    featureName,
-    handleFeatureNameChange,
-    baseBranch,
-    setBaseBranch,
+    // NEW: Unified worktree selection
+    worktreeSelection,
+    setWorktreeSelection: handleWorktreeSelectionChange,
+    // Git info
     gitInfo,
     checkingGit,
     // Container settings

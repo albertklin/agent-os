@@ -1,17 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { exec } from "child_process";
+import { promisify } from "util";
 import { getDb, queries, type Session, type Project } from "@/lib/db";
 import { runSessionSetup } from "@/lib/session-setup";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { sessionManager } from "@/lib/session-manager";
 import { buildAgentCommand } from "@/lib/sessions";
 
+const execAsync = promisify(exec);
+
+/**
+ * Get current branch name for a directory
+ */
+async function getCurrentBranch(dir: string): Promise<string | null> {
+  try {
+    const resolvedDir = dir.replace("~", process.env.HOME || "");
+    const { stdout } = await execAsync(
+      `git -C "${resolvedDir}" rev-parse --abbrev-ref HEAD`,
+      { timeout: 5000 }
+    );
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
+// Worktree selection for fork
+interface WorktreeSelection {
+  base: string; // worktree path (project dir = main worktree)
+  mode: "direct" | "isolated";
+  featureName?: string; // required if mode="isolated"
+}
+
 interface ForkRequest {
   name?: string;
+  // NEW: Unified worktree selection
+  worktreeSelection?: WorktreeSelection;
+  // LEGACY: Old worktree options (for backward compatibility)
   useWorktree?: boolean;
   featureName?: string;
   baseBranch?: string;
@@ -29,15 +59,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     } catch {
       // No body provided, use defaults
     }
-    const { name, useWorktree, featureName, baseBranch } = body;
-
-    // Validate worktree options
-    if (useWorktree && !featureName) {
-      return NextResponse.json(
-        { error: "Feature name is required when using an isolated worktree" },
-        { status: 400 }
-      );
-    }
+    const { name, worktreeSelection, useWorktree, featureName, baseBranch } =
+      body;
 
     const db = getDb();
 
@@ -61,24 +84,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Sandboxed (auto-approve) sessions require an isolated worktree for container mounting
-    // This ensures the forked session gets its own container with proper isolation
-    if (parent.auto_approve && parent.agent_type === "claude") {
-      if (!useWorktree || !featureName) {
-        return NextResponse.json(
-          {
-            error:
-              "Forking a session with skipped permissions requires an isolated worktree. " +
-              "Please enable 'Isolated worktree' and provide a feature name.",
-          },
-          { status: 400 }
-        );
-      }
-    }
-
     // Determine source project path for worktree creation
     let sourceProjectPath = parent.working_directory;
-    if (useWorktree && parent.project_id) {
+    if (parent.project_id) {
       const project = queries.getProject(db).get(parent.project_id) as
         | Project
         | undefined;
@@ -87,15 +95,58 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const actualBaseBranch = baseBranch || parent.base_branch || "main";
+    // Normalize worktree selection - support both new and legacy formats
+    let effectiveWorktreeSelection: WorktreeSelection;
+
+    if (worktreeSelection) {
+      // New unified format
+      effectiveWorktreeSelection = worktreeSelection;
+    } else if (useWorktree && featureName) {
+      // Legacy format with explicit worktree request
+      effectiveWorktreeSelection = {
+        base: parent.worktree_path || sourceProjectPath,
+        mode: "isolated",
+        featureName,
+      };
+    } else {
+      // Default: direct mode on parent's worktree (or main if no worktree)
+      effectiveWorktreeSelection = {
+        base: parent.worktree_path || sourceProjectPath,
+        mode: "direct",
+      };
+    }
+
+    // Validate worktree options
+    if (
+      effectiveWorktreeSelection.mode === "isolated" &&
+      !effectiveWorktreeSelection.featureName
+    ) {
+      return NextResponse.json(
+        { error: "Feature name is required when using isolated mode" },
+        { status: 400 }
+      );
+    }
+
+    // Determine if this is creating a new worktree or sharing an existing one
+    const needsWorktreeSetup =
+      effectiveWorktreeSelection.mode === "isolated" &&
+      effectiveWorktreeSelection.featureName;
+
+    // For direct mode with an existing isolated worktree, check if it's the parent's worktree
+    const isExistingWorktreeDirect =
+      effectiveWorktreeSelection.mode === "direct" &&
+      effectiveWorktreeSelection.base !== sourceProjectPath &&
+      parent.worktree_path;
+
     // For worktree sessions, use source project path initially - runSessionSetup will update it
-    const actualWorkingDirectory = useWorktree
+    const actualWorkingDirectory = needsWorktreeSetup
       ? sourceProjectPath
-      : parent.working_directory;
+      : effectiveWorktreeSelection.base;
 
     // Create new session
     const newId = randomUUID();
-    const newName = name || featureName || `${parent.name} (fork)`;
+    const newName =
+      name || effectiveWorktreeSelection.featureName || `${parent.name} (fork)`;
     const agentType = parent.agent_type || "claude";
     const tmuxName = `${agentType}-${newId}`;
 
@@ -112,11 +163,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         parent.group_path || "sessions",
         agentType,
         parent.auto_approve ? 1 : 0,
-        parent.project_id || "uncategorized"
+        parent.project_id || "uncategorized",
+        parent.extra_mounts,
+        parent.allowed_domains
       );
 
-    // Set worktree info - either trigger setup for new worktree or inherit from parent
-    if (useWorktree && featureName) {
+    // Handle the different worktree scenarios
+    if (needsWorktreeSetup) {
+      // Get current branch from the selected base worktree
+      // Step 1 (base selection) and step 2 (mode) are independent -
+      // we always use the current branch of whatever worktree was selected
+      const currentBranch = await getCurrentBranch(
+        effectiveWorktreeSelection.base
+      );
+      if (!currentBranch) {
+        // Clean up the session we just created
+        queries.deleteSession(db).run(newId);
+        return NextResponse.json(
+          {
+            error: "Could not determine current branch for worktree creation",
+          },
+          { status: 400 }
+        );
+      }
+      const baseBranchToUse = currentBranch;
+
       // New isolated worktree requested - use runSessionSetup for full setup
       // This handles: worktree creation, container init (for auto-approve), deps install
       queries.updateSessionLifecycleStatus(db).run("creating", newId);
@@ -133,16 +204,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       runSessionSetup({
         sessionId: newId,
         projectPath: sourceProjectPath,
-        featureName: featureName,
-        baseBranch: actualBaseBranch,
+        featureName: effectiveWorktreeSelection.featureName!,
+        baseBranch: baseBranchToUse,
       }).catch((error) => {
         console.error(
           `[fork] Unhandled error during setup for session ${newId}:`,
           error
         );
       });
-    } else if (parent.worktree_path) {
-      // No new worktree requested, but parent has one - make fork a tracked sibling.
+    } else if (isExistingWorktreeDirect && parent.worktree_path) {
+      // Direct mode with parent's existing worktree - make fork a tracked sibling.
       // This ensures the worktree won't be deleted while the fork is still using it.
       queries
         .updateSessionWorktree(db)
@@ -178,7 +249,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         );
       }
     } else {
-      // No worktree at all - create tmux session with fork command
+      // Direct mode with main worktree - create tmux session with fork command
       const agentCommand = buildAgentCommand(agentType, {
         parentSessionId: parent.claude_session_id,
         model: parent.model,
@@ -220,7 +291,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       {
         session,
         messagesCopied,
-        worktreeCreated: !!(useWorktree && featureName),
+        worktreeCreated: needsWorktreeSetup,
       },
       { status: 201 }
     );

@@ -73,12 +73,13 @@ export function SessionList({
   // Wrapper to transform fork handler signature for child components
   const handleForkSession = useCallback(
     async (sessionId: string, options: ForkOptions | null) => {
-      if (options) {
+      if (options?.worktreeSelection) {
         await mutations.handleForkSession({
           sessionId,
-          useWorktree: options.useWorktree,
-          featureName: options.featureName,
-          baseBranch: options.baseBranch,
+          worktreeSelection: options.worktreeSelection,
+          // Legacy fields for backward compatibility
+          useWorktree: options.worktreeSelection.mode === "isolated",
+          featureName: options.worktreeSelection.featureName,
         });
       } else {
         await mutations.handleForkSession({ sessionId });

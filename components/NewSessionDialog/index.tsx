@@ -15,7 +15,7 @@ import { DirectoryPicker } from "@/components/DirectoryPicker";
 import { useNewSessionForm } from "./hooks/useNewSessionForm";
 import { AgentSelector } from "./AgentSelector";
 import { WorkingDirectoryInput } from "./WorkingDirectoryInput";
-import { WorktreeSection } from "./WorktreeSection";
+import { WorktreeSelector } from "./WorktreeSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import { SessionOptions } from "./AdvancedSettings";
 import { ContainerSettings } from "./ContainerSettings";
@@ -47,7 +47,7 @@ export function NewSessionDialog({
           {/* Loading overlay */}
           {form.isLoading && (
             <CreatingOverlay
-              isWorktree={form.useWorktree}
+              isWorktree={form.worktreeSelection.mode === "isolated"}
               step={form.creationStep}
             />
           )}
@@ -96,42 +96,25 @@ export function NewSessionDialog({
               onModelChange={form.handleModelChange}
             />
 
-            {/* 5. Checkboxes row */}
-            <div className="flex flex-wrap gap-x-6 gap-y-2">
-              {form.gitInfo?.isGitRepo && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="useWorktree"
-                    checked={form.useWorktree}
-                    onChange={(e) =>
-                      form.handleUseWorktreeChange(e.target.checked)
-                    }
-                    className="border-border bg-background accent-primary h-4 w-4 rounded"
-                  />
-                  <label
-                    htmlFor="useWorktree"
-                    className="cursor-pointer text-sm"
-                  >
-                    Isolated worktree
-                  </label>
-                </div>
-              )}
-              <SessionOptions
-                agentType={form.agentType}
-                skipPermissions={form.skipPermissions}
-                onSkipPermissionsChange={form.handleSkipPermissionsChange}
-              />
-            </div>
+            {/* 5. Options row */}
+            <SessionOptions
+              agentType={form.agentType}
+              skipPermissions={form.skipPermissions}
+              onSkipPermissionsChange={form.handleSkipPermissionsChange}
+            />
 
-            {/* 6. Worktree details (if enabled) */}
-            {form.gitInfo?.isGitRepo && form.useWorktree && (
-              <WorktreeSection
+            {/* 6. Worktree selection (for git repos) */}
+            {form.gitInfo?.isGitRepo && (
+              <WorktreeSelector
+                projectId={form.projectId}
+                workingDirectory={form.workingDirectory}
                 gitInfo={form.gitInfo}
-                featureName={form.featureName}
-                onFeatureNameChange={form.handleFeatureNameChange}
-                baseBranch={form.baseBranch}
-                onBaseBranchChange={form.setBaseBranch}
+                value={form.worktreeSelection}
+                onChange={form.setWorktreeSelection}
+                skipPermissions={
+                  form.skipPermissions && form.agentType === "claude"
+                }
+                disabled={form.isLoading}
               />
             )}
 
@@ -178,7 +161,8 @@ export function NewSessionDialog({
                 type="submit"
                 disabled={
                   form.isLoading ||
-                  (form.useWorktree && !form.featureName.trim())
+                  (form.worktreeSelection.mode === "isolated" &&
+                    !form.worktreeSelection.featureName?.trim())
                 }
               >
                 {form.isLoading ? "Creating..." : "Create"}

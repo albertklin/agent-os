@@ -140,8 +140,18 @@ export function useRenameSession() {
   });
 }
 
+// Worktree selection for session creation/fork
+export interface WorktreeSelection {
+  base: string; // worktree path (project dir = main worktree)
+  mode: "direct" | "isolated";
+  featureName?: string; // required if mode="isolated"
+}
+
 export interface ForkSessionInput {
   sessionId: string;
+  // NEW: Unified worktree selection
+  worktreeSelection?: WorktreeSelection;
+  // LEGACY: Keep for backward compatibility
   useWorktree?: boolean;
   featureName?: string;
   baseBranch?: string;
@@ -207,6 +217,9 @@ export interface CreateSessionInput {
   projectId: string | null;
   agentType: AgentType;
   model?: string;
+  // NEW: Unified worktree selection
+  worktreeSelection?: WorktreeSelection;
+  // LEGACY: Keep for backward compatibility
   useWorktree: boolean;
   featureName: string | null;
   baseBranch: string | null;

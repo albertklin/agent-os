@@ -121,7 +121,10 @@ export function useSessionListMutations({
         const forkedSession = await forkSessionMutation.mutateAsync(input);
         if (forkedSession) {
           onSelectSession(forkedSession.id);
-          if (input.useWorktree) {
+          // Show toast for isolated worktree creation
+          const isIsolated =
+            input.worktreeSelection?.mode === "isolated" || input.useWorktree;
+          if (isIsolated) {
             toast.success(`Created worktree for "${forkedSession.name}"`);
           }
         }

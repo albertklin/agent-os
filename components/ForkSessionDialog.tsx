@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,30 +10,23 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { Loader2 } from "lucide-react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { GitBranch, Loader2 } from "lucide-react";
+  WorktreeSelector,
+  type WorktreeSelection,
+} from "@/components/NewSessionDialog/WorktreeSelector";
 import { generateFeatureName } from "@/components/NewSessionDialog/NewSessionDialog.types";
+import type { GitInfo } from "@/components/NewSessionDialog/NewSessionDialog.types";
 
 export interface ForkOptions {
-  useWorktree: boolean;
-  featureName: string;
-  baseBranch: string;
+  worktreeSelection: WorktreeSelection;
 }
 
 interface ForkSessionDialogProps {
-  sessionId: string;
   sessionName: string;
   workingDirectory: string;
-  currentBranch?: string | null;
-  defaultBaseBranch?: string;
+  projectId: string | null;
+  parentWorktreePath?: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onFork: (options: ForkOptions | null) => Promise<void>;
@@ -41,28 +34,31 @@ interface ForkSessionDialogProps {
 }
 
 export function ForkSessionDialog({
-  sessionId,
   sessionName,
   workingDirectory,
-  currentBranch,
-  defaultBaseBranch = "main",
+  projectId,
+  parentWorktreePath,
   open,
   onOpenChange,
   onFork,
   isPending = false,
 }: ForkSessionDialogProps) {
-  const [useWorktree, setUseWorktree] = useState(false);
-  const [featureName, setFeatureName] = useState("");
-  const [baseBranch, setBaseBranch] = useState(
-    currentBranch || defaultBaseBranch
-  );
-  const [branches, setBranches] = useState<string[]>([]);
-  const [loadingBranches, setLoadingBranches] = useState(false);
+  // Default to parent's worktree in direct mode
+  const defaultBase = parentWorktreePath || workingDirectory;
 
-  // Fetch branches when dialog opens
+  const [worktreeSelection, setWorktreeSelection] = useState<WorktreeSelection>(
+    {
+      base: defaultBase,
+      mode: "direct",
+    }
+  );
+  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
+  const [loadingGit, setLoadingGit] = useState(false);
+
+  // Fetch git info when dialog opens
   useEffect(() => {
     if (open && workingDirectory) {
-      setLoadingBranches(true);
+      setLoadingGit(true);
       fetch("/api/git/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -70,45 +66,63 @@ export function ForkSessionDialog({
       })
         .then((res) => res.json())
         .then((data) => {
-          if (data.branches && data.branches.length > 0) {
-            setBranches(data.branches);
-          }
+          setGitInfo(data);
         })
         .catch(console.error)
-        .finally(() => setLoadingBranches(false));
+        .finally(() => setLoadingGit(false));
     }
   }, [open, workingDirectory]);
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
-      setUseWorktree(false);
-      setFeatureName("");
-      setBaseBranch(currentBranch || defaultBaseBranch);
+      setWorktreeSelection({
+        base: defaultBase,
+        mode: "direct",
+      });
     }
-  }, [open, currentBranch, defaultBaseBranch]);
+  }, [open, defaultBase]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (useWorktree) {
-      if (!featureName.trim()) {
-        return;
-      }
-      await onFork({
-        useWorktree: true,
-        featureName: featureName.trim(),
-        baseBranch,
-      });
-    } else {
-      // Simple fork without worktree
-      await onFork(null);
+    // Validate isolated mode requires feature name
+    if (
+      worktreeSelection.mode === "isolated" &&
+      !worktreeSelection.featureName?.trim()
+    ) {
+      return;
     }
 
+    await onFork({ worktreeSelection });
     onOpenChange(false);
   };
 
-  const canSubmit = !useWorktree || featureName.trim().length > 0;
+  // Handle switching to isolated mode - auto-populate feature name
+  const handleWorktreeSelectionChange = useCallback(
+    (newSelection: WorktreeSelection) => {
+      setWorktreeSelection((prev) => {
+        if (
+          newSelection.mode === "isolated" &&
+          prev.mode !== "isolated" &&
+          !newSelection.featureName
+        ) {
+          // Auto-populate feature name when switching to isolated mode
+          return {
+            ...newSelection,
+            featureName: generateFeatureName(),
+          };
+        }
+        return newSelection;
+      });
+    },
+    []
+  );
+
+  const canSubmit =
+    worktreeSelection.mode === "direct" ||
+    (worktreeSelection.mode === "isolated" &&
+      worktreeSelection.featureName?.trim());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -122,84 +136,29 @@ export function ForkSessionDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Worktree Toggle */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <label
-                htmlFor="use-worktree"
-                className="flex items-center gap-2 text-sm font-medium"
-              >
-                <GitBranch className="h-4 w-4" />
-                Create isolated worktree
-              </label>
-              <p className="text-muted-foreground text-xs">
-                Work on a separate git branch without file conflicts
-              </p>
+          {loadingGit ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-muted-foreground ml-2 text-sm">
+                Loading git info...
+              </span>
             </div>
-            <Switch
-              id="use-worktree"
-              checked={useWorktree}
-              onCheckedChange={(checked) => {
-                setUseWorktree(checked);
-                // Auto-populate feature name when enabling worktree
-                if (checked && !featureName) {
-                  setFeatureName(generateFeatureName());
-                }
-              }}
+          ) : gitInfo?.isGitRepo ? (
+            <WorktreeSelector
+              projectId={projectId}
+              workingDirectory={workingDirectory}
+              gitInfo={gitInfo}
+              value={worktreeSelection}
+              onChange={handleWorktreeSelectionChange}
+              skipPermissions={false}
+              defaultBase={defaultBase}
+              disabled={isPending}
             />
-          </div>
-
-          {/* Worktree Options - shown when toggle is on */}
-          {useWorktree && (
-            <div className="space-y-4 border-t pt-4">
-              {/* Feature Name */}
-              <div className="space-y-2">
-                <label htmlFor="feature-name" className="text-sm font-medium">
-                  Feature name <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  id="feature-name"
-                  value={featureName}
-                  onChange={(e) => setFeatureName(e.target.value)}
-                  placeholder="e.g., add-user-auth"
-                  autoFocus
-                />
-                <p className="text-muted-foreground text-xs">
-                  Creates branch: feature/
-                  {featureName.toLowerCase().replace(/\s+/g, "-") || "..."}
-                </p>
-              </div>
-
-              {/* Base Branch */}
-              <div className="space-y-2">
-                <label htmlFor="base-branch" className="text-sm font-medium">
-                  Base branch
-                </label>
-                <Select value={baseBranch} onValueChange={setBaseBranch}>
-                  <SelectTrigger id="base-branch">
-                    <SelectValue placeholder="Select branch" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {loadingBranches ? (
-                      <SelectItem value="_loading" disabled>
-                        Loading branches...
-                      </SelectItem>
-                    ) : branches.length > 0 ? (
-                      branches.map((branch) => (
-                        <SelectItem key={branch} value={branch}>
-                          {branch}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value={baseBranch}>{baseBranch}</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-                <p className="text-muted-foreground text-xs">
-                  Branch to create the worktree from
-                </p>
-              </div>
-            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              This session is not in a git repository. The fork will work in the
+              same directory.
+            </p>
           )}
 
           <DialogFooter>

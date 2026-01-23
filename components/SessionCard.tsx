@@ -665,11 +665,10 @@ function SessionCardComponent({
 
   const forkDialog = onFork && (
     <ForkSessionDialog
-      sessionId={session.id}
       sessionName={session.name}
-      workingDirectory={session.worktree_path || session.working_directory}
-      currentBranch={session.branch_name}
-      defaultBaseBranch={session.base_branch || "main"}
+      workingDirectory={session.working_directory}
+      projectId={session.project_id || null}
+      parentWorktreePath={session.worktree_path}
       open={forkDialogOpen}
       onOpenChange={setForkDialogOpen}
       onFork={onFork}
