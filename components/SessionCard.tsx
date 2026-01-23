@@ -77,7 +77,7 @@ interface SessionCardProps {
   onClick?: () => void;
   onOpenInTab?: () => void;
   onMove?: (groupPath: string) => void;
-  onFork?: (options: ForkOptions | null) => Promise<void>;
+  onFork?: (options: ForkOptions) => Promise<void>;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
   onCreatePR?: () => void;
@@ -669,6 +669,7 @@ function SessionCardComponent({
       workingDirectory={session.working_directory}
       projectId={session.project_id || null}
       parentBranchName={session.branch_name}
+      parentAutoApprove={Boolean(session.auto_approve)}
       open={forkDialogOpen}
       onOpenChange={setForkDialogOpen}
       onFork={onFork}

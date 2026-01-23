@@ -82,6 +82,8 @@ interface ForkRequest {
   name?: string;
   // NEW: Unified worktree selection
   worktreeSelection?: WorktreeSelection;
+  // NEW: Auto-approve setting (independent, defaults to parent's value)
+  autoApprove?: boolean;
   // LEGACY: Old worktree options (for backward compatibility)
   useWorktree?: boolean;
   featureName?: string;
@@ -100,8 +102,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     } catch {
       // No body provided, use defaults
     }
-    const { name, worktreeSelection, useWorktree, featureName, baseBranch } =
-      body;
+    const {
+      name,
+      worktreeSelection,
+      autoApprove,
+      useWorktree,
+      featureName,
+      baseBranch,
+    } = body;
 
     const db = getDb();
 
@@ -181,9 +189,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       effectiveWorktreeSelection.mode === "isolated" &&
       effectiveWorktreeSelection.featureName;
 
-    // Validate: auto_approve sessions cannot be forked to main worktree in direct mode
-    // (inherited from parent, container needs isolated worktree)
-    if (parent.auto_approve && parent.agent_type === "claude") {
+    // Determine effective autoApprove: use request value, default to parent's
+    const effectiveAutoApprove = autoApprove ?? Boolean(parent.auto_approve);
+    const agentType = parent.agent_type || "claude";
+
+    // Validate: auto_approve requires isolated worktree (not main + direct)
+    if (effectiveAutoApprove && agentType === "claude") {
       // Check if this would be main + direct
       const mainBranch = await getCurrentBranch(sourceProjectPath);
       const isMainDirect =
@@ -194,7 +205,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json(
           {
             error:
-              "Forking a session with auto-approve requires an isolated worktree. " +
+              "Skip permissions requires an isolated worktree. " +
               "Please select 'Isolated' mode or choose a different branch.",
           },
           { status: 400 }
@@ -236,7 +247,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const newId = randomUUID();
     const newName =
       name || effectiveWorktreeSelection.featureName || `${parent.name} (fork)`;
-    const agentType = parent.agent_type || "claude";
     const tmuxName = `${agentType}-${newId}`;
 
     queries
@@ -251,7 +261,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         parent.system_prompt,
         parent.group_path || "sessions",
         agentType,
-        parent.auto_approve ? 1 : 0,
+        effectiveAutoApprove ? 1 : 0,
         parent.project_id || "uncategorized",
         parent.extra_mounts,
         parent.allowed_domains
@@ -321,7 +331,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const agentCommand = buildAgentCommand(agentType, {
         parentSessionId: parent.claude_session_id,
         model: parent.model,
-        autoApprove: Boolean(parent.auto_approve),
+        autoApprove: effectiveAutoApprove,
       });
       try {
         await sessionManager.startTmuxSession(newId, agentCommand);
@@ -346,7 +356,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const agentCommand = buildAgentCommand(agentType, {
         parentSessionId: parent.claude_session_id,
         model: parent.model,
-        autoApprove: Boolean(parent.auto_approve),
+        autoApprove: effectiveAutoApprove,
       });
       try {
         await sessionManager.startTmuxSession(newId, agentCommand);

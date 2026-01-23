@@ -49,10 +49,7 @@ interface ProjectsSectionProps {
   onOpenSessionInTab?: (sessionId: string) => void;
   onReorderSessions?: (updates: SessionOrderUpdate[]) => void;
   onReorderProjects?: (updates: ProjectOrderUpdate[]) => void;
-  onForkSession?: (
-    sessionId: string,
-    options: ForkOptions | null
-  ) => Promise<void>;
+  onForkSession?: (sessionId: string, options: ForkOptions) => Promise<void>;
   onDeleteSession?: (sessionId: string, sessionName?: string) => void;
   onRenameSession?: (sessionId: string, newName: string) => void;
   onCreatePR?: (sessionId: string) => void;
@@ -78,7 +75,7 @@ interface SortableSessionCardProps {
   onToggleSelect: (shiftKey: boolean) => void;
   onClick: () => void;
   onOpenInTab?: () => void;
-  onFork?: (options: ForkOptions | null) => Promise<void>;
+  onFork?: (options: ForkOptions) => Promise<void>;
   onDelete?: () => void;
   onRename?: (newName: string) => void;
   onCreatePR?: () => void;

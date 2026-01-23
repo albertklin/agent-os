@@ -72,18 +72,15 @@ export function SessionList({
 
   // Wrapper to transform fork handler signature for child components
   const handleForkSession = useCallback(
-    async (sessionId: string, options: ForkOptions | null) => {
-      if (options?.worktreeSelection) {
-        await mutations.handleForkSession({
-          sessionId,
-          worktreeSelection: options.worktreeSelection,
-          // Legacy fields for backward compatibility
-          useWorktree: options.worktreeSelection.mode === "isolated",
-          featureName: options.worktreeSelection.featureName,
-        });
-      } else {
-        await mutations.handleForkSession({ sessionId });
-      }
+    async (sessionId: string, options: ForkOptions) => {
+      await mutations.handleForkSession({
+        sessionId,
+        worktreeSelection: options.worktreeSelection,
+        autoApprove: options.autoApprove,
+        // Legacy fields for backward compatibility
+        useWorktree: options.worktreeSelection.mode === "isolated",
+        featureName: options.worktreeSelection.featureName,
+      });
     },
     [mutations]
   );

@@ -151,6 +151,8 @@ export interface ForkSessionInput {
   sessionId: string;
   // NEW: Unified worktree selection
   worktreeSelection?: WorktreeSelection;
+  // NEW: Auto-approve setting (independent from parent)
+  autoApprove?: boolean;
   // LEGACY: Keep for backward compatibility
   useWorktree?: boolean;
   featureName?: string;

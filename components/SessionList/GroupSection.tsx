@@ -36,10 +36,7 @@ interface GroupSectionProps {
   onCreateGroup: (name: string, parentPath?: string) => void;
   onDeleteGroup: (path: string) => void;
   onSelectSession: (sessionId: string) => void;
-  onForkSession: (
-    sessionId: string,
-    options: ForkOptions | null
-  ) => Promise<void>;
+  onForkSession: (sessionId: string, options: ForkOptions) => Promise<void>;
   onDeleteSession: (sessionId: string, sessionName?: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
 }

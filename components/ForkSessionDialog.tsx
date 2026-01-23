@@ -10,7 +10,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Loader2, Shield } from "lucide-react";
 import {
   WorktreeSelector,
   type WorktreeSelection,
@@ -20,6 +21,7 @@ import type { GitInfo } from "@/components/NewSessionDialog/NewSessionDialog.typ
 
 export interface ForkOptions {
   worktreeSelection: WorktreeSelection;
+  autoApprove: boolean;
 }
 
 interface ForkSessionDialogProps {
@@ -27,9 +29,10 @@ interface ForkSessionDialogProps {
   workingDirectory: string;
   projectId: string | null;
   parentBranchName?: string | null; // Parent's branch name for defaulting
+  parentAutoApprove?: boolean; // Parent's auto-approve setting for defaulting
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onFork: (options: ForkOptions | null) => Promise<void>;
+  onFork: (options: ForkOptions) => Promise<void>;
   isPending?: boolean;
 }
 
@@ -38,6 +41,7 @@ export function ForkSessionDialog({
   workingDirectory,
   projectId,
   parentBranchName,
+  parentAutoApprove = false,
   open,
   onOpenChange,
   onFork,
@@ -49,6 +53,7 @@ export function ForkSessionDialog({
       mode: "direct",
     }
   );
+  const [skipPermissions, setSkipPermissions] = useState(parentAutoApprove);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [loadingGit, setLoadingGit] = useState(false);
 
@@ -85,8 +90,9 @@ export function ForkSessionDialog({
         branch: parentBranchName || "",
         mode: "direct",
       });
+      setSkipPermissions(parentAutoApprove);
     }
-  }, [open, parentBranchName]);
+  }, [open, parentBranchName, parentAutoApprove]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,7 +105,7 @@ export function ForkSessionDialog({
       return;
     }
 
-    await onFork({ worktreeSelection });
+    await onFork({ worktreeSelection, autoApprove: skipPermissions });
     onOpenChange(false);
   };
 
@@ -149,19 +155,43 @@ export function ForkSessionDialog({
               </span>
             </div>
           ) : gitInfo?.isGitRepo ? (
-            <WorktreeSelector
-              projectId={projectId}
-              workingDirectory={workingDirectory}
-              gitInfo={gitInfo}
-              value={worktreeSelection}
-              onChange={handleWorktreeSelectionChange}
-              skipPermissions={false}
-              defaultBranch={
-                parentBranchName || gitInfo?.currentBranch || undefined
-              }
-              parentBranch={parentBranchName || undefined}
-              disabled={isPending}
-            />
+            <>
+              <WorktreeSelector
+                projectId={projectId}
+                workingDirectory={workingDirectory}
+                gitInfo={gitInfo}
+                value={worktreeSelection}
+                onChange={handleWorktreeSelectionChange}
+                skipPermissions={skipPermissions}
+                defaultBranch={
+                  parentBranchName || gitInfo?.currentBranch || undefined
+                }
+                parentBranch={parentBranchName || undefined}
+                disabled={isPending}
+              />
+
+              {/* Skip Permissions Toggle */}
+              <div className="flex items-center justify-between gap-4 border-t pt-4">
+                <div className="space-y-0.5">
+                  <label
+                    htmlFor="skip-permissions"
+                    className="flex items-center gap-2 text-sm font-medium"
+                  >
+                    <Shield className="h-4 w-4" />
+                    Skip permission prompts
+                  </label>
+                  <p className="text-muted-foreground text-xs">
+                    Auto-approve file edits and commands (sandboxed)
+                  </p>
+                </div>
+                <Switch
+                  id="skip-permissions"
+                  checked={skipPermissions}
+                  onCheckedChange={setSkipPermissions}
+                  disabled={isPending}
+                />
+              </div>
+            </>
           ) : (
             <p className="text-muted-foreground text-sm">
               This session is not in a git repository. The fork will work in the
