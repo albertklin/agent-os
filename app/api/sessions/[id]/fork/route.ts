@@ -7,6 +7,7 @@ import { runSessionSetup } from "@/lib/session-setup";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { sessionManager } from "@/lib/session-manager";
 import { buildAgentCommand } from "@/lib/sessions";
+import { isGitRepo } from "@/lib/git";
 
 const execAsync = promisify(exec);
 
@@ -189,33 +190,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       effectiveWorktreeSelection.mode === "isolated" &&
       effectiveWorktreeSelection.featureName;
 
-    // Determine effective autoApprove: use request value, default to parent's
-    const effectiveAutoApprove = autoApprove ?? Boolean(parent.auto_approve);
-    const agentType = parent.agent_type || "claude";
-
-    // Validate: skip permissions cannot be used with project branch + direct mode
-    if (effectiveAutoApprove && agentType === "claude") {
-      // Check if this would be main + direct
-      const mainBranch = await getCurrentBranch(sourceProjectPath);
-      const isMainDirect =
-        effectiveWorktreeSelection.mode === "direct" &&
-        effectiveWorktreeSelection.branch === mainBranch;
-
-      if (isMainDirect) {
-        return NextResponse.json(
-          {
-            error:
-              "Skip permissions cannot be used with the project branch in direct mode. " +
-              "Please select a different branch or use isolated mode.",
-          },
-          { status: 400 }
-        );
-      }
-    }
-
     // For direct mode, resolve the branch to its worktree path
+    // This must happen BEFORE skipPermissions validation so we can check isMainWorktree
     let branchWorktreeInfo: BranchWorktreeInfo | null = null;
-    let isExistingWorktreeDirect = false;
+    let existingWorktreeSession: Session | null = null;
 
     if (effectiveWorktreeSelection.mode === "direct") {
       branchWorktreeInfo = await findWorktreeForBranch(
@@ -235,7 +213,76 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         );
       }
 
-      isExistingWorktreeDirect = !branchWorktreeInfo.isMainWorktree;
+      // If it's not the main worktree, find the existing session to copy worktree info
+      if (!branchWorktreeInfo.isMainWorktree) {
+        const existingSessions = db
+          .prepare(
+            `SELECT * FROM sessions WHERE worktree_path = ? AND lifecycle_status NOT IN ('failed', 'deleting') LIMIT 1`
+          )
+          .get(branchWorktreeInfo.worktreePath) as Session | undefined;
+        existingWorktreeSession = existingSessions || null;
+
+        if (!existingWorktreeSession) {
+          return NextResponse.json(
+            {
+              error:
+                "The worktree for this branch does not have any active sessions.",
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    // Determine effective autoApprove: use request value, default to parent's
+    const effectiveAutoApprove = autoApprove ?? Boolean(parent.auto_approve);
+    const agentType = parent.agent_type || "claude";
+
+    // Validate: skip permissions cannot be used with project branch + direct mode
+    if (effectiveAutoApprove && agentType === "claude") {
+      const isMainDirect =
+        effectiveWorktreeSelection.mode === "direct" &&
+        branchWorktreeInfo?.isMainWorktree;
+
+      if (isMainDirect) {
+        return NextResponse.json(
+          {
+            error:
+              "Skip permissions cannot be used with the project branch in direct mode. " +
+              "Please select a different branch or use isolated mode.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // If isolated mode, validate feature name is provided
+      if (
+        effectiveWorktreeSelection.mode === "isolated" &&
+        !effectiveWorktreeSelection.featureName
+      ) {
+        return NextResponse.json(
+          {
+            error: "Isolated mode requires a feature name.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // Worktrees require a git repository
+      const resolvedWorkDir = sourceProjectPath.replace(
+        "~",
+        process.env.HOME || ""
+      );
+      if (!(await isGitRepo(resolvedWorkDir))) {
+        return NextResponse.json(
+          {
+            error:
+              "Skipping permissions requires a git repository for worktree isolation. " +
+              "The selected directory is not a git repository.",
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // For worktree sessions, use source project path initially - runSessionSetup will update it
@@ -296,28 +343,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           error
         );
       });
-    } else if (isExistingWorktreeDirect && branchWorktreeInfo?.worktreePath) {
+    } else if (existingWorktreeSession) {
       // Direct mode with an existing isolated worktree - make fork a tracked sibling.
       // This ensures the worktree won't be deleted while the fork is still using it.
-      // Find an existing session with this worktree to copy the branch info from
-      const existingWorktreeSession = db
-        .prepare(
-          `SELECT * FROM sessions WHERE worktree_path = ? AND lifecycle_status NOT IN ('failed', 'deleting') LIMIT 1`
-        )
-        .get(branchWorktreeInfo.worktreePath) as Session | undefined;
-
-      if (!existingWorktreeSession) {
-        // Race condition: worktree was deleted between findWorktreeForBranch and here
-        queries.deleteSession(db).run(newId);
-        return NextResponse.json(
-          {
-            error:
-              "The worktree for this branch is no longer available. Please try again.",
-          },
-          { status: 409 }
-        );
-      }
-
       queries
         .updateSessionWorktree(db)
         .run(
