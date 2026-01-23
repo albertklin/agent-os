@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate: skipPermissions requires isolated mode (not main + direct)
+    // Validate: skipPermissions cannot be used with project branch + direct mode
     if (autoApprove && agentType === "claude") {
       const isMainDirect =
         !effectiveWorktreeSelection ||
@@ -236,8 +236,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error:
-              "Skipping permissions requires an isolated worktree. " +
-              "Please select 'Isolated' mode and provide a feature name.",
+              "Skip permissions cannot be used with the project branch in direct mode. " +
+              "Please select a different branch or use isolated mode.",
           },
           { status: 400 }
         );
@@ -250,8 +250,7 @@ export async function POST(request: NextRequest) {
       ) {
         return NextResponse.json(
           {
-            error:
-              "Skipping permissions requires a feature name for the isolated worktree.",
+            error: "Isolated mode requires a feature name.",
           },
           { status: 400 }
         );

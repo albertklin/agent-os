@@ -193,7 +193,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const effectiveAutoApprove = autoApprove ?? Boolean(parent.auto_approve);
     const agentType = parent.agent_type || "claude";
 
-    // Validate: auto_approve requires isolated worktree (not main + direct)
+    // Validate: skip permissions cannot be used with project branch + direct mode
     if (effectiveAutoApprove && agentType === "claude") {
       // Check if this would be main + direct
       const mainBranch = await getCurrentBranch(sourceProjectPath);
@@ -205,8 +205,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json(
           {
             error:
-              "Skip permissions requires an isolated worktree. " +
-              "Please select 'Isolated' mode or choose a different branch.",
+              "Skip permissions cannot be used with the project branch in direct mode. " +
+              "Please select a different branch or use isolated mode.",
           },
           { status: 400 }
         );
