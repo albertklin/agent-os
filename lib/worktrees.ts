@@ -35,7 +35,7 @@ export interface WorktreeInfo {
 export interface CreateWorktreeOptions {
   projectPath: string;
   featureName: string;
-  baseBranch?: string;
+  baseBranch: string; // Required - no default to "main"
 }
 
 /**
@@ -116,7 +116,7 @@ function generateWorktreeDirName(
 export async function createWorktree(
   options: CreateWorktreeOptions
 ): Promise<WorktreeInfo> {
-  const { projectPath, featureName, baseBranch = "main" } = options;
+  const { projectPath, featureName, baseBranch } = options;
 
   const resolvedProjectPath = resolvePath(projectPath);
 
