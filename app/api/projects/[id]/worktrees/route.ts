@@ -21,6 +21,7 @@ export interface BranchInfo {
   worktreePath: string | null; // null if no worktree exists for this branch
   sessionCount: number; // sessions using this branch's worktree
   isCheckedOutInMain: boolean; // true if this is the current branch in project dir
+  hasUncommittedChanges?: boolean; // true if the worktree has uncommitted changes
 }
 
 /**
@@ -53,6 +54,20 @@ async function getAllBranches(dir: string): Promise<string[]> {
       .filter((b) => b.length > 0);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Check if a directory has uncommitted changes (staged or unstaged)
+ */
+async function hasUncommittedChanges(dir: string): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync(`git -C "${dir}" status --porcelain`, {
+      timeout: 5000,
+    });
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -118,24 +133,32 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Build the branches response
-    const branches: BranchInfo[] = [];
-
-    for (const branchName of allBranches) {
+    // Build the branches response, checking uncommitted changes for worktrees
+    const branchPromises = allBranches.map(async (branchName) => {
       const isMainBranch = branchName === mainBranch;
       const worktreeInfo = branchToWorktree.get(branchName);
+      const worktreePath = isMainBranch
+        ? mainWorktreePath
+        : worktreeInfo?.path || null;
 
-      branches.push({
+      // Check for uncommitted changes if this branch has a worktree
+      let uncommittedChanges: boolean | undefined;
+      if (worktreePath) {
+        uncommittedChanges = await hasUncommittedChanges(worktreePath);
+      }
+
+      return {
         name: branchName,
-        worktreePath: isMainBranch
-          ? mainWorktreePath
-          : worktreeInfo?.path || null,
+        worktreePath,
         sessionCount: isMainBranch
           ? mainWorktreeSessionCount
           : worktreeInfo?.sessionCount || 0,
         isCheckedOutInMain: isMainBranch,
-      });
-    }
+        hasUncommittedChanges: uncommittedChanges,
+      } as BranchInfo;
+    });
+
+    const branches = await Promise.all(branchPromises);
 
     // Sort: main branch first, then alphabetically
     branches.sort((a, b) => {

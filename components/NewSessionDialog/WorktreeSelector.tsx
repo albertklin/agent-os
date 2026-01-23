@@ -23,6 +23,7 @@ interface BranchInfo {
   worktreePath: string | null;
   sessionCount: number;
   isCheckedOutInMain: boolean;
+  hasUncommittedChanges?: boolean;
 }
 
 export interface WorktreeSelectorProps {
@@ -280,6 +281,17 @@ export function WorktreeSelector({
           Auto-approve requires an isolated worktree for container mounting
         </p>
       )}
+
+      {/* Warning for uncommitted changes when creating isolated branch */}
+      {value.mode === "isolated" &&
+        hasWorktree &&
+        selectedBranch?.hasUncommittedChanges && (
+          <p className="flex items-center gap-1.5 text-xs text-amber-500">
+            <AlertCircle className="h-3.5 w-3.5" />
+            This branch has uncommitted changes that won&apos;t be included in
+            the new branch.
+          </p>
+        )}
 
       {/* Feature Name Input (for isolated mode) */}
       {value.mode === "isolated" && (
