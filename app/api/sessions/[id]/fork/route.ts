@@ -151,27 +151,35 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (worktreeSelection) {
       // New unified format (branch-based)
       effectiveWorktreeSelection = worktreeSelection;
-    } else if (useWorktree && featureName) {
-      // Legacy format with explicit worktree request
-      const parentBranch =
-        parent.branch_name ||
-        (await getCurrentBranch(sourceProjectPath)) ||
-        "main";
-      effectiveWorktreeSelection = {
-        branch: parentBranch,
-        mode: "isolated",
-        featureName,
-      };
     } else {
-      // Default: direct mode on parent's branch (or current branch if no worktree)
+      // Legacy format or default - determine parent's branch
       const parentBranch =
-        parent.branch_name ||
-        (await getCurrentBranch(sourceProjectPath)) ||
-        "main";
-      effectiveWorktreeSelection = {
-        branch: parentBranch,
-        mode: "direct",
-      };
+        parent.branch_name || (await getCurrentBranch(sourceProjectPath));
+
+      if (!parentBranch) {
+        return NextResponse.json(
+          {
+            error:
+              "Could not determine the current branch. Please ensure the project is a git repository.",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (useWorktree && featureName) {
+        // Legacy format with explicit worktree request
+        effectiveWorktreeSelection = {
+          branch: parentBranch,
+          mode: "isolated",
+          featureName,
+        };
+      } else {
+        // Default: direct mode on parent's branch
+        effectiveWorktreeSelection = {
+          branch: parentBranch,
+          mode: "direct",
+        };
+      }
     }
 
     // Validate worktree options

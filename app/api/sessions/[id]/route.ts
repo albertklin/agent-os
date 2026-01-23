@@ -241,7 +241,16 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     if (existing.worktree_path && isAgentOSWorktree(existing.worktree_path)) {
       const worktreePath = existing.worktree_path;
-      const baseBranch = existing.base_branch || "main";
+      if (!existing.base_branch) {
+        return NextResponse.json(
+          {
+            error:
+              "Session has a worktree but no base branch recorded. This may be a legacy session that needs manual cleanup.",
+          },
+          { status: 400 }
+        );
+      }
+      const baseBranch = existing.base_branch;
       branchName = existing.branch_name || undefined;
 
       // Get main repo path for merge operations

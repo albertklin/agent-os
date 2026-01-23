@@ -169,8 +169,17 @@ export async function POST(request: NextRequest) {
       // Legacy format - convert to new format
       // Get current branch for the working directory
       const currentBranch = await getCurrentBranch(workingDirectory);
+      if (!currentBranch) {
+        return NextResponse.json(
+          {
+            error:
+              "Could not determine the current branch. Please ensure the directory is a git repository.",
+          },
+          { status: 400 }
+        );
+      }
       effectiveWorktreeSelection = {
-        branch: currentBranch || "main",
+        branch: currentBranch,
         mode: "isolated",
         featureName,
       };

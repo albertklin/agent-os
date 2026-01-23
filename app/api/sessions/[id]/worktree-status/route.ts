@@ -58,7 +58,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    const baseBranch = session.base_branch || "main";
+    if (!session.base_branch) {
+      return NextResponse.json(
+        {
+          error:
+            "Session has a worktree but no base branch recorded. This may be a legacy session.",
+        },
+        { status: 400 }
+      );
+    }
+    const baseBranch = session.base_branch;
 
     // Get main repo for branch listing
     const mainRepo = await getMainRepoFromWorktree(session.worktree_path);

@@ -157,9 +157,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    if (!session.worktree_path || !session.branch_name) {
+    if (
+      !session.worktree_path ||
+      !session.branch_name ||
+      !session.base_branch
+    ) {
       return NextResponse.json(
-        { error: "Session is not a worktree session" },
+        {
+          error:
+            "Session is not a worktree session or is missing branch information",
+        },
         { status: 400 }
       );
     }
@@ -192,7 +199,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const pr = await createPR(
       session.worktree_path,
       session.branch_name,
-      session.base_branch || "main",
+      session.base_branch,
       prTitle,
       description
     );
