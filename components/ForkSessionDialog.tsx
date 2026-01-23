@@ -159,6 +159,7 @@ export function ForkSessionDialog({
               defaultBranch={
                 parentBranchName || gitInfo?.currentBranch || undefined
               }
+              parentBranch={parentBranchName || undefined}
               disabled={isPending}
             />
           ) : (

@@ -33,6 +33,7 @@ export interface WorktreeSelectorProps {
   onChange: (selection: WorktreeSelection) => void;
   skipPermissions: boolean;
   defaultBranch?: string; // For fork: parent's branch name
+  parentBranch?: string; // For fork: show "(parent)" indicator
   disabled?: boolean;
 }
 
@@ -44,6 +45,7 @@ export function WorktreeSelector({
   onChange,
   skipPermissions,
   defaultBranch,
+  parentBranch,
   disabled = false,
 }: WorktreeSelectorProps) {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -179,10 +181,16 @@ export function WorktreeSelector({
                   <span>{branch.name}</span>
                   {branch.isCheckedOutInMain && (
                     <span className="text-muted-foreground text-xs">
-                      (current)
+                      (project)
+                    </span>
+                  )}
+                  {parentBranch && branch.name === parentBranch && (
+                    <span className="text-muted-foreground text-xs">
+                      (parent)
                     </span>
                   )}
                   {!branch.isCheckedOutInMain &&
+                    branch.name !== parentBranch &&
                     branch.worktreePath &&
                     branch.sessionCount > 0 && (
                       <span className="text-muted-foreground text-xs">
