@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Select,
   SelectContent,
@@ -9,20 +9,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { GitBranch, FolderGit, Loader2 } from "lucide-react";
+import { GitBranch, FolderGit, Loader2, AlertCircle } from "lucide-react";
 import type { GitInfo } from "./NewSessionDialog.types";
 
 export interface WorktreeSelection {
-  base: string; // worktree path (project dir = main worktree)
+  branch: string; // branch name
   mode: "direct" | "isolated";
   featureName?: string; // required if mode="isolated"
 }
 
-interface WorktreeInfo {
-  path: string;
-  branchName: string;
+interface BranchInfo {
+  name: string;
+  worktreePath: string | null;
   sessionCount: number;
-  isMain: boolean;
+  isCheckedOutInMain: boolean;
 }
 
 export interface WorktreeSelectorProps {
@@ -32,7 +32,7 @@ export interface WorktreeSelectorProps {
   value: WorktreeSelection;
   onChange: (selection: WorktreeSelection) => void;
   skipPermissions: boolean;
-  defaultBase?: string; // For fork: parent's worktree path
+  defaultBranch?: string; // For fork: parent's branch name
   disabled?: boolean;
 }
 
@@ -43,11 +43,11 @@ export function WorktreeSelector({
   value,
   onChange,
   skipPermissions,
-  defaultBase,
+  defaultBranch,
   disabled = false,
 }: WorktreeSelectorProps) {
-  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
-  const [loadingWorktrees, setLoadingWorktrees] = useState(false);
+  const [branches, setBranches] = useState<BranchInfo[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
 
   // Use ref to avoid stale closure issues in effects
   const onChangeRef = useRef(onChange);
@@ -55,112 +55,141 @@ export function WorktreeSelector({
   const valueRef = useRef(value);
   valueRef.current = value;
 
-  // Fetch worktrees when project changes
+  // Fetch branches when project changes
   useEffect(() => {
     if (!projectId || projectId === "uncategorized") {
-      // For uncategorized project, only show the project directory worktree
-      setWorktrees([
+      // For uncategorized project, only show the current branch
+      setBranches([
         {
-          path: workingDirectory,
-          branchName: gitInfo?.currentBranch || "unknown",
+          name: gitInfo?.currentBranch || "unknown",
+          worktreePath: workingDirectory,
           sessionCount: 0,
-          isMain: true,
+          isCheckedOutInMain: true,
         },
       ]);
       return;
     }
 
-    setLoadingWorktrees(true);
+    setLoadingBranches(true);
     fetch(`/api/projects/${projectId}/worktrees`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.worktrees && Array.isArray(data.worktrees)) {
-          setWorktrees(data.worktrees);
+        if (data.branches && Array.isArray(data.branches)) {
+          setBranches(data.branches);
         }
       })
       .catch(console.error)
-      .finally(() => setLoadingWorktrees(false));
+      .finally(() => setLoadingBranches(false));
   }, [projectId, workingDirectory, gitInfo?.currentBranch]);
 
-  // Set default base when worktrees are loaded or defaultBase changes
+  // Set default branch when branches are loaded or defaultBranch changes
   useEffect(() => {
-    if (defaultBase && worktrees.length > 0) {
-      // Find worktree matching defaultBase
-      const matchingWorktree = worktrees.find((wt) => wt.path === defaultBase);
-      if (matchingWorktree && valueRef.current.base !== defaultBase) {
-        onChangeRef.current({ ...valueRef.current, base: defaultBase });
+    if (defaultBranch && branches.length > 0) {
+      // Find branch matching defaultBranch
+      const matchingBranch = branches.find((b) => b.name === defaultBranch);
+      if (matchingBranch && valueRef.current.branch !== defaultBranch) {
+        onChangeRef.current({ ...valueRef.current, branch: defaultBranch });
       }
     } else if (
-      worktrees.length > 0 &&
-      !worktrees.find((wt) => wt.path === valueRef.current.base)
+      branches.length > 0 &&
+      !branches.find((b) => b.name === valueRef.current.branch)
     ) {
-      // Default to main worktree if current base is not valid
-      const mainWorktree = worktrees.find((wt) => wt.isMain);
-      if (mainWorktree) {
-        onChangeRef.current({ ...valueRef.current, base: mainWorktree.path });
+      // Default to main branch if current selection is not valid
+      const mainBranch = branches.find((b) => b.isCheckedOutInMain);
+      if (mainBranch) {
+        onChangeRef.current({ ...valueRef.current, branch: mainBranch.name });
       }
     }
-  }, [worktrees, defaultBase]);
+  }, [branches, defaultBranch]);
 
-  // Check if main + direct is disabled (skipPermissions requires isolated worktree)
-  const isMainDirect =
-    value.mode === "direct" && value.base === workingDirectory;
+  // Get selected branch info
+  const selectedBranch = branches.find((b) => b.name === value.branch);
+  const mainBranch = branches.find((b) => b.isCheckedOutInMain);
 
-  // Auto-switch to isolated mode when skipPermissions is enabled and main+direct is selected
+  // Check if direct mode is available for the selected branch
+  const hasWorktree = selectedBranch?.worktreePath !== null;
+  const isMainBranch = selectedBranch?.isCheckedOutInMain;
+
+  // Direct mode is disabled if:
+  // 1. No worktree exists for this branch, OR
+  // 2. skipPermissions is true AND this is the main branch (container needs isolated worktree)
+  const directModeDisabled = !hasWorktree || (skipPermissions && isMainBranch);
+
+  // Auto-switch to isolated mode when direct becomes disabled
   useEffect(() => {
-    if (skipPermissions && isMainDirect) {
+    if (directModeDisabled && valueRef.current.mode === "direct") {
       onChangeRef.current({ ...valueRef.current, mode: "isolated" });
     }
-  }, [skipPermissions, isMainDirect]);
+  }, [directModeDisabled]);
+
+  // Handle branch change
+  const handleBranchChange = useCallback(
+    (newBranch: string) => {
+      const branch = branches.find((b) => b.name === newBranch);
+      const branchHasWorktree = branch?.worktreePath !== null;
+      const branchIsMain = branch?.isCheckedOutInMain;
+
+      // If the new branch doesn't have a worktree, or it's main with skipPermissions,
+      // auto-switch to isolated mode
+      const newDirectDisabled =
+        !branchHasWorktree || (skipPermissions && branchIsMain);
+
+      onChange({
+        ...value,
+        branch: newBranch,
+        mode: newDirectDisabled ? "isolated" : value.mode,
+      });
+    },
+    [branches, skipPermissions, onChange, value]
+  );
 
   if (!gitInfo?.isGitRepo) {
     return null;
   }
-
-  const selectedWorktree = worktrees.find((wt) => wt.path === value.base);
-  const mainWorktree = worktrees.find((wt) => wt.isMain);
 
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
         <label className="flex items-center gap-1.5 text-sm font-medium">
           <FolderGit className="h-4 w-4" />
-          Worktree
+          Branch
         </label>
 
-        {/* Base Worktree Selection */}
+        {/* Branch Selection */}
         <Select
-          value={value.base}
-          onValueChange={(newBase) => onChange({ ...value, base: newBase })}
-          disabled={disabled || loadingWorktrees}
+          value={value.branch}
+          onValueChange={handleBranchChange}
+          disabled={disabled || loadingBranches}
         >
           <SelectTrigger className="h-8 text-sm">
-            {loadingWorktrees ? (
+            {loadingBranches ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Loading worktrees...
+                Loading branches...
               </span>
             ) : (
-              <SelectValue placeholder="Select worktree" />
+              <SelectValue placeholder="Select branch" />
             )}
           </SelectTrigger>
           <SelectContent>
-            {worktrees.map((wt) => (
-              <SelectItem key={wt.path} value={wt.path}>
+            {branches.map((branch) => (
+              <SelectItem key={branch.name} value={branch.name}>
                 <span className="flex items-center gap-2">
                   <GitBranch className="h-3.5 w-3.5" />
-                  <span>{wt.branchName}</span>
-                  {wt.isMain && (
+                  <span>{branch.name}</span>
+                  {branch.isCheckedOutInMain && (
                     <span className="text-muted-foreground text-xs">
-                      (main)
+                      (current)
                     </span>
                   )}
-                  {!wt.isMain && wt.sessionCount > 0 && (
-                    <span className="text-muted-foreground text-xs">
-                      ({wt.sessionCount} session
-                      {wt.sessionCount !== 1 ? "s" : ""})
-                    </span>
-                  )}
+                  {!branch.isCheckedOutInMain &&
+                    branch.worktreePath &&
+                    branch.sessionCount > 0 && (
+                      <span className="text-muted-foreground text-xs">
+                        ({branch.sessionCount} session
+                        {branch.sessionCount !== 1 ? "s" : ""})
+                      </span>
+                    )}
                 </span>
               </SelectItem>
             ))}
@@ -179,17 +208,13 @@ export function WorktreeSelector({
             onChange={() =>
               onChange({ ...value, mode: "direct", featureName: undefined })
             }
-            disabled={
-              disabled || (skipPermissions && value.base === mainWorktree?.path)
-            }
+            disabled={disabled || directModeDisabled}
             className="border-border bg-background accent-primary h-4 w-4"
           />
           <label
             htmlFor="mode-direct"
             className={`cursor-pointer text-sm ${
-              skipPermissions && value.base === mainWorktree?.path
-                ? "text-muted-foreground"
-                : ""
+              directModeDisabled ? "text-muted-foreground" : ""
             }`}
           >
             Direct
@@ -211,36 +236,42 @@ export function WorktreeSelector({
         </div>
       </div>
 
-      {/* Mode description */}
-      <p className="text-muted-foreground text-xs">
-        {value.mode === "direct" ? (
-          selectedWorktree?.isMain ? (
-            "Work directly in the project directory"
+      {/* Mode description / hints */}
+      {!hasWorktree && value.mode === "isolated" && (
+        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+          No worktree exists for this branch. A new one will be created.
+        </p>
+      )}
+      {hasWorktree && (
+        <p className="text-muted-foreground text-xs">
+          {value.mode === "direct" ? (
+            isMainBranch ? (
+              "Work directly in the project directory"
+            ) : (
+              <>
+                Share worktree with {selectedBranch?.sessionCount || 0} other
+                session
+                {selectedBranch?.sessionCount !== 1 ? "s" : ""}
+              </>
+            )
           ) : (
             <>
-              Share worktree with {selectedWorktree?.sessionCount || 0} other
-              session
-              {selectedWorktree?.sessionCount !== 1 ? "s" : ""}
+              Create a new branch from{" "}
+              <span className="font-medium">
+                {selectedBranch?.name || "selected branch"}
+              </span>
             </>
-          )
-        ) : (
-          <>
-            Create a new branch from{" "}
-            <span className="font-medium">
-              {selectedWorktree?.branchName || "current branch"}
-            </span>
-          </>
-        )}
-      </p>
+          )}
+        </p>
+      )}
 
       {/* Disabled warning for skipPermissions */}
-      {skipPermissions &&
-        value.base === mainWorktree?.path &&
-        value.mode === "direct" && (
-          <p className="text-xs text-amber-500">
-            Auto-approve requires an isolated worktree for container mounting
-          </p>
-        )}
+      {skipPermissions && isMainBranch && value.mode === "direct" && (
+        <p className="text-xs text-amber-500">
+          Auto-approve requires an isolated worktree for container mounting
+        </p>
+      )}
 
       {/* Feature Name Input (for isolated mode) */}
       {value.mode === "isolated" && (

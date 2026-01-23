@@ -16,11 +16,11 @@ interface WorktreeRow {
   session_count: number;
 }
 
-interface WorktreeInfo {
-  path: string;
-  branchName: string;
-  sessionCount: number;
-  isMain: boolean;
+export interface BranchInfo {
+  name: string; // branch name
+  worktreePath: string | null; // null if no worktree exists for this branch
+  sessionCount: number; // sessions using this branch's worktree
+  isCheckedOutInMain: boolean; // true if this is the current branch in project dir
 }
 
 /**
@@ -39,11 +39,31 @@ async function getCurrentBranch(dir: string): Promise<string | null> {
 }
 
 /**
+ * Get all local branch names
+ */
+async function getAllBranches(dir: string): Promise<string[]> {
+  try {
+    const { stdout } = await execAsync(
+      `git -C "${dir}" branch --list --format="%(refname:short)"`,
+      { timeout: 5000 }
+    );
+    return stdout
+      .trim()
+      .split("\n")
+      .filter((b) => b.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * GET /api/projects/[id]/worktrees
  *
- * Returns all worktrees for a project:
- * - Main worktree (project directory)
- * - Isolated worktrees (from sessions with worktree_path)
+ * Returns all branches for a project with worktree information:
+ * - Branch name
+ * - Worktree path (null if no worktree exists)
+ * - Session count (for branches with worktrees)
+ * - Whether this branch is checked out in the main project directory
  */
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -59,12 +79,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     }
 
     const mainWorktreePath = project.working_directory;
-    const worktrees: WorktreeInfo[] = [];
 
-    // Get current branch for main worktree
+    // Get current branch in main worktree
     const mainBranch = await getCurrentBranch(mainWorktreePath);
 
-    // Count active sessions using the main worktree (no worktree_path)
+    // Get all local branches
+    const allBranches = await getAllBranches(mainWorktreePath);
+
+    // Count active sessions using the main worktree (no worktree_path or main path)
     const mainWorktreeSessionCount = (
       db
         .prepare(
@@ -76,38 +98,68 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         .get(projectId, mainWorktreePath) as { count: number }
     ).count;
 
-    // Add main worktree
-    worktrees.push({
-      path: mainWorktreePath,
-      branchName: mainBranch || "unknown",
-      sessionCount: mainWorktreeSessionCount,
-      isMain: true,
-    });
-
-    // Get isolated worktrees from sessions
+    // Get isolated worktrees from sessions (branch -> worktree mapping)
     const isolatedWorktrees = queries
       .getWorktreesByProject(db)
       .all(projectId) as WorktreeRow[];
 
-    for (const wt of isolatedWorktrees) {
-      // Skip if this is the main worktree path
-      if (wt.worktree_path === mainWorktreePath) {
-        continue;
-      }
+    // Build a map of branch name -> worktree info
+    const branchToWorktree = new Map<
+      string,
+      { path: string; sessionCount: number }
+    >();
 
-      worktrees.push({
-        path: wt.worktree_path,
-        branchName: wt.branch_name || "unknown",
-        sessionCount: wt.session_count,
-        isMain: false,
+    for (const wt of isolatedWorktrees) {
+      if (wt.branch_name && wt.worktree_path !== mainWorktreePath) {
+        branchToWorktree.set(wt.branch_name, {
+          path: wt.worktree_path,
+          sessionCount: wt.session_count,
+        });
+      }
+    }
+
+    // Build the branches response
+    const branches: BranchInfo[] = [];
+
+    for (const branchName of allBranches) {
+      const isMainBranch = branchName === mainBranch;
+      const worktreeInfo = branchToWorktree.get(branchName);
+
+      branches.push({
+        name: branchName,
+        worktreePath: isMainBranch
+          ? mainWorktreePath
+          : worktreeInfo?.path || null,
+        sessionCount: isMainBranch
+          ? mainWorktreeSessionCount
+          : worktreeInfo?.sessionCount || 0,
+        isCheckedOutInMain: isMainBranch,
       });
     }
 
-    return NextResponse.json({ worktrees });
+    // Sort: main branch first, then alphabetically
+    branches.sort((a, b) => {
+      if (a.isCheckedOutInMain) return -1;
+      if (b.isCheckedOutInMain) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Also return worktrees for backward compatibility and for the WorktreeSelector
+    // to know about existing worktrees
+    const worktrees = branches
+      .filter((b) => b.worktreePath !== null)
+      .map((b) => ({
+        path: b.worktreePath!,
+        branchName: b.name,
+        sessionCount: b.sessionCount,
+        isMain: b.isCheckedOutInMain,
+      }));
+
+    return NextResponse.json({ branches, worktrees });
   } catch (error) {
-    console.error("Error fetching worktrees:", error);
+    console.error("Error fetching branches:", error);
     return NextResponse.json(
-      { error: "Failed to fetch worktrees" },
+      { error: "Failed to fetch branches" },
       { status: 500 }
     );
   }

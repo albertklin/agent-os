@@ -20,10 +20,10 @@ import { buildAgentCommand } from "@/lib/sessions";
 
 const execAsync = promisify(exec);
 
-// Worktree selection for new session creation
+// Worktree selection for new session creation (branch-based model)
 interface WorktreeSelection {
-  base: string; // worktree path (project dir = main worktree)
-  mode: "direct" | "isolated";
+  branch: string; // branch name (step 1: select which branch)
+  mode: "direct" | "isolated"; // step 2: work directly in worktree or create new branch
   featureName?: string; // required if mode="isolated"
 }
 
@@ -41,6 +41,48 @@ async function getCurrentBranch(dir: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+interface BranchWorktreeInfo {
+  worktreePath: string | null;
+  isMainWorktree: boolean;
+}
+
+/**
+ * Find the worktree path for a given branch name
+ * Returns the worktree path if one exists, or null if no worktree for this branch
+ */
+async function findWorktreeForBranch(
+  db: ReturnType<typeof getDb>,
+  projectId: string,
+  branchName: string,
+  mainWorktreePath: string
+): Promise<BranchWorktreeInfo> {
+  // Check if the branch is checked out in the main worktree
+  const mainBranch = await getCurrentBranch(mainWorktreePath);
+  if (mainBranch === branchName) {
+    return { worktreePath: mainWorktreePath, isMainWorktree: true };
+  }
+
+  // Check if there's an isolated worktree for this branch
+  const existingSession = db
+    .prepare(
+      `SELECT worktree_path FROM sessions
+       WHERE project_id = ? AND branch_name = ?
+       AND worktree_path IS NOT NULL
+       AND lifecycle_status NOT IN ('failed', 'deleting')
+       LIMIT 1`
+    )
+    .get(projectId, branchName) as { worktree_path: string } | undefined;
+
+  if (existingSession) {
+    return {
+      worktreePath: existingSession.worktree_path,
+      isMainWorktree: false,
+    };
+  }
+
+  return { worktreePath: null, isMainWorktree: false };
 }
 
 // GET /api/sessions - List all sessions and groups
@@ -121,12 +163,14 @@ export async function POST(request: NextRequest) {
     let effectiveWorktreeSelection: WorktreeSelection | null = null;
 
     if (worktreeSelection) {
-      // New unified format
+      // New unified format (branch-based)
       effectiveWorktreeSelection = worktreeSelection;
     } else if (useWorktree && featureName) {
-      // Legacy format - convert to new format (main + isolated)
+      // Legacy format - convert to new format
+      // Get current branch for the working directory
+      const currentBranch = await getCurrentBranch(workingDirectory);
       effectiveWorktreeSelection = {
-        base: workingDirectory,
+        branch: currentBranch || "main",
         mode: "isolated",
         featureName,
       };
@@ -137,28 +181,47 @@ export async function POST(request: NextRequest) {
       effectiveWorktreeSelection?.mode === "isolated" &&
       effectiveWorktreeSelection?.featureName;
 
-    // For existing worktree + direct mode, find the existing session to copy worktree info
+    // For direct mode, resolve the branch to its worktree path
+    let branchWorktreeInfo: BranchWorktreeInfo | null = null;
     let existingWorktreeSession: Session | null = null;
-    if (
-      effectiveWorktreeSelection?.mode === "direct" &&
-      effectiveWorktreeSelection.base !== workingDirectory
-    ) {
-      // This is an existing isolated worktree - find session with this worktree_path
-      const existingSessions = db
-        .prepare(
-          `SELECT * FROM sessions WHERE worktree_path = ? AND lifecycle_status NOT IN ('failed', 'deleting') LIMIT 1`
-        )
-        .get(effectiveWorktreeSelection.base) as Session | undefined;
-      existingWorktreeSession = existingSessions || null;
 
-      if (!existingWorktreeSession) {
+    if (effectiveWorktreeSelection?.mode === "direct") {
+      // Find the worktree for this branch
+      branchWorktreeInfo = await findWorktreeForBranch(
+        db,
+        projectId,
+        effectiveWorktreeSelection.branch,
+        workingDirectory
+      );
+
+      if (!branchWorktreeInfo.worktreePath) {
         return NextResponse.json(
           {
             error:
-              "The selected worktree does not exist or has no active sessions",
+              "No worktree exists for this branch. Please select 'Isolated' mode to create a new worktree.",
           },
           { status: 400 }
         );
+      }
+
+      // If it's not the main worktree, find the existing session to copy worktree info
+      if (!branchWorktreeInfo.isMainWorktree) {
+        const existingSessions = db
+          .prepare(
+            `SELECT * FROM sessions WHERE worktree_path = ? AND lifecycle_status NOT IN ('failed', 'deleting') LIMIT 1`
+          )
+          .get(branchWorktreeInfo.worktreePath) as Session | undefined;
+        existingWorktreeSession = existingSessions || null;
+
+        if (!existingWorktreeSession) {
+          return NextResponse.json(
+            {
+              error:
+                "The worktree for this branch does not have any active sessions.",
+            },
+            { status: 400 }
+          );
+        }
       }
     }
 
@@ -167,7 +230,7 @@ export async function POST(request: NextRequest) {
       const isMainDirect =
         !effectiveWorktreeSelection ||
         (effectiveWorktreeSelection.mode === "direct" &&
-          effectiveWorktreeSelection.base === workingDirectory);
+          branchWorktreeInfo?.isMainWorktree);
 
       if (isMainDirect) {
         return NextResponse.json(
@@ -246,9 +309,12 @@ export async function POST(request: NextRequest) {
 
     // Determine the actual working directory for the session
     let actualWorkingDirectory = workingDirectory;
-    if (existingWorktreeSession?.worktree_path) {
-      // existing + direct: use the existing worktree path
-      actualWorkingDirectory = existingWorktreeSession.worktree_path;
+    if (
+      branchWorktreeInfo?.worktreePath &&
+      effectiveWorktreeSelection?.mode === "direct"
+    ) {
+      // Direct mode: use the worktree path for the selected branch
+      actualWorkingDirectory = branchWorktreeInfo.worktreePath;
     }
 
     const tmuxName = `${agentType}-${id}`;
@@ -268,9 +334,9 @@ export async function POST(request: NextRequest) {
       serializeDomains(normalizeDomains(typedAllowedDomains))
     );
 
-    // Handle the 4 worktree combinations
+    // Handle the worktree setup scenarios
     if (needsWorktreeSetup && effectiveWorktreeSelection) {
-      // ISOLATED mode: Create new worktree (either from main or from existing)
+      // ISOLATED mode: Create new worktree branching from the selected branch
       queries.updateSessionSetupStatus(db).run("pending", null, id);
       queries.updateSessionLifecycleStatus(db).run("creating", id);
 
@@ -282,23 +348,8 @@ export async function POST(request: NextRequest) {
         setupStatus: "pending",
       });
 
-      // Get current branch from the selected base worktree
-      // This is independent of step 1 selection - we always use whatever branch
-      // is currently checked out in the selected worktree
-      const currentBranch = await getCurrentBranch(
-        effectiveWorktreeSelection.base
-      );
-      if (!currentBranch) {
-        // Clean up the session we just created
-        queries.deleteSession(db).run(id);
-        return NextResponse.json(
-          {
-            error: "Could not determine current branch for worktree creation",
-          },
-          { status: 400 }
-        );
-      }
-      const baseBranchToUse = currentBranch;
+      // Use the selected branch as the base branch for the new worktree
+      const baseBranchToUse = effectiveWorktreeSelection.branch;
 
       // Fire and forget - background setup will update status via SSE
       runSessionSetup({

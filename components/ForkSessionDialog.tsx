@@ -26,7 +26,7 @@ interface ForkSessionDialogProps {
   sessionName: string;
   workingDirectory: string;
   projectId: string | null;
-  parentWorktreePath?: string | null;
+  parentBranchName?: string | null; // Parent's branch name for defaulting
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onFork: (options: ForkOptions | null) => Promise<void>;
@@ -37,18 +37,15 @@ export function ForkSessionDialog({
   sessionName,
   workingDirectory,
   projectId,
-  parentWorktreePath,
+  parentBranchName,
   open,
   onOpenChange,
   onFork,
   isPending = false,
 }: ForkSessionDialogProps) {
-  // Default to parent's worktree in direct mode
-  const defaultBase = parentWorktreePath || workingDirectory;
-
   const [worktreeSelection, setWorktreeSelection] = useState<WorktreeSelection>(
     {
-      base: defaultBase,
+      branch: parentBranchName || "",
       mode: "direct",
     }
   );
@@ -67,21 +64,29 @@ export function ForkSessionDialog({
         .then((res) => res.json())
         .then((data) => {
           setGitInfo(data);
+          // Set default branch when git info is loaded
+          if (data.isGitRepo) {
+            const defaultBranch = parentBranchName || data.currentBranch || "";
+            setWorktreeSelection((prev) => ({
+              ...prev,
+              branch: defaultBranch,
+            }));
+          }
         })
         .catch(console.error)
         .finally(() => setLoadingGit(false));
     }
-  }, [open, workingDirectory]);
+  }, [open, workingDirectory, parentBranchName]);
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       setWorktreeSelection({
-        base: defaultBase,
+        branch: parentBranchName || "",
         mode: "direct",
       });
     }
-  }, [open, defaultBase]);
+  }, [open, parentBranchName]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,7 +156,9 @@ export function ForkSessionDialog({
               value={worktreeSelection}
               onChange={handleWorktreeSelectionChange}
               skipPermissions={false}
-              defaultBase={defaultBase}
+              defaultBranch={
+                parentBranchName || gitInfo?.currentBranch || undefined
+              }
               disabled={isPending}
             />
           ) : (

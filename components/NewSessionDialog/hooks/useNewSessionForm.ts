@@ -77,7 +77,7 @@ export function useNewSessionForm({
   // NEW: Unified worktree selection state
   const [worktreeSelection, setWorktreeSelection] = useState<WorktreeSelection>(
     {
-      base: "~",
+      branch: "", // Will be populated when git info is available
       mode: "direct",
     }
   );
@@ -109,7 +109,7 @@ export function useNewSessionForm({
   const checkGitRepo = useCallback(async (path: string) => {
     if (!path || path === "~") {
       setGitInfo(null);
-      setWorktreeSelection({ base: path, mode: "direct" });
+      setWorktreeSelection({ branch: "", mode: "direct" });
       return;
     }
 
@@ -123,25 +123,25 @@ export function useNewSessionForm({
       const data = await res.json();
       setGitInfo(data);
 
-      if (data.isGitRepo) {
+      if (data.isGitRepo && data.currentBranch) {
         // Use saved preference for mode, defaulting to isolated for git repos
         const savedUseWorktree = localStorage.getItem(USE_WORKTREE_KEY);
         const preferIsolated =
           savedUseWorktree !== null ? savedUseWorktree === "true" : true;
 
         setWorktreeSelection({
-          base: path,
+          branch: data.currentBranch, // Use the current branch name
           mode: preferIsolated ? "isolated" : "direct",
           featureName: preferIsolated ? "" : undefined,
         });
         setFeatureNameDirty(false);
       } else {
-        setWorktreeSelection({ base: path, mode: "direct" });
+        setWorktreeSelection({ branch: "", mode: "direct" });
         setFeatureNameDirty(false);
       }
     } catch {
       setGitInfo(null);
-      setWorktreeSelection({ base: path, mode: "direct" });
+      setWorktreeSelection({ branch: "", mode: "direct" });
       setFeatureNameDirty(false);
     } finally {
       setCheckingGit(false);
@@ -328,7 +328,7 @@ export function useNewSessionForm({
     setName(generateFeatureName()); // Regenerate random name
     setWorkingDirectory("~");
     setProjectId(null);
-    setWorktreeSelection({ base: "~", mode: "direct" });
+    setWorktreeSelection({ branch: "", mode: "direct" });
     setFeatureNameDirty(false);
     setInitialPrompt("");
     setExtraMounts([]);

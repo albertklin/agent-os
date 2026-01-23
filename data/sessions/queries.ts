@@ -142,8 +142,8 @@ export function useRenameSession() {
 
 // Worktree selection for session creation/fork
 export interface WorktreeSelection {
-  base: string; // worktree path (project dir = main worktree)
-  mode: "direct" | "isolated";
+  branch: string; // branch name (step 1: select branch)
+  mode: "direct" | "isolated"; // step 2: work directly or create new branch
   featureName?: string; // required if mode="isolated"
 }
 

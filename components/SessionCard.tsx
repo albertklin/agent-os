@@ -668,7 +668,7 @@ function SessionCardComponent({
       sessionName={session.name}
       workingDirectory={session.working_directory}
       projectId={session.project_id || null}
-      parentWorktreePath={session.worktree_path}
+      parentBranchName={session.branch_name}
       open={forkDialogOpen}
       onOpenChange={setForkDialogOpen}
       onFork={onFork}
