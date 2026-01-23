@@ -3,7 +3,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { getDb, queries, type Session } from "@/lib/db";
 import { destroyContainer } from "@/lib/container";
-import { deleteWorktree, isAgentOSWorktree } from "@/lib/worktrees";
+import { isAgentOSWorktree } from "@/lib/worktrees";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { TMUX_SOCKET } from "@/lib/tmux";
 
@@ -43,7 +43,9 @@ export async function POST() {
     // Get all sessions from database for cleanup
     const dbSessions = queries.getAllSessions(db).all() as Session[];
     let containersDestroyed = 0;
-    let worktreesDeleted = 0;
+
+    // Track worktrees that will be orphaned
+    const orphanedWorktrees: string[] = [];
 
     // Clean up resources for each session
     for (const session of dbSessions) {
@@ -57,25 +59,10 @@ export async function POST() {
         }
       }
 
-      // Delete worktree if present and it's an AgentOS worktree
-      // Note: We use a simplified cleanup here - no sibling checks since we're deleting all
+      // Track worktrees that will be orphaned (but don't delete them)
+      // This preserves any uncommitted work or unmerged commits
       if (session.worktree_path && isAgentOSWorktree(session.worktree_path)) {
-        try {
-          // Get the git common dir from the worktree
-          const { stdout: gitDir } = await execAsync(
-            `git -C "${session.worktree_path}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo ""`,
-            { timeout: 5000 }
-          );
-          const gitCommonDir = gitDir.trim().replace(/\/.git$/, "");
-
-          if (gitCommonDir) {
-            // Delete without branch deletion - let git prune handle orphan branches
-            await deleteWorktree(session.worktree_path, gitCommonDir, false);
-            worktreesDeleted++;
-          }
-        } catch {
-          // Continue even if worktree cleanup fails
-        }
+        orphanedWorktrees.push(session.worktree_path);
       }
 
       // Clear SSE state
@@ -94,7 +81,7 @@ export async function POST() {
       sessions: killed,
       deletedFromDb: dbSessions.length,
       containersDestroyed,
-      worktreesDeleted,
+      orphanedWorktrees,
     });
   } catch (error) {
     console.error("Error killing tmux sessions:", error);

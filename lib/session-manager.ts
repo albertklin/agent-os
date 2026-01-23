@@ -16,7 +16,6 @@ import { getTmuxSessionName } from "./sessions";
 import * as tmux from "./tmux";
 import { escapeShellArg } from "./tmux";
 import {
-  createContainer,
   destroyContainer,
   isContainerRunning,
   cleanupOrphanContainers,
@@ -389,29 +388,11 @@ class SessionManager {
         }
       }
 
-      // Clean up worktree if present
-      if (session.worktree_path) {
-        try {
-          const mainRepoPath = await getMainRepoFromWorktree(
-            session.worktree_path
-          );
-          if (mainRepoPath) {
-            await deleteWorktree(session.worktree_path, mainRepoPath);
-            console.log(
-              `[session-manager] Deleted orphaned worktree ${session.worktree_path} for deleting session ${session.id}`
-            );
-          } else {
-            console.warn(
-              `[session-manager] Could not determine main repo for worktree ${session.worktree_path}, skipping cleanup for deleting session ${session.id}`
-            );
-          }
-        } catch (error) {
-          console.error(
-            `[session-manager] Failed to delete orphaned worktree ${session.worktree_path}:`,
-            error
-          );
-        }
-      }
+      // Note: We intentionally do NOT delete worktrees for sessions stuck in 'deleting' status.
+      // The user initiated a delete, but the server crashed mid-operation. The worktree may
+      // contain uncommitted work. We delete the session record so the user can re-create
+      // sessions, but preserve the worktree on disk for manual recovery if needed.
+      // The worktree can be cleaned up manually at: ~/.agent-os/worktrees/
 
       // Clear SSE state and delete the session from DB
       statusBroadcaster.clearStatus(session.id);
@@ -462,29 +443,11 @@ class SessionManager {
         }
       }
 
-      // Clean up any orphaned worktree
-      if (session.worktree_path) {
-        try {
-          const mainRepoPath = await getMainRepoFromWorktree(
-            session.worktree_path
-          );
-          if (mainRepoPath) {
-            await deleteWorktree(session.worktree_path, mainRepoPath);
-            console.log(
-              `[session-manager] Deleted orphaned worktree ${session.worktree_path} for stuck session ${session.id}`
-            );
-          } else {
-            console.warn(
-              `[session-manager] Could not determine main repo for worktree ${session.worktree_path}, skipping cleanup for stuck session ${session.id}`
-            );
-          }
-        } catch (error) {
-          console.error(
-            `[session-manager] Failed to delete orphaned worktree ${session.worktree_path}:`,
-            error
-          );
-        }
-      }
+      // Note: We intentionally do NOT delete worktrees for sessions stuck in 'creating' status.
+      // The session was being set up when the server crashed. The worktree may contain work
+      // that the user started before the crash. We mark the session as failed so it's visible
+      // in the UI, and the user can manually clean up or recover the worktree.
+      // The worktree can be found at: ~/.agent-os/worktrees/
 
       // Clear SSE state for stuck session
       statusBroadcaster.clearStatus(session.id);
@@ -540,29 +503,11 @@ class SessionManager {
           }
         }
 
-        // Clean up orphaned worktree if present
-        if (session.worktree_path) {
-          try {
-            const mainRepoPath = await getMainRepoFromWorktree(
-              session.worktree_path
-            );
-            if (mainRepoPath) {
-              await deleteWorktree(session.worktree_path, mainRepoPath);
-              console.log(
-                `[session-manager] Deleted orphaned worktree ${session.worktree_path} for dead session ${session.id}`
-              );
-            } else {
-              console.warn(
-                `[session-manager] Could not determine main repo for worktree ${session.worktree_path}, skipping cleanup for dead session ${session.id}`
-              );
-            }
-          } catch (error) {
-            console.error(
-              `[session-manager] Failed to delete orphaned worktree ${session.worktree_path}:`,
-              error
-            );
-          }
-        }
+        // Note: We intentionally do NOT delete worktrees for dead sessions.
+        // The tmux session died (crash, reboot, etc.) but the worktree may contain
+        // uncommitted work or unmerged commits. We mark the session as failed so it's
+        // visible in the UI, and the user can explicitly delete it (with merge options)
+        // or recover their work. The worktree can be found at: ~/.agent-os/worktrees/
       }
     }
 
