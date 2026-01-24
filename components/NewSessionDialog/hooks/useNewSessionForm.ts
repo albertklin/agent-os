@@ -129,13 +129,12 @@ export function useNewSessionForm({
         const preferIsolated =
           savedUseWorktree !== null ? savedUseWorktree === "true" : true;
 
-        // Don't set branch here - let WorktreeSelector handle it via defaultBranch
-        // prop after branches are loaded to avoid race condition with empty dropdown
-        setWorktreeSelection((prev) => ({
-          ...prev,
+        // Reset branch - let WorktreeSelector select the default after branches load
+        setWorktreeSelection({
+          branch: "",
           mode: preferIsolated ? "isolated" : "direct",
           featureName: preferIsolated ? "" : undefined,
-        }));
+        });
         setFeatureNameDirty(false);
       } else {
         setWorktreeSelection({ branch: "", mode: "direct" });
