@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { homedir } from "os";
 import { getDb, queries, type Project } from "@/lib/db";
 
 const execAsync = promisify(exec);
+
+/**
+ * Expand ~ to home directory in paths
+ */
+function expandPath(p: string): string {
+  if (p.startsWith("~")) {
+    return p.replace(/^~/, homedir());
+  }
+  return p;
+}
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -29,8 +40,9 @@ export interface BranchInfo {
  */
 async function getCurrentBranch(dir: string): Promise<string | null> {
   try {
+    const resolved = expandPath(dir);
     const { stdout } = await execAsync(
-      `git -C "${dir}" rev-parse --abbrev-ref HEAD`,
+      `git -C "${resolved}" rev-parse --abbrev-ref HEAD`,
       { timeout: 5000 }
     );
     return stdout.trim() || null;
@@ -44,8 +56,9 @@ async function getCurrentBranch(dir: string): Promise<string | null> {
  */
 async function getAllBranches(dir: string): Promise<string[]> {
   try {
+    const resolved = expandPath(dir);
     const { stdout } = await execAsync(
-      `git -C "${dir}" branch --list --format="%(refname:short)"`,
+      `git -C "${resolved}" branch --list --format="%(refname:short)"`,
       { timeout: 5000 }
     );
     return stdout
@@ -62,9 +75,13 @@ async function getAllBranches(dir: string): Promise<string[]> {
  */
 async function hasUncommittedChanges(dir: string): Promise<boolean> {
   try {
-    const { stdout } = await execAsync(`git -C "${dir}" status --porcelain`, {
-      timeout: 5000,
-    });
+    const resolved = expandPath(dir);
+    const { stdout } = await execAsync(
+      `git -C "${resolved}" status --porcelain`,
+      {
+        timeout: 5000,
+      }
+    );
     return stdout.trim().length > 0;
   } catch {
     return false;
