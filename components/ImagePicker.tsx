@@ -78,15 +78,27 @@ function ImagePasteModal({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div
-          ref={pasteAreaRef}
-          tabIndex={0}
-          onPaste={handlePaste}
-          className="bg-muted focus:ring-primary border-muted-foreground/30 flex h-32 w-full cursor-text items-center justify-center rounded-lg border-2 border-dashed text-sm focus:ring-2 focus:outline-none"
-        >
-          <span className="text-muted-foreground px-4 text-center">
-            Tap here, then long-press and select <strong>Paste</strong>
-          </span>
+        <div className="relative h-32 w-full">
+          <div
+            ref={pasteAreaRef}
+            contentEditable
+            suppressContentEditableWarning
+            onPaste={handlePaste}
+            onInput={(e) => {
+              // Clear any typed/pasted text content to keep area empty
+              const target = e.currentTarget;
+              if (target.textContent) {
+                target.textContent = "";
+              }
+            }}
+            className="bg-muted focus:ring-primary border-muted-foreground/30 absolute inset-0 flex cursor-text items-center justify-center rounded-lg border-2 border-dashed text-sm focus:ring-2 focus:outline-none"
+            aria-label="Tap here, then long-press and select Paste"
+          />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="text-muted-foreground px-4 text-center">
+              Tap here, then long-press and select <strong>Paste</strong>
+            </span>
+          </div>
         </div>
         <p className="text-muted-foreground mt-3 text-center text-xs">
           Copy a screenshot or image first, then paste it here.
