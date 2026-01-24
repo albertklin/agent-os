@@ -9,6 +9,7 @@ import { join, extname } from "path";
 export type { FileNode } from "./file-utils";
 export { getLanguageFromExtension } from "./file-utils";
 import type { FileNode } from "./file-utils";
+import { isMediaFile } from "./file-utils";
 
 /**
  * Default exclude patterns (matches common ignore patterns)
@@ -141,6 +142,16 @@ export function readFileContent(
 
   try {
     const stat = statSync(filePath);
+
+    // Check for media files first - they should be treated as binary
+    // and rendered via the raw file endpoint (no size limit)
+    if (isMediaFile(filePath)) {
+      return {
+        content: `Media file (${(stat.size / 1024 / 1024).toFixed(2)}MB)`,
+        isBinary: true,
+        size: stat.size,
+      };
+    }
 
     if (stat.size > maxSize) {
       return {
