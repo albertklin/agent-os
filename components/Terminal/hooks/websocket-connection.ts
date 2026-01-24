@@ -161,6 +161,7 @@ export function createWebSocketConnection(
         term.write("\r\n\x1b[33m[Session ended]\x1b[0m\r\n");
         // Prevent auto-reconnection when session has ended
         intentionalCloseRef.current = true;
+        callbacks.onConnectionStateChange("disconnected");
       } else if (msg.type === "kicked") {
         term.write(
           `\r\n\x1b[33m[${msg.message || "Disconnected by another client"}]\x1b[0m\r\n`
@@ -181,6 +182,7 @@ export function createWebSocketConnection(
         term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
         // Prevent auto-reconnection on server errors (session not found, etc.)
         intentionalCloseRef.current = true;
+        callbacks.onConnectionStateChange("disconnected");
       }
     } catch {
       term.write(event.data);
@@ -191,8 +193,11 @@ export function createWebSocketConnection(
     callbacks.onSetConnected(false);
     callbacks.onDisconnected?.();
 
+    // If this was an intentional close (exit, kicked, busy, error),
+    // don't change the connection state - it's already been set appropriately
+    // by the message handler. This preserves "kicked" and "busy" states
+    // so the user can see the takeover button.
     if (intentionalCloseRef.current) {
-      callbacks.onConnectionStateChange("disconnected");
       return;
     }
 
