@@ -194,9 +194,13 @@ export function ImagePicker({
     { disabled: uploading }
   );
 
-  // Clipboard paste handler
+  // Clipboard paste handler (skip if paste modal is open - it has its own handler)
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
+      // Skip if the paste modal is handling this - React's stopPropagation
+      // doesn't stop native events from reaching document listeners
+      if (showPasteModal) return;
+
       const items = e.clipboardData?.items;
       if (!items) return;
 
@@ -214,7 +218,7 @@ export function ImagePicker({
 
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [handleImageFile]);
+  }, [handleImageFile, showPasteModal]);
 
   // Load directory contents
   const loadDirectory = useCallback(async (path: string) => {
