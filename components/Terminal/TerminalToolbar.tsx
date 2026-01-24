@@ -28,6 +28,8 @@ const SPECIAL_KEYS = {
   TAB: "\t",
   CTRL_C: "\x03",
   CTRL_D: "\x04",
+  CTRL_E: "\x05",
+  CTRL_O: "\x0f",
   CTRL_Z: "\x1a",
   CTRL_L: "\x0c",
 } as const;
@@ -371,6 +373,8 @@ export function TerminalToolbar({
     { label: "^C", key: SPECIAL_KEYS.CTRL_C, highlight: true },
     { label: "Esc", key: SPECIAL_KEYS.ESC },
     { label: "^D", key: SPECIAL_KEYS.CTRL_D },
+    { label: "^E", key: SPECIAL_KEYS.CTRL_E },
+    { label: "^O", key: SPECIAL_KEYS.CTRL_O },
   ];
 
   return (

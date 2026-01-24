@@ -6,6 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -17,10 +18,17 @@ import {
   GitBranch,
   ChevronDown,
   Circle,
+  Sparkles,
+  Cpu,
+  MemoryStick,
+  Monitor,
+  Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Session, Project } from "@/lib/db";
 import type { LucideIcon } from "lucide-react";
+import { useClaudeUsage, formatTimeUntilReset } from "@/hooks/useClaudeUsage";
+import { useSystemStats, formatBytes } from "@/hooks/useSystemStats";
 
 type ViewMode = "terminal" | "files" | "git";
 
@@ -59,6 +67,53 @@ function ViewModeButton({
   );
 }
 
+interface UsageBarProps {
+  label: string;
+  value: number;
+  resetInfo: string;
+  icon?: React.ReactNode;
+}
+
+function UsageBar({ label, value, resetInfo, icon }: UsageBarProps) {
+  const getColor = (pct: number) => {
+    if (pct >= 90) return "bg-red-500";
+    if (pct >= 70) return "bg-yellow-500";
+    return "bg-primary";
+  };
+
+  return (
+    <div className="text-xs">
+      <div className="mb-0.5 flex justify-between">
+        <span className="text-muted-foreground flex items-center gap-1">
+          {icon}
+          {label}
+        </span>
+        <span
+          className={cn(
+            "font-mono",
+            value >= 90
+              ? "text-red-500"
+              : value >= 70
+                ? "text-yellow-500"
+                : "text-foreground"
+          )}
+        >
+          {value}%
+        </span>
+      </div>
+      <div className="bg-muted h-1.5 overflow-hidden rounded-full">
+        <div
+          className={cn("h-full rounded-full transition-all", getColor(value))}
+          style={{ width: `${Math.min(value, 100)}%` }}
+        />
+      </div>
+      <div className="text-muted-foreground/60 mt-0.5 text-[10px]">
+        {resetInfo}
+      </div>
+    </div>
+  );
+}
+
 interface MobileTabBarProps {
   session: Session | null | undefined;
   sessions: Session[];
@@ -78,6 +133,12 @@ export function MobileTabBar({
   onViewModeChange,
   onSelectSession,
 }: MobileTabBarProps) {
+  // Claude usage stats
+  const { usage } = useClaudeUsage({ interval: 60000 });
+
+  // System stats
+  const { stats: systemStats } = useSystemStats({ interval: 2000 });
+
   // Find current session index and calculate prev/next
   const currentIndex = session
     ? sessions.findIndex((s) => s.id === session.id)
@@ -216,6 +277,78 @@ export function MobileTabBar({
                 </DropdownMenuItem>
               );
             })}
+
+            {/* Claude usage stats */}
+            {usage && (usage.fiveHour || usage.sevenDay) && (
+              <>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-2">
+                  <div className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs font-medium">
+                    <Sparkles className="h-3 w-3" />
+                    Claude Usage
+                  </div>
+                  <div className="space-y-1">
+                    {usage.fiveHour && (
+                      <UsageBar
+                        label="5-hour"
+                        value={usage.fiveHour.utilization}
+                        resetInfo={`Resets in ${formatTimeUntilReset(usage.fiveHour.resetsAt)}`}
+                      />
+                    )}
+                    {usage.sevenDay && (
+                      <UsageBar
+                        label="7-day"
+                        value={usage.sevenDay.utilization}
+                        resetInfo={`Resets in ${formatTimeUntilReset(usage.sevenDay.resetsAt)}`}
+                      />
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* System stats */}
+            {systemStats && (
+              <>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-2">
+                  <div className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs font-medium">
+                    <Server className="h-3 w-3" />
+                    Server Resources
+                  </div>
+                  <div className="space-y-1">
+                    <UsageBar
+                      label="CPU"
+                      value={systemStats.cpu.usage}
+                      resetInfo={`${systemStats.cpu.cores} cores`}
+                      icon={<Cpu className="h-3 w-3" />}
+                    />
+                    <UsageBar
+                      label="Memory"
+                      value={systemStats.memory.usage}
+                      resetInfo={`${formatBytes(systemStats.memory.used)} / ${formatBytes(systemStats.memory.total)}`}
+                      icon={<MemoryStick className="h-3 w-3" />}
+                    />
+                    {systemStats.gpu && (
+                      <>
+                        <UsageBar
+                          label="GPU"
+                          value={systemStats.gpu.usage}
+                          resetInfo={systemStats.gpu.name || "GPU"}
+                          icon={<Monitor className="h-3 w-3" />}
+                        />
+                        <UsageBar
+                          label="VRAM"
+                          value={systemStats.gpu.memoryUsage}
+                          resetInfo={`${formatBytes(systemStats.gpu.memoryUsed)} / ${formatBytes(systemStats.gpu.memoryTotal)}`}
+                          icon={<MemoryStick className="h-3 w-3" />}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
