@@ -279,8 +279,14 @@ export function ImagePicker({
               <span className="text-sm">Drop screenshot here</span>
             </div>
             <Button
+              type="button"
               variant="outline"
-              size="sm"
+              size="default"
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleClipboardPaste();
+              }}
               onClick={handleClipboardPaste}
               className="gap-1.5"
             >
