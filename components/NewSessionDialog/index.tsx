@@ -107,7 +107,7 @@ export function NewSessionDialog({
                 skipPermissions={
                   form.skipPermissions && form.agentType === "claude"
                 }
-                defaultBranch={form.gitInfo?.currentBranch}
+                defaultBranch={form.gitInfo?.currentBranch ?? undefined}
                 disabled={form.isLoading}
               />
             )}
