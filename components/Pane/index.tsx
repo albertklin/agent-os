@@ -11,8 +11,10 @@ import {
 } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 import { useFileEditor } from "@/hooks/useFileEditor";
+import { useTerminalFocusRedirect } from "@/hooks/useTerminalFocusRedirect";
 import { MobileTabBar } from "./MobileTabBar";
 import { DesktopTabBar } from "./DesktopTabBar";
+import type { TerminalHandle } from "@/components/Terminal";
 import {
   TerminalSkeleton,
   FileExplorerSkeleton,
@@ -104,6 +106,22 @@ export const Pane = memo(function Pane({
 
   // File editor state - lifted here so it persists across view switches
   const fileEditor = useFileEditor();
+
+  // Terminal refs - one per tab, keyed by tab ID
+  const terminalRefs = useRef<Map<string, TerminalHandle>>(new Map());
+
+  // Get focus function for active terminal (only when terminal view is active and pane is focused)
+  const focusActiveTerminal = useCallback(() => {
+    if (!activeTab || viewMode !== "terminal") return;
+    const terminalHandle = terminalRefs.current.get(activeTab.id);
+    terminalHandle?.focus();
+  }, [activeTab, viewMode]);
+
+  // Redirect keyboard input to terminal when no input element is focused
+  useTerminalFocusRedirect(
+    isFocused && viewMode === "terminal" ? focusActiveTerminal : null,
+    isFocused && viewMode === "terminal"
+  );
 
   // Watch for file open requests
   const { request: fileOpenRequest } = useSnapshot(fileOpenStore);
@@ -267,6 +285,13 @@ export const Pane = memo(function Pane({
               >
                 {hasSession ? (
                   <Terminal
+                    ref={(handle) => {
+                      if (handle) {
+                        terminalRefs.current.set(tab.id, handle);
+                      } else {
+                        terminalRefs.current.delete(tab.id);
+                      }
+                    }}
                     sessionId={tab.sessionId ?? undefined}
                     lifecycleStatus={tabSession?.lifecycle_status}
                     setupStatus={tabSession?.setup_status ?? undefined}
@@ -349,6 +374,13 @@ export const Pane = memo(function Pane({
                       >
                         {hasSession ? (
                           <Terminal
+                            ref={(handle) => {
+                              if (handle) {
+                                terminalRefs.current.set(tab.id, handle);
+                              } else {
+                                terminalRefs.current.delete(tab.id);
+                              }
+                            }}
                             sessionId={tab.sessionId ?? undefined}
                             lifecycleStatus={tabSession?.lifecycle_status}
                             setupStatus={tabSession?.setup_status ?? undefined}
