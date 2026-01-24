@@ -85,9 +85,13 @@ export function WorktreeSelector({
       .finally(() => setLoadingBranches(false));
   }, [projectId, workingDirectory, gitInfo?.currentBranch]);
 
-  // Set selection when branches load and no branch is selected
+  // Set selection when branches load and no valid branch is selected
   useEffect(() => {
-    if (branches.length === 0 || value.branch) return;
+    if (branches.length === 0) return;
+
+    // Check if current branch exists in the loaded branches
+    const currentBranchExists = branches.some((b) => b.name === value.branch);
+    if (value.branch && currentBranchExists) return;
 
     // Select defaultBranch (parent in fork, current in new) or fall back to project branch
     const target =
