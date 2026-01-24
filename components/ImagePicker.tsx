@@ -67,6 +67,28 @@ export function ImagePicker({
     [onSelect]
   );
 
+  // Handle explicit clipboard paste (for mobile)
+  const handleClipboardPaste = useCallback(async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find((t) => t.startsWith("image/"));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const file = new File([blob], "pasted-image.png", {
+            type: imageType,
+          });
+          await handleImageFile(file);
+          return;
+        }
+      }
+      // No image found in clipboard - could show a toast here
+      console.log("No image found in clipboard");
+    } catch (err) {
+      console.error("Clipboard read failed:", err);
+    }
+  }, [handleImageFile]);
+
   // Drag and drop using shared hook
   const { isDragging, dragHandlers } = useFileDrop(
     dropZoneRef,
@@ -251,15 +273,20 @@ export function ImagePicker({
             </span>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-1 text-center">
+          <div className="flex flex-col items-center gap-2 text-center">
             <div className="text-muted-foreground flex items-center gap-2">
               <Upload className="h-4 w-4" />
               <span className="text-sm">Drop screenshot here</span>
             </div>
-            <div className="text-muted-foreground flex items-center gap-1 text-xs">
-              <Clipboard className="h-3 w-3" />
-              <span>or paste from clipboard (⌘V)</span>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClipboardPaste}
+              className="gap-1.5"
+            >
+              <Clipboard className="h-4 w-4" />
+              Paste from Clipboard
+            </Button>
           </div>
         )}
       </div>
