@@ -50,7 +50,7 @@ export function SystemStats() {
   }
 
   return (
-    <div className="mr-3 flex items-center gap-3 border-r border-border/40 pr-3">
+    <div className="border-border/40 mr-3 flex items-center gap-3 border-r pr-3">
       {/* CPU */}
       <StatItem
         icon={<Cpu className="h-3 w-3" />}
@@ -72,9 +72,14 @@ export function SystemStats() {
         <>
           <StatItem
             icon={<Monitor className="h-3 w-3" />}
-            label={stats.gpu.name || "GPU"}
+            label={`${stats.gpu.name || "GPU"} Utilization`}
             value={stats.gpu.usage}
-            detail={`${formatBytes(stats.gpu.memoryUsed)} / ${formatBytes(stats.gpu.memoryTotal)} VRAM`}
+          />
+          <StatItem
+            icon={<MemoryStick className="h-3 w-3" />}
+            label={`${stats.gpu.name || "GPU"} Memory`}
+            value={stats.gpu.memoryUsage}
+            detail={`${formatBytes(stats.gpu.memoryUsed)} / ${formatBytes(stats.gpu.memoryTotal)}`}
           />
         </>
       )}
