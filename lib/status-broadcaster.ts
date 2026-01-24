@@ -396,6 +396,14 @@ class StatusBroadcaster {
   }
 
   /**
+   * Broadcast that the session list has changed (create/delete)
+   * This notifies all SSE clients to refresh their session list
+   */
+  broadcastSessionsChanged(): void {
+    this.broadcast({ sessionId: "__sessions_changed__", status: "idle" });
+  }
+
+  /**
    * Check if a session exists in the database
    */
   private sessionExistsInDb(sessionId: string): boolean {

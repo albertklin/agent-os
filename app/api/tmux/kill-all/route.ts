@@ -76,6 +76,11 @@ export async function POST() {
       }
     }
 
+    // Notify all SSE clients that session list changed
+    if (dbSessions.length > 0) {
+      statusBroadcaster.broadcastSessionsChanged();
+    }
+
     return NextResponse.json({
       killed: killed.length,
       sessions: killed,
