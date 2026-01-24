@@ -102,8 +102,9 @@ export function ClaudeUsage() {
         )}
         {usage.extraUsage?.isEnabled && (
           <p className="text-muted-foreground text-xs">
-            Extra: ${usage.extraUsage.usedCredits} / $
-            {usage.extraUsage.monthlyLimit} ({usage.extraUsage.utilization}%)
+            Extra: ${(usage.extraUsage.usedCredits / 100).toFixed(2)} / $
+            {(usage.extraUsage.monthlyLimit / 100).toFixed(2)} (
+            {usage.extraUsage.utilization}%)
           </p>
         )}
         {refreshInfo && (
