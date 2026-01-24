@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/tooltip";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
 import { SystemStats } from "@/components/SystemStats";
+import { ClaudeUsage } from "@/components/ClaudeUsage";
 import type { ViewProps } from "./types";
 import { fileOpenActions } from "@/stores/fileOpen";
 
@@ -167,6 +168,8 @@ export function DesktopView({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Claude usage indicator */}
+            <ClaudeUsage />
             {/* System stats indicator */}
             <SystemStats />
             {/* Keyboard shortcut hints */}
