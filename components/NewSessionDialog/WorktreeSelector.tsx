@@ -85,25 +85,19 @@ export function WorktreeSelector({
       .finally(() => setLoadingBranches(false));
   }, [projectId, workingDirectory, gitInfo?.currentBranch]);
 
-  // Set default branch when branches are loaded or defaultBranch changes
+  // Set selection when branches load and no branch is selected
   useEffect(() => {
-    if (defaultBranch && branches.length > 0) {
-      // Find branch matching defaultBranch
-      const matchingBranch = branches.find((b) => b.name === defaultBranch);
-      if (matchingBranch && valueRef.current.branch !== defaultBranch) {
-        onChangeRef.current({ ...valueRef.current, branch: defaultBranch });
-      }
-    } else if (
-      branches.length > 0 &&
-      !branches.find((b) => b.name === valueRef.current.branch)
-    ) {
-      // Default to main branch if current selection is not valid
-      const mainBranch = branches.find((b) => b.isCheckedOutInMain);
-      if (mainBranch) {
-        onChangeRef.current({ ...valueRef.current, branch: mainBranch.name });
-      }
+    if (branches.length === 0 || value.branch) return;
+
+    // Select defaultBranch (parent in fork, current in new) or fall back to project branch
+    const target =
+      (defaultBranch && branches.find((b) => b.name === defaultBranch)?.name) ||
+      branches.find((b) => b.isCheckedOutInMain)?.name;
+
+    if (target) {
+      onChangeRef.current({ ...valueRef.current, branch: target });
     }
-  }, [branches, defaultBranch]);
+  }, [branches, defaultBranch, value.branch]);
 
   // Get selected branch info
   const selectedBranch = branches.find((b) => b.name === value.branch);
