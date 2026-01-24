@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
+import { SystemStats } from "@/components/SystemStats";
 import type { ViewProps } from "./types";
 import { fileOpenActions } from "@/stores/fileOpen";
 
@@ -166,6 +167,8 @@ export function DesktopView({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* System stats indicator */}
+            <SystemStats />
             {/* Keyboard shortcut hints */}
             <div className="text-muted-foreground/40 mr-2 flex items-center gap-4 text-[11px]">
               <span>
