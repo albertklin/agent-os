@@ -250,11 +250,24 @@ export function useNewSessionForm({
   // Handler for worktree selection changes
   const handleWorktreeSelectionChange = useCallback(
     (newSelection: WorktreeSelection) => {
-      // Track if feature name is being manually edited
+      let updatedSelection = newSelection;
+
+      // Auto-populate feature name when isolated mode has no feature name
+      // This handles race conditions where child components update with stale state
       if (
         newSelection.mode === "isolated" &&
-        newSelection.featureName !== worktreeSelection.featureName &&
-        newSelection.featureName !== name
+        !newSelection.featureName?.trim() &&
+        !featureNameDirty
+      ) {
+        updatedSelection = { ...newSelection, featureName: name };
+      }
+
+      // Track if feature name is being manually edited (non-empty and different from auto name)
+      if (
+        updatedSelection.mode === "isolated" &&
+        updatedSelection.featureName &&
+        updatedSelection.featureName !== worktreeSelection.featureName &&
+        updatedSelection.featureName !== name
       ) {
         setFeatureNameDirty(true);
       }
@@ -262,12 +275,12 @@ export function useNewSessionForm({
       // Save mode preference
       localStorage.setItem(
         USE_WORKTREE_KEY,
-        String(newSelection.mode === "isolated")
+        String(updatedSelection.mode === "isolated")
       );
 
-      setWorktreeSelection(newSelection);
+      setWorktreeSelection(updatedSelection);
     },
-    [worktreeSelection.featureName, name]
+    [worktreeSelection.featureName, name, featureNameDirty]
   );
 
   const handleSubmit = async (e: React.FormEvent) => {

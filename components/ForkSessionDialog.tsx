@@ -103,19 +103,19 @@ export function ForkSessionDialog({
     onOpenChange(false);
   };
 
-  // Handle switching to isolated mode - auto-populate feature name
+  // Handle worktree selection changes - auto-populate feature name when needed
   const handleWorktreeSelectionChange = useCallback(
     (newSelection: WorktreeSelection) => {
       setWorktreeSelection((prev) => {
-        if (
-          newSelection.mode === "isolated" &&
-          prev.mode !== "isolated" &&
-          !newSelection.featureName
-        ) {
-          // Auto-populate feature name when switching to isolated mode
+        // Auto-populate feature name when isolated mode has no feature name
+        // This handles both:
+        // 1. Switching to isolated mode for the first time
+        // 2. Race conditions where child components update with stale empty featureName
+        if (newSelection.mode === "isolated" && !newSelection.featureName) {
           return {
             ...newSelection,
-            featureName: generateFeatureName(),
+            // Preserve existing featureName if we had one, otherwise generate new
+            featureName: prev.featureName || generateFeatureName(),
           };
         }
         return newSelection;
