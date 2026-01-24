@@ -96,14 +96,7 @@ export function NewSessionDialog({
               onModelChange={form.handleModelChange}
             />
 
-            {/* 5. Options row */}
-            <SessionOptions
-              agentType={form.agentType}
-              skipPermissions={form.skipPermissions}
-              onSkipPermissionsChange={form.handleSkipPermissionsChange}
-            />
-
-            {/* 6. Worktree selection (for git repos) */}
+            {/* 5. Worktree selection (for git repos) */}
             {form.gitInfo?.isGitRepo && (
               <WorktreeSelector
                 projectId={form.projectId}
@@ -114,9 +107,17 @@ export function NewSessionDialog({
                 skipPermissions={
                   form.skipPermissions && form.agentType === "claude"
                 }
+                defaultBranch={form.gitInfo?.currentBranch}
                 disabled={form.isLoading}
               />
             )}
+
+            {/* 6. Options row */}
+            <SessionOptions
+              agentType={form.agentType}
+              skipPermissions={form.skipPermissions}
+              onSkipPermissionsChange={form.handleSkipPermissionsChange}
+            />
 
             {/* 7. Container settings (for sandboxed sessions) */}
             {form.skipPermissions && form.agentType === "claude" && (

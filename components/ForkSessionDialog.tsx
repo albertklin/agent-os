@@ -69,19 +69,13 @@ export function ForkSessionDialog({
         .then((res) => res.json())
         .then((data) => {
           setGitInfo(data);
-          // Set default branch when git info is loaded
-          if (data.isGitRepo) {
-            const defaultBranch = parentBranchName || data.currentBranch || "";
-            setWorktreeSelection((prev) => ({
-              ...prev,
-              branch: defaultBranch,
-            }));
-          }
+          // Don't set branch here - let WorktreeSelector handle it via defaultBranch
+          // prop after branches are loaded to avoid race condition with empty dropdown
         })
         .catch(console.error)
         .finally(() => setLoadingGit(false));
     }
-  }, [open, workingDirectory, parentBranchName]);
+  }, [open, workingDirectory]);
 
   // Reset form when dialog opens
   useEffect(() => {
