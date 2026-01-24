@@ -425,6 +425,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     statusBroadcaster.clearStatus(id);
     clearPendingPrompt(id);
 
+    // Notify all SSE clients that session list changed
+    statusBroadcaster.broadcastSessionsChanged();
+
     return NextResponse.json({
       success: true,
       branchDeleted,

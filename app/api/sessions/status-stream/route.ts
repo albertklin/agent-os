@@ -62,6 +62,11 @@ export async function GET(): Promise<Response> {
           if (!sendEvent("heartbeat", { timestamp: Date.now() })) {
             throw new Error("Failed to send heartbeat");
           }
+        } else if (update.sessionId === "__sessions_changed__") {
+          // Send sessions changed event (session created or deleted)
+          if (!sendEvent("sessions_changed", { timestamp: Date.now() })) {
+            throw new Error("Failed to send sessions_changed");
+          }
         } else {
           // Send status update
           if (!sendEvent("status", update)) {

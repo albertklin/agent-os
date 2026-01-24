@@ -254,6 +254,12 @@ export function useStatusStream(): UseStatusStreamResult {
       // We could update a "lastHeartbeat" state here if needed
     });
 
+    eventSource.addEventListener("sessions_changed", () => {
+      // Session list changed (create/delete from another client)
+      // Invalidate sessions cache so UI refreshes
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    });
+
     eventSource.onerror = () => {
       if (!mountedRef.current) return;
 

@@ -462,6 +462,9 @@ export async function POST(request: NextRequest) {
       response.initialPrompt = initialPrompt.trim();
     }
 
+    // Notify all SSE clients that session list changed
+    statusBroadcaster.broadcastSessionsChanged();
+
     return NextResponse.json(response, { status: 201 });
   } catch (error) {
     console.error("Error creating session:", error);

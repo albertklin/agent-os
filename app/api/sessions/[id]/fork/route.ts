@@ -426,6 +426,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const session = queries.getSession(db).get(newId) as Session;
 
+    // Notify all SSE clients that session list changed
+    statusBroadcaster.broadcastSessionsChanged();
+
     return NextResponse.json(
       {
         session,

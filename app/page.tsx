@@ -29,8 +29,13 @@ function HomeContent() {
   const [copiedSessionId, setCopiedSessionId] = useState(false);
 
   // Pane context
-  const { focusedPaneId, getActiveTab, addTab, openQuickRespondTab } =
-    usePanes();
+  const {
+    focusedPaneId,
+    getActiveTab,
+    addTab,
+    openQuickRespondTab,
+    clearSessionFromTabs,
+  } = usePanes();
   const focusedActiveTab = getActiveTab(focusedPaneId);
   const { isMobile, isHydrated } = useViewport();
 
@@ -46,6 +51,23 @@ function HomeContent() {
   // Data hooks
   const { sessions, fetchSessions } = useSessions();
   const { projects, fetchProjects } = useProjects();
+
+  // Track previous session IDs to detect remote deletions
+  const prevSessionIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const currentIds = new Set(sessions.map((s) => s.id));
+    const prevIds = prevSessionIdsRef.current;
+
+    // Find sessions that were removed (existed before but not now)
+    for (const id of prevIds) {
+      if (!currentIds.has(id)) {
+        // Session was deleted (possibly by another client) - clean up tabs
+        clearSessionFromTabs(id);
+      }
+    }
+
+    prevSessionIdsRef.current = currentIds;
+  }, [sessions, clearSessionFromTabs]);
 
   // Set CSS variable for viewport height (handles mobile keyboard)
   useViewportHeight();
