@@ -127,47 +127,51 @@ export function ContainerSettings({
         )}
 
         {/* Add new mount */}
-        <div className="flex items-end gap-2">
-          <div className="flex-1 space-y-1">
-            <span className="text-muted-foreground text-xs">Host Path</span>
-            <Input
-              value={newHostPath}
-              onChange={(e) => setNewHostPath(e.target.value)}
-              onKeyDown={(e) => handleKeyDown(e, "mount")}
-              placeholder="~/my-data"
-              className="h-8 font-mono text-xs"
-            />
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <span className="text-muted-foreground text-xs">Host Path</span>
+              <Input
+                value={newHostPath}
+                onChange={(e) => setNewHostPath(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, "mount")}
+                placeholder="~/my-data"
+                className="h-8 font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <span className="text-muted-foreground text-xs">
+                Container Path
+              </span>
+              <Input
+                value={newContainerPath}
+                onChange={(e) => setNewContainerPath(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, "mount")}
+                placeholder="/data"
+                className="h-8 font-mono text-xs"
+              />
+            </div>
           </div>
-          <div className="flex-1 space-y-1">
-            <span className="text-muted-foreground text-xs">
-              Container Path
-            </span>
-            <Input
-              value={newContainerPath}
-              onChange={(e) => setNewContainerPath(e.target.value)}
-              onKeyDown={(e) => handleKeyDown(e, "mount")}
-              placeholder="/data"
-              className="h-8 font-mono text-xs"
-            />
+          <div className="flex gap-2">
+            <select
+              value={newMountMode}
+              onChange={(e) => setNewMountMode(e.target.value as "ro" | "rw")}
+              className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+            >
+              <option value="ro">Read-only</option>
+              <option value="rw">Read-write</option>
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleAddMount}
+              disabled={!newHostPath.trim() || !newContainerPath.trim()}
+              className="h-8"
+            >
+              Add
+            </Button>
           </div>
-          <select
-            value={newMountMode}
-            onChange={(e) => setNewMountMode(e.target.value as "ro" | "rw")}
-            className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-          >
-            <option value="ro">Read-only</option>
-            <option value="rw">Read-write</option>
-          </select>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleAddMount}
-            disabled={!newHostPath.trim() || !newContainerPath.trim()}
-            className="h-8"
-          >
-            Add
-          </Button>
         </div>
       </div>
 

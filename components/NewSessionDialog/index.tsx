@@ -43,7 +43,7 @@ export function NewSessionDialog({
         open={open}
         onOpenChange={(o) => !o && !form.isLoading && form.handleClose()}
       >
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[85vh] overflow-x-hidden overflow-y-auto">
           {/* Loading overlay */}
           {form.isLoading && (
             <CreatingOverlay

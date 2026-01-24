@@ -28,12 +28,12 @@ export function AgentSelector({
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium">Agent</label>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <Select
           value={agentType}
           onValueChange={(v) => onAgentChange(v as AgentType)}
         >
-          <SelectTrigger className="flex-1">
+          <SelectTrigger className="sm:flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -49,7 +49,7 @@ export function AgentSelector({
         </Select>
         {models.length > 0 && (
           <Select value={model} onValueChange={onModelChange}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue placeholder="Model" />
             </SelectTrigger>
             <SelectContent>
