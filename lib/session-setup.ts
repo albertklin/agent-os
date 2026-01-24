@@ -31,7 +31,8 @@ const MAX_ACTIVE_CONTAINERS = 20;
 import { parseMounts } from "@/lib/mounts";
 import { parseDomains } from "@/lib/domains";
 import { sessionManager } from "@/lib/session-manager";
-import { buildAgentCommand } from "@/lib/sessions";
+import { buildAgentCommand, getTmuxSessionName } from "@/lib/sessions";
+import { killTmuxSession } from "@/lib/tmux";
 
 const execAsync = promisify(exec);
 
@@ -114,6 +115,8 @@ export async function runSessionSetup(
   let worktreePath: string | null = null;
   // Track container ID for cleanup in catch block
   let containerId: string | null = null;
+  // Track agent type for tmux cleanup in catch block
+  let agentType: string | null = null;
 
   try {
     // NOTE: With lifecycle guards, sessions cannot be deleted while in 'creating' state.
@@ -366,6 +369,11 @@ export async function runSessionSetup(
       auto_approve: number;
     } | null;
 
+    // Track agent type for tmux cleanup in catch block
+    if (fullSession) {
+      agentType = fullSession.agent_type;
+    }
+
     const agentCommand = fullSession
       ? buildAgentCommand(fullSession.agent_type, {
           model: fullSession.model,
@@ -388,6 +396,26 @@ export async function runSessionSetup(
     );
 
     const db = getDb();
+
+    // Kill tmux session if it was started (before container destruction)
+    // This prevents orphaned tmux sessions when setup fails after startTmuxSession
+    if (agentType) {
+      const tmuxName = getTmuxSessionName({
+        agent_type: agentType,
+        id: sessionId,
+      });
+      try {
+        await killTmuxSession(tmuxName);
+        console.log(
+          `[session-setup] Killed tmux session ${tmuxName} after failure`
+        );
+      } catch (tmuxError) {
+        // Ignore errors - session might not have been started yet
+        console.log(
+          `[session-setup] Tmux session ${tmuxName} was not running (cleanup ok)`
+        );
+      }
+    }
 
     // Clean up container if it was created
     if (containerId) {

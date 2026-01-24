@@ -21,7 +21,6 @@ import {
   hasUncommittedChanges,
   discardUncommittedChanges,
 } from "@/lib/worktrees";
-import { runInBackground } from "@/lib/async-operations";
 import { destroyContainer, logSecurityEvent } from "@/lib/container";
 import { statusBroadcaster } from "@/lib/status-broadcaster";
 import { clearPendingPrompt } from "@/stores/initialPrompt";
@@ -375,27 +374,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // Delete from database immediately for instant UI feedback
-    queries.deleteSession(db).run(id);
-
-    // Clean up in-memory state to prevent memory leaks
-    statusBroadcaster.clearStatus(id);
-    clearPendingPrompt(id);
-
-    // Clean up worktree in background (non-blocking) - only if no siblings
+    // Clean up worktree synchronously BEFORE database deletion to prevent orphans
+    // If server crashes after this but before DB deletion, the worktree will be gone
+    // but the session can be re-deleted on next attempt
     if (
       shouldDeleteWorktree &&
       existing.worktree_path &&
       isAgentOSWorktree(existing.worktree_path)
     ) {
-      const worktreePath = existing.worktree_path; // Capture for closure
+      const worktreePath = existing.worktree_path;
       const branchToDelete = shouldDeleteBranch ? branchName : undefined;
-      const wasMerged = branchMerged; // Capture for closure
-      runInBackground(async () => {
-        const { exec } = await import("child_process");
-        const { promisify } = await import("util");
-        const execAsync = promisify(exec);
 
+      try {
         const { stdout } = await execAsync(
           `git -C "${worktreePath}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo ""`,
           { timeout: 5000 }
@@ -405,11 +395,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         if (gitCommonDir) {
           // Delete worktree first (without deleting branch - we'll handle that separately)
           await deleteWorktree(worktreePath, gitCommonDir, false);
+          console.log(`[session] Deleted worktree ${worktreePath}`);
 
           // Then delete branch if needed (including remote if it was merged)
           if (branchToDelete) {
             try {
-              await deleteBranch(gitCommonDir, branchToDelete, wasMerged);
+              await deleteBranch(gitCommonDir, branchToDelete, branchMerged);
             } catch (error) {
               console.warn(
                 `[session] Branch deletion failed for ${branchToDelete}:`,
@@ -418,8 +409,21 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
             }
           }
         }
-      }, `cleanup-worktree-${id}`);
+      } catch (worktreeErr) {
+        // Log the error but continue with deletion - the worktree may already be gone
+        console.warn(
+          `[session] Worktree cleanup warning for ${existing.worktree_path}:`,
+          worktreeErr instanceof Error ? worktreeErr.message : "Unknown error"
+        );
+      }
     }
+
+    // Delete from database after worktree is cleaned up
+    queries.deleteSession(db).run(id);
+
+    // Clean up in-memory state to prevent memory leaks
+    statusBroadcaster.clearStatus(id);
+    clearPendingPrompt(id);
 
     return NextResponse.json({
       success: true,

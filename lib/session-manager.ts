@@ -20,7 +20,13 @@ import {
   isContainerRunning,
   cleanupOrphanContainers,
 } from "./container";
-import { deleteWorktree, getMainRepoFromWorktree } from "./worktrees";
+import {
+  deleteWorktree,
+  getMainRepoFromWorktree,
+  getWorktreesDir,
+} from "./worktrees";
+import * as fs from "fs";
+import * as path from "path";
 import { statusBroadcaster } from "./status-broadcaster";
 
 const execAsync = promisify(exec);
@@ -331,6 +337,7 @@ class SessionManager {
     stuckRecovered: number;
     deletingCleaned: number;
     orphanContainersRemoved: number;
+    orphanWorktreesFound: number;
   }> {
     const db = getDb();
 
@@ -523,6 +530,21 @@ class SessionManager {
       );
     }
 
+    // Step 4: Detect orphan worktrees (for manual cleanup warning)
+    // These are worktrees in ~/.agent-os/worktrees/ with no corresponding session
+    const orphanWorktrees = await this.detectOrphanWorktrees();
+    if (orphanWorktrees.length > 0) {
+      console.warn(
+        `[session-manager] Found ${orphanWorktrees.length} orphan worktree(s) that may need manual cleanup:`
+      );
+      for (const worktree of orphanWorktrees) {
+        console.warn(`  - ${worktree}`);
+      }
+      console.warn(
+        `[session-manager] To clean up: rm -rf <worktree-path> (after confirming no uncommitted work)`
+      );
+    }
+
     const stats = {
       synced: readySessions.length,
       alive,
@@ -530,13 +552,71 @@ class SessionManager {
       stuckRecovered,
       deletingCleaned,
       orphanContainersRemoved: orphanCleanup.removed,
+      orphanWorktreesFound: orphanWorktrees.length,
     };
 
     console.log(
-      `[session-manager] Recovery complete: ${stats.synced} ready sessions checked, ${stats.alive} alive, ${stats.dead} dead, ${stats.stuckRecovered} stuck sessions recovered, ${stats.deletingCleaned} deleting sessions cleaned, ${stats.orphanContainersRemoved} orphan containers removed`
+      `[session-manager] Recovery complete: ${stats.synced} ready sessions checked, ${stats.alive} alive, ${stats.dead} dead, ${stats.stuckRecovered} stuck sessions recovered, ${stats.deletingCleaned} deleting sessions cleaned, ${stats.orphanContainersRemoved} orphan containers removed, ${stats.orphanWorktreesFound} orphan worktrees found`
     );
 
     return stats;
+  }
+
+  /**
+   * Detect orphan worktrees - worktrees in ~/.agent-os/worktrees/ with no DB reference.
+   * These can occur if the server crashes during deletion after removing the DB record
+   * but before cleaning up the worktree.
+   *
+   * Returns a list of orphan worktree paths for logging/manual cleanup.
+   */
+  async detectOrphanWorktrees(): Promise<string[]> {
+    const orphans: string[] = [];
+    const worktreesDir = getWorktreesDir();
+
+    // Check if worktrees directory exists
+    if (!fs.existsSync(worktreesDir)) {
+      return orphans;
+    }
+
+    try {
+      // Get all worktree paths from DB
+      const db = getDb();
+      const sessionsWithWorktrees = db
+        .prepare(
+          `SELECT worktree_path FROM sessions WHERE worktree_path IS NOT NULL`
+        )
+        .all() as { worktree_path: string }[];
+      const dbWorktreePaths = new Set(
+        sessionsWithWorktrees.map((s) => s.worktree_path)
+      );
+
+      // List all directories in the worktrees directory
+      const entries = await fs.promises.readdir(worktreesDir, {
+        withFileTypes: true,
+      });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const worktreePath = path.join(worktreesDir, entry.name);
+
+        // Check if this worktree is referenced by any session
+        if (!dbWorktreePaths.has(worktreePath)) {
+          // Double-check it's actually a git worktree (has .git file or directory)
+          const gitPath = path.join(worktreePath, ".git");
+          if (fs.existsSync(gitPath)) {
+            orphans.push(worktreePath);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(
+        "[session-manager] Error detecting orphan worktrees:",
+        error instanceof Error ? error.message : "Unknown error"
+      );
+    }
+
+    return orphans;
   }
 }
 
