@@ -33,6 +33,10 @@ import { GitDrawer } from "@/components/GitDrawer";
 import { ShellDrawer } from "@/components/ShellDrawer";
 import { useSnapshot } from "valtio";
 import { fileOpenStore, fileOpenActions } from "@/stores/fileOpen";
+import {
+  failedSessionsStore,
+  failedSessionsActions,
+} from "@/stores/failedSessions";
 
 // Dynamic imports for client-only components with loading states
 const Terminal = dynamic(
@@ -106,9 +110,8 @@ export const Pane = memo(function Pane({
   });
   // Track sessions that have been reported as failed via WebSocket
   // This provides immediate UI feedback before SSE update arrives
-  const [failedSessions, setFailedSessions] = useState<Set<string>>(
-    () => new Set()
-  );
+  // Uses global store so SessionCard/SessionList can also see failed sessions
+  const { sessionIds: failedSessions } = useSnapshot(failedSessionsStore);
   const paneData = getPaneData(paneId);
   const activeTab = getActiveTab(paneId);
   const isFocused = focusedPaneId === paneId;
@@ -133,8 +136,9 @@ export const Pane = memo(function Pane({
   // This provides immediate UI feedback before SSE update arrives
   const markSessionFailed = useCallback(
     (sessionId: string) => {
-      setFailedSessions((prev) => new Set(prev).add(sessionId));
-      // Invalidate sessions query so SessionList refreshes and shows reboot option
+      // Use global store so SessionCard/SessionList can also see the failure immediately
+      failedSessionsActions.markFailed(sessionId);
+      // Invalidate sessions query so SessionList refreshes
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
     },
     [queryClient]

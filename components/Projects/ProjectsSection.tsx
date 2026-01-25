@@ -25,6 +25,7 @@ import { ProjectCard } from "./ProjectCard";
 import { SessionCard } from "@/components/SessionCard";
 import { type ForkOptions } from "@/components/ForkSessionDialog";
 import { selectionStore, selectionActions } from "@/stores/sessionSelection";
+import { failedSessionsStore } from "@/stores/failedSessions";
 import type { Session, Group, Project } from "@/lib/db";
 import type { SessionOrderUpdate } from "@/data/sessions";
 import type { ProjectOrderUpdate } from "@/data/projects/queries";
@@ -248,6 +249,7 @@ function ProjectsSectionComponent({
   onRebootSession,
 }: ProjectsSectionProps) {
   const { selectedIds } = useSnapshot(selectionStore);
+  const { sessionIds: failedSessions } = useSnapshot(failedSessionsStore);
   const isInSelectMode = selectedIds.size > 0;
 
   // Drag and drop state
@@ -692,9 +694,13 @@ function ProjectsSectionComponent({
                                     sessionStatuses?.[session.id]?.setupError
                                   }
                                   lifecycleStatus={
-                                    sessionStatuses?.[session.id]
-                                      ?.lifecycleStatus ||
-                                    session.lifecycle_status
+                                    // Check global failedSessions first for immediate feedback,
+                                    // then prefer SSE lifecycle status (real-time) over DB value
+                                    failedSessions.has(session.id)
+                                      ? "failed"
+                                      : sessionStatuses?.[session.id]
+                                          ?.lifecycleStatus ||
+                                        session.lifecycle_status
                                   }
                                   stale={sessionStatuses?.[session.id]?.stale}
                                   groups={groups}

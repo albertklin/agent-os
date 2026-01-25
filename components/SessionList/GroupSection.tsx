@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useSnapshot } from "valtio";
 import { SessionCard } from "@/components/SessionCard";
+import { failedSessionsStore } from "@/stores/failedSessions";
 import { type ForkOptions } from "@/components/ForkSessionDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +63,8 @@ export function GroupSection({
   const [showNewGroupInput, setShowNewGroupInput] = useState<string | null>(
     null
   );
+  // Subscribe to global failed sessions store for immediate failure detection
+  const { sessionIds: failedSessions } = useSnapshot(failedSessionsStore);
 
   // Group sessions by group_path
   const sessionsByGroup = sessions.reduce(
@@ -210,8 +214,12 @@ export function GroupSection({
                 setupStatus={sessionStatuses?.[session.id]?.setupStatus}
                 setupError={sessionStatuses?.[session.id]?.setupError}
                 lifecycleStatus={
-                  sessionStatuses?.[session.id]?.lifecycleStatus ||
-                  session.lifecycle_status
+                  // Check global failedSessions first for immediate feedback,
+                  // then prefer SSE lifecycle status (real-time) over DB value
+                  failedSessions.has(session.id)
+                    ? "failed"
+                    : sessionStatuses?.[session.id]?.lifecycleStatus ||
+                      session.lifecycle_status
                 }
                 stale={sessionStatuses?.[session.id]?.stale}
                 groups={groups}
