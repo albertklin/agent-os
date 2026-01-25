@@ -209,7 +209,10 @@ export function GroupSection({
                 toolDetail={sessionStatuses?.[session.id]?.toolDetail}
                 setupStatus={sessionStatuses?.[session.id]?.setupStatus}
                 setupError={sessionStatuses?.[session.id]?.setupError}
-                lifecycleStatus={sessionStatuses?.[session.id]?.lifecycleStatus}
+                lifecycleStatus={
+                  sessionStatuses?.[session.id]?.lifecycleStatus ||
+                  session.lifecycle_status
+                }
                 stale={sessionStatuses?.[session.id]?.stale}
                 groups={groups}
                 onClick={() => onSelectSession(session.id)}

@@ -693,7 +693,8 @@ function ProjectsSectionComponent({
                                   }
                                   lifecycleStatus={
                                     sessionStatuses?.[session.id]
-                                      ?.lifecycleStatus
+                                      ?.lifecycleStatus ||
+                                    session.lifecycle_status
                                   }
                                   stale={sessionStatuses?.[session.id]?.stale}
                                   groups={groups}
