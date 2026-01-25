@@ -282,6 +282,58 @@ class SessionManager {
   }
 
   /**
+   * Mark a session as failed.
+   * Called when we detect the tmux session has died (e.g., during send-keys).
+   * This updates the DB and broadcasts via SSE so the UI can show the reboot option.
+   *
+   * @param sessionId - The session ID to mark as failed
+   * @param reason - Optional reason for the failure (for logging)
+   * @returns true if the session was marked as failed, false if already failed or not found
+   */
+  async markSessionAsFailed(
+    sessionId: string,
+    reason?: string
+  ): Promise<boolean> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      console.warn(
+        `[session-manager] Cannot mark session ${sessionId} as failed: not found`
+      );
+      return false;
+    }
+
+    // Already failed - no need to update
+    if (session.lifecycle_status === "failed") {
+      return false;
+    }
+
+    // Only mark "ready" sessions as failed (don't interfere with creating/deleting)
+    if (session.lifecycle_status !== "ready") {
+      console.warn(
+        `[session-manager] Cannot mark session ${sessionId} as failed: current status is ${session.lifecycle_status}`
+      );
+      return false;
+    }
+
+    const logReason = reason ? ` (${reason})` : "";
+    console.log(
+      `[session-manager] Marking session ${sessionId} (${session.name}) as failed${logReason}`
+    );
+
+    const db = getDb();
+    queries.updateSessionLifecycleStatus(db).run("failed", sessionId);
+
+    // Broadcast lifecycle change via SSE
+    statusBroadcaster.updateStatus({
+      sessionId,
+      status: "dead",
+      lifecycleStatus: "failed",
+    });
+
+    return true;
+  }
+
+  /**
    * Check if a session's tmux is running.
    * Handles both sandboxed (container) and non-sandboxed sessions.
    */

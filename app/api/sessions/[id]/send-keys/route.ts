@@ -4,6 +4,7 @@ import { promisify } from "util";
 import { getDb, queries, type Session } from "@/lib/db";
 import { appendFileSync } from "fs";
 import { TMUX_SOCKET } from "@/lib/tmux";
+import { sessionManager } from "@/lib/session-manager";
 
 const execAsync = promisify(exec);
 
@@ -67,8 +68,10 @@ export async function POST(
       log(`Tmux session exists`);
     } catch {
       log(`ERROR: Tmux session ${tmuxSessionName} not running`);
+      // Mark session as failed so user can reboot it
+      await sessionManager.markSessionAsFailed(id, "tmux session not running");
       return NextResponse.json(
-        { error: "Tmux session not running" },
+        { error: "Tmux session not running", lifecycle_status: "failed" },
         { status: 400 }
       );
     }
