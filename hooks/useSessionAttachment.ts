@@ -73,7 +73,7 @@ export function useSessionAttachment() {
         toast.info(statusMessages[session.lifecycle_status], {
           description:
             session.lifecycle_status === "failed"
-              ? "Please delete this session and create a new one"
+              ? "Try rebooting the session from the menu, or delete and create a new one"
               : "Please wait for deletion to complete",
         });
         return false;
