@@ -402,6 +402,8 @@ class SessionManager {
       // The worktree can be cleaned up manually at: ~/.agent-os/worktrees/
 
       // Clear SSE state and delete the session from DB
+      // First, clear parent_session_id references from any child sessions to avoid FK constraint violation
+      queries.clearParentSessionId(db).run(session.id);
       statusBroadcaster.clearStatus(session.id);
       queries.deleteSession(db).run(session.id);
       deletingCleaned++;

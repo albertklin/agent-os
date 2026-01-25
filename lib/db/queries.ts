@@ -241,6 +241,13 @@ export const queries = {
   getSessionsByLifecycleStatus: (db: Database.Database) =>
     getStmt(db, `SELECT * FROM sessions WHERE lifecycle_status = ?`),
 
+  // Clear parent_session_id for child sessions (used before deleting a parent session)
+  clearParentSessionId: (db: Database.Database) =>
+    getStmt(
+      db,
+      `UPDATE sessions SET parent_session_id = NULL, updated_at = datetime('now') WHERE parent_session_id = ?`
+    ),
+
   // Messages
   createMessage: (db: Database.Database) =>
     getStmt(
