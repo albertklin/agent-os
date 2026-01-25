@@ -2,9 +2,11 @@
 
 import { useRef, useCallback, useEffect, memo, useState } from "react";
 import dynamic from "next/dynamic";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePanes } from "@/contexts/PaneContext";
 import type { Session, Project } from "@/lib/db";
 import { sessionRegistry } from "@/lib/client/session-registry";
+import { sessionKeys } from "@/data/sessions";
 import {
   getOldestWaitingSession,
   type SessionStatusType,
@@ -90,6 +92,7 @@ export const Pane = memo(function Pane({
     setSession,
   } = usePanes();
 
+  const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<ViewMode>("terminal");
   const [gitDrawerOpen, setGitDrawerOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -128,9 +131,14 @@ export const Pane = memo(function Pane({
 
   // Mark a session as failed (called when WebSocket reports session failure)
   // This provides immediate UI feedback before SSE update arrives
-  const markSessionFailed = useCallback((sessionId: string) => {
-    setFailedSessions((prev) => new Set(prev).add(sessionId));
-  }, []);
+  const markSessionFailed = useCallback(
+    (sessionId: string) => {
+      setFailedSessions((prev) => new Set(prev).add(sessionId));
+      // Invalidate sessions query so SessionList refreshes and shows reboot option
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    },
+    [queryClient]
+  );
 
   // Redirect keyboard input to terminal when no input element is focused
   useTerminalFocusRedirect(

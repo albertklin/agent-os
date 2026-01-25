@@ -8,7 +8,8 @@ import * as path from "path";
 import * as os from "os";
 import { writeGlobalHooksConfig } from "./lib/hooks/generate-config";
 import { ensureSandboxImage, isContainerRunning } from "./lib/container";
-import { getDb } from "./lib/db";
+import { getDb, queries } from "./lib/db";
+import { statusBroadcaster } from "./lib/status-broadcaster";
 import { getTmuxSessionName } from "./lib/sessions";
 import { refreshTmuxClient } from "./lib/tmux";
 import {
@@ -253,7 +254,46 @@ app.prepare().then(async () => {
         }
 
         // 5. Check lifecycle_status === 'ready' - if not, send error and close
+        // But first, for "creating" sessions, check if tmux crashed during setup
         if (session.lifecycle_status !== "ready") {
+          // For "creating" sessions, check if tmux is actually alive
+          // If it crashed during setup, mark as failed so user can see reboot option
+          if (session.lifecycle_status === "creating") {
+            const tmuxAlive = await sessionManager.isSessionAlive(sessionId);
+            if (!tmuxAlive) {
+              console.error(
+                `[terminal] Session ${sessionId} crashed during setup, marking as failed`
+              );
+              // Directly update DB since markSessionAsFailed only handles "ready" sessions
+              const db = getDb();
+              queries.updateSessionLifecycleStatus(db).run("failed", sessionId);
+              queries
+                .updateSessionSetupStatus(db)
+                .run("failed", "Session crashed during setup", sessionId);
+              // Broadcast the failure via SSE
+              statusBroadcaster.updateStatus({
+                sessionId,
+                status: "dead",
+                lifecycleStatus: "failed",
+                setupStatus: "failed",
+                setupError: "Session crashed during setup",
+              });
+              // Check if session has claude_session_id - if not, reboot won't be available
+              const hasClaudeSession = !!session.claude_session_id;
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: hasClaudeSession
+                    ? "Session crashed during setup. Click 'Reboot session' to try again."
+                    : "Session crashed during setup. Please delete and recreate the session.",
+                  lifecycle_status: "failed",
+                })
+              );
+              ws.close();
+              return;
+            }
+          }
+
           console.error(
             `[terminal] Session ${sessionId} not ready: lifecycle_status=${session.lifecycle_status}`
           );

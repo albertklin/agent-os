@@ -52,9 +52,11 @@ function toSessionStatus(
     lastLine: data.lastLine,
     toolName: data.toolName,
     toolDetail: data.toolDetail,
-    setupStatus: data.setupStatus,
-    setupError: data.setupError,
-    lifecycleStatus: data.lifecycleStatus,
+    // Fall back to DB values if SSE data doesn't have these fields
+    setupStatus: data.setupStatus ?? session?.setup_status ?? undefined,
+    setupError: data.setupError ?? session?.setup_error ?? undefined,
+    lifecycleStatus:
+      data.lifecycleStatus ?? session?.lifecycle_status ?? undefined,
     stale: data.stale,
   };
 }
