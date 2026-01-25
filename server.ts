@@ -366,13 +366,37 @@ app.prepare().then(async () => {
           }
         }
 
-        // 9. Track this connection
+        // 9. Verify tmux session is actually alive (handles both sandboxed and non-sandboxed)
+        // This catches cases where the tmux died but the DB still shows lifecycle_status='ready'
+        const tmuxAlive = await sessionManager.isSessionAlive(sessionId);
+        if (!tmuxAlive) {
+          console.error(
+            `[terminal] Tmux session for ${sessionId} is not running, marking as failed`
+          );
+          // Mark session as failed so user can reboot it
+          await sessionManager.markSessionAsFailed(
+            sessionId,
+            "tmux session not running"
+          );
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message:
+                "Session has crashed. Click 'Reboot session' to recover.",
+              lifecycle_status: "failed",
+            })
+          );
+          ws.close();
+          return;
+        }
+
+        // 10. Track this connection
         if (!activeConnections.has(sessionId)) {
           activeConnections.set(sessionId, new Set());
         }
         activeConnections.get(sessionId)!.add(ws);
 
-        // 9. Use sessionManager.getViewCommand(session) to get the attach command
+        // 11. Use sessionManager.getViewCommand(session) to get the attach command
         const { command, args } = sessionManager.getViewCommand(freshSession);
 
         // Store tmux session name for resize handling
@@ -385,7 +409,7 @@ app.prepare().then(async () => {
           `[terminal] Attaching to session ${sessionId} with command: ${command} ${args.join(" ")}`
         );
 
-        // 10. Spawn PTY with the attach command (this attaches to the existing tmux session)
+        // 12. Spawn PTY with the attach command (this attaches to the existing tmux session)
         // Use client-provided dimensions to avoid resize flash on initial connect
         ptyProcess = pty.spawn(command, args, {
           name: "xterm-256color",
