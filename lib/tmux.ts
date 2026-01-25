@@ -85,11 +85,13 @@ export async function killTmuxSession(
   try {
     if (insideContainer) {
       await exec(
-        `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} kill-session -t ${escapeShellArg(name)}`
+        `docker exec ${insideContainer} tmux -L ${TMUX_SOCKET} kill-session -t ${escapeShellArg(name)}`,
+        { timeout: 5000 }
       );
     } else {
       await exec(
-        `tmux -L ${TMUX_SOCKET} kill-session -t ${escapeShellArg(name)}`
+        `tmux -L ${TMUX_SOCKET} kill-session -t ${escapeShellArg(name)}`,
+        { timeout: 5000 }
       );
     }
   } catch (error) {

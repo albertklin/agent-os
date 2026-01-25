@@ -341,10 +341,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const tmuxName = getTmuxSessionName(existing);
     try {
       await execAsync(
-        `tmux -L ${TMUX_SOCKET} kill-session -t "${tmuxName}" 2>/dev/null || true`
+        `tmux -L ${TMUX_SOCKET} kill-session -t "${tmuxName}" 2>/dev/null || true`,
+        { timeout: 5000 }
       );
     } catch {
-      // Ignore errors - session might already be dead
+      // Ignore errors - session might already be dead or tmux unresponsive
     }
 
     // Clean up container if this session had one (synchronous with logging)
