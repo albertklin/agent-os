@@ -452,9 +452,27 @@ app.prepare().then(async () => {
         }
       });
 
-      ptyProcess.onExit(({ exitCode }) => {
+      ptyProcess.onExit(async ({ exitCode }) => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "exit", code: exitCode }));
+          // PTY exited while WebSocket is still open = tmux died (not user disconnect)
+          // Mark session as failed so user sees "Session failed" overlay with reboot option
+          if (sessionId) {
+            console.log(
+              `[terminal] PTY exited while connected (exitCode: ${exitCode}), marking session ${sessionId} as failed`
+            );
+            await sessionManager.markSessionAsFailed(
+              sessionId,
+              `tmux session exited (code: ${exitCode})`
+            );
+          }
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message:
+                "Session has crashed. Click 'Reboot session' from the menu to recover.",
+              lifecycle_status: "failed",
+            })
+          );
           ws.close();
         }
       });

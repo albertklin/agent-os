@@ -9,6 +9,7 @@ import {
   getOldestWaitingSession,
   type SessionStatusType,
 } from "@/lib/sessions";
+import type { LifecycleStatusType } from "@/hooks/useStatusStream";
 import { cn } from "@/lib/utils";
 import { useFileEditor } from "@/hooks/useFileEditor";
 import { useTerminalFocusRedirect } from "@/hooks/useTerminalFocusRedirect";
@@ -51,7 +52,10 @@ interface PaneProps {
   paneId: string;
   sessions: Session[];
   projects: Project[];
-  sessionStatuses?: Record<string, { status: SessionStatusType }>;
+  sessionStatuses?: Record<
+    string,
+    { status: SessionStatusType; lifecycleStatus?: LifecycleStatusType }
+  >;
   onMenuClick?: () => void;
   onSelectSession?: (sessionId: string) => void;
   onDeferSession?: (sessionId: string) => Promise<void>;
@@ -293,7 +297,12 @@ export const Pane = memo(function Pane({
                       }
                     }}
                     sessionId={tab.sessionId ?? undefined}
-                    lifecycleStatus={tabSession?.lifecycle_status}
+                    lifecycleStatus={
+                      // Prefer SSE lifecycle status (real-time) over DB value (requires refetch)
+                      (tab.sessionId &&
+                        sessionStatuses[tab.sessionId]?.lifecycleStatus) ||
+                      tabSession?.lifecycle_status
+                    }
                     setupStatus={tabSession?.setup_status ?? undefined}
                     onBeforeUnmount={(scrollState) => {
                       sessionRegistry.saveTerminalState(paneId, tab.id, {
@@ -382,7 +391,13 @@ export const Pane = memo(function Pane({
                               }
                             }}
                             sessionId={tab.sessionId ?? undefined}
-                            lifecycleStatus={tabSession?.lifecycle_status}
+                            lifecycleStatus={
+                              // Prefer SSE lifecycle status (real-time) over DB value (requires refetch)
+                              (tab.sessionId &&
+                                sessionStatuses[tab.sessionId]
+                                  ?.lifecycleStatus) ||
+                              tabSession?.lifecycle_status
+                            }
                             setupStatus={tabSession?.setup_status ?? undefined}
                             onBeforeUnmount={(scrollState) => {
                               sessionRegistry.saveTerminalState(
