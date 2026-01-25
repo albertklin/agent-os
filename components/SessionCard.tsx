@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Clock,
+  RotateCcw,
 } from "lucide-react";
 import type {
   SetupStatusType,
@@ -82,6 +83,7 @@ interface SessionCardProps {
   onRename?: (newName: string) => void;
   onCreatePR?: () => void;
   onSetStatus?: (status: "idle" | "running" | "waiting") => void;
+  onReboot?: () => void;
 }
 
 const statusConfig: Record<
@@ -170,6 +172,7 @@ function SessionCardComponent({
   onRename,
   onCreatePR,
   onSetStatus,
+  onReboot,
 }: SessionCardProps) {
   const timeAgo = getTimeAgo(session.updated_at);
   const status = tmuxStatus || "dead";
@@ -238,7 +241,8 @@ function SessionCardComponent({
     onRename ||
     onCreatePR ||
     onOpenInTab ||
-    onSetStatus;
+    onSetStatus ||
+    onReboot;
 
   // Handle card click - coordinates selection with navigation
   const handleCardClick = (e: React.MouseEvent) => {
@@ -293,6 +297,16 @@ function SessionCardComponent({
               <GitBranch className="h-3 w-3" />
               <span className="truncate">{session.branch_name}</span>
             </div>
+            <MenuSeparator />
+          </>
+        )}
+        {/* Reboot option for failed sessions with claude_session_id */}
+        {onReboot && isFailed && session.claude_session_id && (
+          <>
+            <MenuItem onClick={() => onReboot()}>
+              <RotateCcw className="mr-2 h-3 w-3" />
+              Reboot session
+            </MenuItem>
             <MenuSeparator />
           </>
         )}

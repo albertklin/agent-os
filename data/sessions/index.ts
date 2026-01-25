@@ -7,6 +7,7 @@ export {
   useForkSession,
   useMoveSessionToGroup,
   useSetSessionStatus,
+  useRebootSession,
   useReorderSessions,
 } from "./queries";
 export type {

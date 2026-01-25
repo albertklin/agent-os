@@ -290,6 +290,26 @@ export function useSetSessionStatus() {
   });
 }
 
+export function useRebootSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const res = await fetch(`/api/sessions/${sessionId}/reboot`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to reboot session");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+    },
+  });
+}
+
 export function useReorderSessions() {
   const queryClient = useQueryClient();
 

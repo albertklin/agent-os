@@ -209,6 +209,7 @@ export function SessionList({
               onDeleteSession={mutations.handleDeleteSession}
               onRenameSession={mutations.handleRenameSession}
               onSetStatus={mutations.handleSetStatus}
+              onRebootSession={mutations.handleRebootSession}
             />
           )}
 
@@ -230,6 +231,7 @@ export function SessionList({
                 onForkSession={handleForkSession}
                 onDeleteSession={mutations.handleDeleteSession}
                 onRenameSession={mutations.handleRenameSession}
+                onRebootSession={mutations.handleRebootSession}
               />
             )}
         </div>

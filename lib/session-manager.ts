@@ -13,6 +13,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { getDb, queries, type Session } from "./db";
 import { getTmuxSessionName } from "./sessions";
+import type { AgentType } from "./providers";
 import * as tmux from "./tmux";
 import { escapeShellArg } from "./tmux";
 import {
@@ -562,6 +563,104 @@ class SessionManager {
     );
 
     return stats;
+  }
+
+  /**
+   * Reboot a failed session by creating a new tmux session and resuming the Claude conversation.
+   * This is used to recover sessions where the tmux died but the Claude session data still exists.
+   *
+   * @param sessionId - The session ID to reboot
+   * @returns Success status and any error message
+   */
+  async rebootSession(
+    sessionId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return { success: false, error: "Session not found" };
+    }
+
+    // Only allow rebooting failed sessions
+    if (session.lifecycle_status !== "failed") {
+      return {
+        success: false,
+        error: `Session is not in failed state (current: ${session.lifecycle_status})`,
+      };
+    }
+
+    // Check if provider supports resume
+    const { getProvider } = await import("./providers");
+    const provider = getProvider(session.agent_type as AgentType);
+    if (!provider.supportsResume) {
+      return {
+        success: false,
+        error: `Agent type "${session.agent_type}" does not support session resume`,
+      };
+    }
+
+    // Check if we have a claude_session_id to resume
+    if (!session.claude_session_id) {
+      return {
+        success: false,
+        error:
+          "No Claude session ID found. Cannot resume - the session may not have started successfully before failing.",
+      };
+    }
+
+    const tmuxName = getTmuxSessionName(session);
+    const isSandboxed =
+      session.container_id && session.container_status === "ready";
+
+    // Kill any existing tmux session (just in case)
+    try {
+      if (isSandboxed) {
+        await execAsync(
+          `docker exec ${session.container_id} tmux -L ${tmux.TMUX_SOCKET} kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
+          { timeout: 5000 }
+        );
+      } else {
+        await execAsync(
+          `tmux -L ${tmux.TMUX_SOCKET} kill-session -t ${escapeShellArg(tmuxName)} 2>/dev/null || true`,
+          { timeout: 5000 }
+        );
+      }
+    } catch {
+      // Ignore - session might not exist
+    }
+
+    // Build the agent command with resume flag
+    const { buildAgentCommand } = await import("./sessions");
+    const agentCommand = buildAgentCommand(session.agent_type as AgentType, {
+      claudeSessionId: session.claude_session_id,
+      model: session.model,
+      autoApprove: Boolean(session.auto_approve),
+    });
+
+    // Start new tmux session
+    try {
+      await this.startTmuxSession(sessionId, agentCommand);
+      console.log(
+        `[session-manager] Rebooted session ${sessionId} with Claude session ${session.claude_session_id}`
+      );
+      return { success: true };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      console.error(
+        `[session-manager] Failed to reboot session ${sessionId}:`,
+        errorMsg
+      );
+
+      // Mark as failed again since reboot failed
+      const db = getDb();
+      queries.updateSessionLifecycleStatus(db).run("failed", sessionId);
+      statusBroadcaster.updateStatus({
+        sessionId,
+        status: "dead",
+        lifecycleStatus: "failed",
+      });
+
+      return { success: false, error: `Failed to start tmux: ${errorMsg}` };
+    }
   }
 
   /**

@@ -55,6 +55,7 @@ interface ProjectsSectionProps {
     sessionId: string,
     status: "idle" | "running" | "waiting"
   ) => void;
+  onRebootSession?: (sessionId: string) => void;
 }
 
 // Sortable wrapper for SessionCard
@@ -78,6 +79,7 @@ interface SortableSessionCardProps {
   onRename?: (newName: string) => void;
   onCreatePR?: () => void;
   onSetStatus?: (status: "idle" | "running" | "waiting") => void;
+  onReboot?: () => void;
 }
 
 function SortableSessionCard({
@@ -243,6 +245,7 @@ function ProjectsSectionComponent({
   onRenameSession,
   onCreatePR,
   onSetStatus,
+  onRebootSession,
 }: ProjectsSectionProps) {
   const { selectedIds } = useSnapshot(selectionStore);
   const isInSelectMode = selectedIds.size > 0;
@@ -735,6 +738,11 @@ function ProjectsSectionComponent({
                                     onSetStatus
                                       ? (status) =>
                                           onSetStatus(session.id, status)
+                                      : undefined
+                                  }
+                                  onReboot={
+                                    onRebootSession
+                                      ? () => onRebootSession(session.id)
                                       : undefined
                                   }
                                 />

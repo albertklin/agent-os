@@ -6,6 +6,7 @@ import {
   useRenameSession,
   useForkSession,
   useSetSessionStatus,
+  useRebootSession,
   type ForkSessionInput,
   type DeleteSessionOptions,
 } from "@/data/sessions";
@@ -39,6 +40,7 @@ export function useSessionListMutations({
   const renameSessionMutation = useRenameSession();
   const forkSessionMutation = useForkSession();
   const setSessionStatusMutation = useSetSessionStatus();
+  const rebootSessionMutation = useRebootSession();
 
   // Project mutations
   const toggleProjectMutation = useToggleProject();
@@ -149,6 +151,21 @@ export function useSessionListMutations({
       }
     },
     [setSessionStatusMutation]
+  );
+
+  const handleRebootSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        await rebootSessionMutation.mutateAsync(sessionId);
+        toast.success("Session rebooted successfully");
+        onSelectSession(sessionId);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to reboot session"
+        );
+      }
+    },
+    [rebootSessionMutation, onSelectSession]
   );
 
   // Project handlers
@@ -290,6 +307,7 @@ export function useSessionListMutations({
     handleRenameSession,
     handleForkSession,
     handleSetStatus,
+    handleRebootSession,
 
     // Project handlers
     handleToggleProject,

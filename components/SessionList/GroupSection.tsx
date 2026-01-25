@@ -39,6 +39,7 @@ interface GroupSectionProps {
   onForkSession: (sessionId: string, options: ForkOptions) => Promise<void>;
   onDeleteSession: (sessionId: string, sessionName?: string) => void;
   onRenameSession: (sessionId: string, newName: string) => void;
+  onRebootSession?: (sessionId: string) => void;
 }
 
 export function GroupSection({
@@ -54,6 +55,7 @@ export function GroupSection({
   onForkSession,
   onDeleteSession,
   onRenameSession,
+  onRebootSession,
 }: GroupSectionProps) {
   const [newGroupName, setNewGroupName] = useState("");
   const [showNewGroupInput, setShowNewGroupInput] = useState<string | null>(
@@ -214,6 +216,11 @@ export function GroupSection({
                 onFork={async (options) => onForkSession(session.id, options)}
                 onDelete={() => onDeleteSession(session.id, session.name)}
                 onRename={(newName) => onRenameSession(session.id, newName)}
+                onReboot={
+                  onRebootSession
+                    ? () => onRebootSession(session.id)
+                    : undefined
+                }
               />
             ))}
           </div>
