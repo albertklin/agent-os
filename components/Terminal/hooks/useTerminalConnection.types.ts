@@ -21,6 +21,8 @@ export interface UseTerminalConnectionProps {
   onKicked?: (message: string) => void;
   /** Called when session is busy (another client connected) */
   onBusy?: (message: string) => void;
+  /** Called when server reports session has failed (e.g., tmux crashed) */
+  onSessionFailed?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
   initialScrollState?: TerminalScrollState;
   isMobile?: boolean;

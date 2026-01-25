@@ -29,6 +29,7 @@ export function useTerminalConnection({
   onDisconnected,
   onKicked,
   onBusy,
+  onSessionFailed,
   onBeforeUnmount,
   initialScrollState,
   isMobile = false,
@@ -64,6 +65,7 @@ export function useTerminalConnection({
     onDisconnected,
     onKicked,
     onBusy,
+    onSessionFailed,
     onBeforeUnmount,
   });
   callbacksRef.current = {
@@ -71,6 +73,7 @@ export function useTerminalConnection({
     onDisconnected,
     onKicked,
     onBusy,
+    onSessionFailed,
     onBeforeUnmount,
   };
   const initialScrollStateRef = useRef(initialScrollState);
@@ -205,6 +208,7 @@ export function useTerminalConnection({
         onDisconnected: () => callbacksRef.current.onDisconnected?.(),
         onKicked: (message) => callbacksRef.current.onKicked?.(message),
         onBusy: (message) => callbacksRef.current.onBusy?.(message),
+        onSessionFailed: () => callbacksRef.current.onSessionFailed?.(),
         onConnectionStateChange: setConnectionState,
         onSetConnected: setConnected,
       },

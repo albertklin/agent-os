@@ -101,6 +101,11 @@ export const Pane = memo(function Pane({
     const stored = localStorage.getItem("shellDrawerOpen");
     return stored === "true";
   });
+  // Track sessions that have been reported as failed via WebSocket
+  // This provides immediate UI feedback before SSE update arrives
+  const [failedSessions, setFailedSessions] = useState<Set<string>>(
+    () => new Set()
+  );
   const paneData = getPaneData(paneId);
   const activeTab = getActiveTab(paneId);
   const isFocused = focusedPaneId === paneId;
@@ -120,6 +125,12 @@ export const Pane = memo(function Pane({
     const terminalHandle = terminalRefs.current.get(activeTab.id);
     terminalHandle?.focus();
   }, [activeTab, viewMode]);
+
+  // Mark a session as failed (called when WebSocket reports session failure)
+  // This provides immediate UI feedback before SSE update arrives
+  const markSessionFailed = useCallback((sessionId: string) => {
+    setFailedSessions((prev) => new Set(prev).add(sessionId));
+  }, []);
 
   // Redirect keyboard input to terminal when no input element is focused
   useTerminalFocusRedirect(
@@ -298,12 +309,20 @@ export const Pane = memo(function Pane({
                     }}
                     sessionId={tab.sessionId ?? undefined}
                     lifecycleStatus={
-                      // Prefer SSE lifecycle status (real-time) over DB value (requires refetch)
-                      (tab.sessionId &&
-                        sessionStatuses[tab.sessionId]?.lifecycleStatus) ||
-                      tabSession?.lifecycle_status
+                      // Check local failedSessions first for immediate feedback,
+                      // then prefer SSE lifecycle status (real-time) over DB value
+                      tab.sessionId && failedSessions.has(tab.sessionId)
+                        ? "failed"
+                        : (tab.sessionId &&
+                            sessionStatuses[tab.sessionId]?.lifecycleStatus) ||
+                          tabSession?.lifecycle_status
                     }
                     setupStatus={tabSession?.setup_status ?? undefined}
+                    onSessionFailed={
+                      tab.sessionId
+                        ? () => markSessionFailed(tab.sessionId!)
+                        : undefined
+                    }
                     onBeforeUnmount={(scrollState) => {
                       sessionRegistry.saveTerminalState(paneId, tab.id, {
                         scrollTop: scrollState.scrollTop,
@@ -392,13 +411,21 @@ export const Pane = memo(function Pane({
                             }}
                             sessionId={tab.sessionId ?? undefined}
                             lifecycleStatus={
-                              // Prefer SSE lifecycle status (real-time) over DB value (requires refetch)
-                              (tab.sessionId &&
-                                sessionStatuses[tab.sessionId]
-                                  ?.lifecycleStatus) ||
-                              tabSession?.lifecycle_status
+                              // Check local failedSessions first for immediate feedback,
+                              // then prefer SSE lifecycle status (real-time) over DB value
+                              tab.sessionId && failedSessions.has(tab.sessionId)
+                                ? "failed"
+                                : (tab.sessionId &&
+                                    sessionStatuses[tab.sessionId]
+                                      ?.lifecycleStatus) ||
+                                  tabSession?.lifecycle_status
                             }
                             setupStatus={tabSession?.setup_status ?? undefined}
+                            onSessionFailed={
+                              tab.sessionId
+                                ? () => markSessionFailed(tab.sessionId!)
+                                : undefined
+                            }
                             onBeforeUnmount={(scrollState) => {
                               sessionRegistry.saveTerminalState(
                                 paneId,

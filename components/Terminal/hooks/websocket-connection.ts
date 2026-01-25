@@ -20,6 +20,8 @@ export interface WebSocketCallbacks {
   onKicked?: (message: string) => void;
   /** Called when session is busy (another client connected) - provides message */
   onBusy?: (message: string) => void;
+  /** Called when server reports session has failed (e.g., tmux crashed) */
+  onSessionFailed?: () => void;
 }
 
 export interface WebSocketManager {
@@ -182,6 +184,11 @@ export function createWebSocketConnection(
         term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
         // Prevent auto-reconnection on server errors (session not found, etc.)
         intentionalCloseRef.current = true;
+        // If server indicates session has failed (e.g., tmux crashed), notify parent
+        // so it can update lifecycle status immediately without waiting for SSE
+        if (msg.lifecycle_status === "failed") {
+          callbacks.onSessionFailed?.();
+        }
         callbacks.onConnectionStateChange("disconnected");
       }
     } catch {

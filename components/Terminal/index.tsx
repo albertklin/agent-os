@@ -41,6 +41,8 @@ interface TerminalProps {
   setupStatus?: string;
   onConnected?: () => void;
   onDisconnected?: () => void;
+  /** Called when server reports session has failed (e.g., tmux crashed) */
+  onSessionFailed?: () => void;
   onBeforeUnmount?: (scrollState: TerminalScrollState) => void;
   initialScrollState?: TerminalScrollState;
   /** Show image picker button (default: true) */
@@ -55,6 +57,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       setupStatus,
       onConnected,
       onDisconnected,
+      onSessionFailed,
       onBeforeUnmount,
       initialScrollState,
       showImageButton = true,
@@ -103,6 +106,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       enabled: isSessionReady,
       onConnected,
       onDisconnected,
+      onSessionFailed,
       onBeforeUnmount,
       initialScrollState,
       isMobile,
