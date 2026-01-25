@@ -388,10 +388,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           <div className="bg-background absolute inset-0 z-20 flex flex-col items-center justify-center gap-3">
             <WifiOff className="text-destructive h-8 w-8" />
             <span className="text-foreground text-sm font-medium">
-              Session setup failed
+              Session failed
             </span>
             <span className="text-muted-foreground max-w-xs text-center text-xs">
-              Please delete this session and create a new one.
+              Try rebooting the session from the menu, or delete and create a
+              new one.
             </span>
           </div>
         )}

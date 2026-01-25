@@ -752,6 +752,11 @@ export const SessionCard = memo(SessionCardComponent, (prev, next) => {
     next.session.container_health_status
   )
     return false;
+  // Required for reboot option to appear when claude_session_id is captured
+  if (prev.session.claude_session_id !== next.session.claude_session_id)
+    return false;
+  if (prev.session.lifecycle_status !== next.session.lifecycle_status)
+    return false;
   if (prev.tmuxStatus !== next.tmuxStatus) return false;
   if (prev.toolName !== next.toolName) return false;
   if (prev.toolDetail !== next.toolDetail) return false;
