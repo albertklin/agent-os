@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import type { Session, Group } from "@/lib/db";
 import type { AgentType } from "@/lib/providers";
 import { sessionKeys } from "./keys";
+import { failedSessionsActions } from "@/stores/failedSessions";
 
 interface SessionsResponse {
   sessions: Session[];
@@ -304,7 +305,8 @@ export function useRebootSession() {
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, sessionId) => {
+      failedSessionsActions.clearFailed(sessionId);
       queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
     },
   });
